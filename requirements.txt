@@ -1,0 +1,5 @@
+# 직접 쓰는 라이브러리만 == 로 고정. Python 3.13 기준.
+playwright==1.63.0
+pydantic==2.13.5
+python-dotenv==1.2.3
+pytest==9.1.1
