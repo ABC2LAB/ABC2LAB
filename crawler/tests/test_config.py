@@ -4,6 +4,7 @@ import pytest
 
 from crawler.config import (
     DEFAULT_MAX_DEPTH,
+    DEFAULT_STATE_CHANGING_KEYWORDS,
     GUEST_ROLE,
     ConfigError,
     LoginSuccessCheck,
@@ -206,6 +207,20 @@ def test_allow_state_changing_parsed(raw_value: str, expected: bool) -> None:
     env["CRAWLER_ALLOW_STATE_CHANGING"] = raw_value
 
     assert load_config(env).can_change_state is expected
+
+
+def test_state_changing_keywords_default() -> None:
+    config = load_config(make_guest_only_env())
+
+    assert config.state_changing_keywords == DEFAULT_STATE_CHANGING_KEYWORDS
+    assert "logout" in config.state_changing_keywords
+
+
+def test_state_changing_keywords_overridden_and_lowered() -> None:
+    env = make_guest_only_env()
+    env["CRAWLER_STATE_CHANGING_KEYWORDS"] = " Purge , 취소,,wipe "
+
+    assert load_config(env).state_changing_keywords == ("purge", "취소", "wipe")
 
 
 @pytest.mark.parametrize("raw_value", ["yes", "1", "on", "tru"])

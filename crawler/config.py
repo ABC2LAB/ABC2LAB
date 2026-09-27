@@ -28,6 +28,7 @@ LOGIN_SUCCESS_CHECK_KEY = "CRAWLER_LOGIN_SUCCESS_CHECK"
 LOGIN_SUCCESS_VALUE_KEY = "CRAWLER_LOGIN_SUCCESS_VALUE"
 MAX_DEPTH_KEY = "CRAWLER_MAX_DEPTH"
 ALLOW_STATE_CHANGING_KEY = "CRAWLER_ALLOW_STATE_CHANGING"
+STATE_CHANGING_KEYWORDS_KEY = "CRAWLER_STATE_CHANGING_KEYWORDS"
 LOGIN_KEYS = (
     LOGIN_PATH_KEY,
     LOGIN_USERNAME_FIELD_KEY,
@@ -37,6 +38,19 @@ LOGIN_KEYS = (
 
 GUEST_ROLE = "guest"
 DEFAULT_MAX_DEPTH = 3
+# GET 로그아웃 링크처럼 메서드만으론 못 거르는 상태 변경 동작을 이름으로 잡는다. 특정 앱 URL이 아닌 일반 단어.
+DEFAULT_STATE_CHANGING_KEYWORDS = (
+    "logout",
+    "log-out",
+    "signout",
+    "sign-out",
+    "delete",
+    "remove",
+    "destroy",
+    "로그아웃",
+    "삭제",
+    "탈퇴",
+)
 LIST_SEPARATOR = ","
 # 역할 이름이 환경변수 키 일부가 되므로 키에 쓸 수 있는 문자만 허용한다.
 ROLE_NAME_PATTERN = re.compile(r"[a-z0-9_]+")
@@ -94,6 +108,7 @@ class CrawlerConfig:
     login: LoginSettings | None
     max_depth: int
     can_change_state: bool
+    state_changing_keywords: tuple[str, ...]
 
 
 def load_config_from_file(env_path: Path = Path(".env")) -> CrawlerConfig:
@@ -124,6 +139,7 @@ def load_config(env: Mapping[str, str]) -> CrawlerConfig:
         login=_parse_login(env) if role_names else None,
         max_depth=_parse_max_depth(_get(env, MAX_DEPTH_KEY)),
         can_change_state=_parse_bool(_get(env, ALLOW_STATE_CHANGING_KEY), ALLOW_STATE_CHANGING_KEY),
+        state_changing_keywords=_parse_keywords(_get(env, STATE_CHANGING_KEYWORDS_KEY)),
     )
 
 
@@ -241,3 +257,9 @@ def _parse_bool(raw_value: str | None, key: str) -> bool:
     if lowered not in (TRUE_TEXT, FALSE_TEXT):
         raise ConfigError(f"{key}: {TRUE_TEXT} 또는 {FALSE_TEXT}여야 함")
     return lowered == TRUE_TEXT
+
+
+def _parse_keywords(raw_value: str | None) -> tuple[str, ...]:
+    if raw_value is None:
+        return DEFAULT_STATE_CHANGING_KEYWORDS
+    return tuple(keyword.lower() for keyword in _split_list(raw_value) if keyword)

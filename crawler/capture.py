@@ -83,6 +83,11 @@ class RequestCapture:
     def records(self) -> tuple[CapturedRequest, ...]:
         return tuple(self._records)
 
+    @property
+    def has_pending_requests(self) -> bool:
+        """기록 대상 요청 중 아직 끝나지 않은 게 있는지. explorer가 행동 뒤 잦아듦을 판단할 때 쓴다."""
+        return bool(self._pending_sources)
+
     def set_source(self, source_page: str | None, source_action: str | None) -> None:
         """이후 나가는 요청에 붙일 페이지와 행동. 둘 다 None이면 해제."""
         self._source_page = source_page
@@ -116,7 +121,7 @@ class RequestCapture:
             "role": self._role,
             "method": request.method.upper(),
             "resource_type": request.resource_type,
-            "url": self._mask_url(request.url),
+            "url": self._mask_url_query(request.url),
             "endpoint": normalized.template,
             "status": response.status if response is not None else None,
             "query_params": self._mask_params(parse_qsl(urlsplit(request.url).query, keep_blank_values=True)),
@@ -141,7 +146,11 @@ class RequestCapture:
             params.setdefault(key, []).append(SECRET_MASK if self._is_sensitive_key(key) else value)
         return params
 
-    def _mask_url(self, url: str) -> str:
+    def mask_url(self, url: str) -> str:
+        """기록과 같은 규칙으로 URL을 가린다. explorer의 페이지 URL이 기록의 source_page와 그대로 맞아야 한다."""
+        return self._scrub_text(self._mask_url_query(url))
+
+    def _mask_url_query(self, url: str) -> str:
         parts = urlsplit(url)
         # user:pw@host 형태의 자격 증명은 통째로 뺀다.
         netloc = parts.netloc.rpartition("@")[2]
@@ -204,14 +213,17 @@ class RequestCapture:
 
     def _scrub_known_secrets(self, value: object) -> object:
         if isinstance(value, str):
-            for secret in self._known_secrets:
-                value = value.replace(secret, SECRET_MASK)
-            return value
+            return self._scrub_text(value)
         if isinstance(value, dict):
             return {self._scrub_known_secrets(key): self._scrub_known_secrets(item) for key, item in value.items()}
         if isinstance(value, list):
             return [self._scrub_known_secrets(item) for item in value]
         return value
+
+    def _scrub_text(self, text: str) -> str:
+        for secret in self._known_secrets:
+            text = text.replace(secret, SECRET_MASK)
+        return text
 
 
 def start_capture(context: BrowserContext, config: CrawlerConfig, role: str) -> RequestCapture:

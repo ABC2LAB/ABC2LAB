@@ -34,3 +34,60 @@ class CapturedRequest(BaseModel):
     source_page: str | None
     source_action: str | None
     captured_at: datetime
+
+
+class PageLink(BaseModel):
+    """페이지에서 찾은 허용 origin 안의 링크. 따라갈지는 outcome에 남는다."""
+
+    model_config = ConfigDict(frozen=True)
+
+    # capture 기록의 source_action과 같은 값이라 (페이지 url, action_id)로 요청과 잇는다.
+    action_id: str
+    url: str
+    endpoint: str
+    text: str | None
+    is_state_changing: bool
+    # "enqueued" | "already_visited" | "beyond_max_depth" | "not_executed_state_changing"
+    outcome: str
+
+
+class PageAction(BaseModel):
+    """페이지의 폼·버튼 하나와 크롤러가 그걸 어떻게 다뤘는지."""
+
+    model_config = ConfigDict(frozen=True)
+
+    action_id: str
+    # "form" | "button"
+    kind: str
+    label: str | None
+    # 폼만. 버튼은 null
+    method: str | None
+    # 폼은 action, 버튼은 클릭 뒤 이동한 URL. 없으면 null
+    target_url: str | None
+    # 값은 CSRF 토큰 같은 게 섞여 있어 이름만 남긴다.
+    field_names: list[str]
+    is_state_changing: bool
+    # "executed" | "enqueued" | "already_visited" | "beyond_max_depth" | "not_executed_state_changing"
+    # | "blocked_state_changing_request" | "outside_origin" | "not_visible" | "not_found" | "failed"
+    outcome: str
+
+
+class DiscoveredPage(BaseModel):
+    """한 역할이 BFS로 방문한 페이지. 그 페이지에 오게 한 부모 페이지·행동도 같이 남긴다.
+
+    페이지가 열리며 나간 요청은 capture 기록에 source_action "load"로 붙는다.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    role: str
+    # 리다이렉트까지 따라간 최종 URL, capture와 같은 규칙으로 마스킹
+    url: str
+    endpoint: str
+    title: str | None
+    status: int | None
+    depth: int
+    source_page: str | None
+    source_action: str | None
+    links: list[PageLink]
+    actions: list[PageAction]
