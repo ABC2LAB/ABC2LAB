@@ -1,0 +1,276 @@
+"""로그인된 context에서 오가는 요청·응답을 CapturedRequest로 기록한다.
+
+문서 이동과 fetch/XHR만 기록하고, 허용 origin 밖 요청은 auth 가드와 별개로 여기서도 거른다.
+쿠키·Authorization·민감한 파라미터 값은 저장 전에 마스킹한다.
+
+어떤 페이지의 어떤 행동이 낸 요청인지는 explorer가 set_source로 알려 준다. 값은 요청이 나가는 순간에
+찍히므로 응답이 늦게 와도 원래 행동에 붙는다. 다만 sync API는 이벤트를 다음 Playwright 호출 때 처리하므로,
+explorer는 행동의 요청이 다 나갈 때까지 기다린 뒤 source를 바꿔야 한다.
+"""
+
+import json
+import logging
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlsplit, urlunsplit
+
+from playwright.sync_api import BrowserContext, Request, Response
+from playwright.sync_api import Error as PlaywrightError
+
+from crawler.auth import SECRET_MASK
+from crawler.config import CrawlerConfig, is_request_allowed
+from crawler.normalize import normalize_path
+from crawler.schemas import CapturedRequest
+
+logger = logging.getLogger(__name__)
+
+# 허용 목록 방식이라 이미지·CSS·폰트·미디어·스크립트 같은 정적 리소스는 자동으로 빠진다.
+RECORDED_RESOURCE_TYPES = frozenset({"document", "fetch", "xhr"})
+# 키 이름에 이 조각이 들어 있으면 값을 가린다. 소문자, -는 _로 바꿔 비교한다.
+SENSITIVE_KEY_PARTS = (
+    "password",
+    "passwd",
+    "pwd",
+    "token",
+    "secret",
+    "session",
+    "sessid",
+    "csrf",
+    "xsrf",
+    "api_key",
+    "apikey",
+    "credential",
+    "jwt",
+    "otp",
+)
+COOKIE_HEADER = "cookie"
+SET_COOKIE_HEADER = "set-cookie"
+AUTHORIZATION_HEADERS = frozenset({"authorization", "proxy-authorization"})
+CONTENT_TYPE_HEADER = "content-type"
+FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
+JSON_CONTENT_TYPE = "application/json"
+COOKIE_PAIR_SEPARATOR = ";"
+# all_headers()는 여러 Set-Cookie를 줄바꿈으로 이어서 준다.
+SET_COOKIE_LINE_SEPARATOR = "\n"
+URL_MASK_SAFE_CHARS = "*"
+
+
+@dataclass(frozen=True)
+class RequestSource:
+    source_page: str | None
+    source_action: str | None
+    requested_at: datetime
+
+
+class RequestCapture:
+    """한 역할의 context에 붙어 요청을 모은다. start_capture로 만든다."""
+
+    def __init__(self, config: CrawlerConfig, role: str) -> None:
+        if role not in config.roles:
+            raise ValueError(f"설정에 없는 역할: {role}")
+        self._config = config
+        self._role = role
+        self._source_page: str | None = None
+        self._source_action: str | None = None
+        self._pending_sources: dict[Request, RequestSource] = {}
+        self._records: list[CapturedRequest] = []
+        # 목록에 안 걸리는 이름이어도 설정의 로그인 비밀번호 필드는 가린다.
+        self._sensitive_field_names = frozenset({config.login.password_field.lower()} if config.login else ())
+        self._known_secrets = _list_secret_variants(account.password for account in config.accounts.values())
+
+    @property
+    def records(self) -> tuple[CapturedRequest, ...]:
+        return tuple(self._records)
+
+    def set_source(self, source_page: str | None, source_action: str | None) -> None:
+        """이후 나가는 요청에 붙일 페이지와 행동. 둘 다 None이면 해제."""
+        self._source_page = source_page
+        self._source_action = source_action
+
+    def attach(self, context: BrowserContext) -> None:
+        context.on("request", self._on_request)
+        context.on("requestfinished", self._on_request_done)
+        context.on("requestfailed", self._on_request_done)
+
+    def _on_request(self, request: Request) -> None:
+        if request.resource_type not in RECORDED_RESOURCE_TYPES:
+            return
+        if not is_request_allowed(self._config, request.url):
+            return
+        self._pending_sources[request] = RequestSource(self._source_page, self._source_action, datetime.now(UTC))
+
+    def _on_request_done(self, request: Request) -> None:
+        source = self._pending_sources.pop(request, None)
+        if source is None:
+            return
+        if request.failure is not None:
+            logger.debug("요청 실패로 응답 없이 기록: %s", request.failure)
+        self._records.append(self._build_record(request, source))
+
+    def _build_record(self, request: Request, source: RequestSource) -> CapturedRequest:
+        response = _read_response(request)
+        request_headers = _read_headers(request)
+        normalized = normalize_path(request.url)
+        fields = {
+            "role": self._role,
+            "method": request.method.upper(),
+            "resource_type": request.resource_type,
+            "url": self._mask_url(request.url),
+            "endpoint": normalized.template,
+            "status": response.status if response is not None else None,
+            "query_params": self._mask_params(parse_qsl(urlsplit(request.url).query, keep_blank_values=True)),
+            "body_params": self._parse_body(request, request_headers.get(CONTENT_TYPE_HEADER, "")),
+            "resource_ids": list(normalized.path_values),
+            "request_headers": self._mask_headers(request_headers),
+            "response_headers": self._mask_headers(_read_headers(response) if response is not None else {}),
+            "source_page": source.source_page,
+            "source_action": source.source_action,
+            "captured_at": source.requested_at,
+        }
+        # 키로 못 잡은 곳(경로, 엉뚱한 키의 값 등)에 계정 비밀번호가 섞여 나가도 남지 않게 마지막에 한 번 더 훑는다.
+        return CapturedRequest.model_validate(self._scrub_known_secrets(fields))
+
+    def _is_sensitive_key(self, key: str) -> bool:
+        lowered = key.lower().replace("-", "_")
+        return lowered in self._sensitive_field_names or any(part in lowered for part in SENSITIVE_KEY_PARTS)
+
+    def _mask_params(self, pairs: Iterable[tuple[str, str]]) -> dict[str, list[str]]:
+        params: dict[str, list[str]] = {}
+        for key, value in pairs:
+            params.setdefault(key, []).append(SECRET_MASK if self._is_sensitive_key(key) else value)
+        return params
+
+    def _mask_url(self, url: str) -> str:
+        parts = urlsplit(url)
+        # user:pw@host 형태의 자격 증명은 통째로 뺀다.
+        netloc = parts.netloc.rpartition("@")[2]
+        pairs = parse_qsl(parts.query, keep_blank_values=True)
+        masked_pairs = [(key, SECRET_MASK if self._is_sensitive_key(key) else value) for key, value in pairs]
+        query = urlencode(masked_pairs, safe=URL_MASK_SAFE_CHARS) if pairs else parts.query
+        return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
+
+    def _parse_body(self, request: Request, content_type: str) -> dict[str, list[str]]:
+        body = _read_body(request)
+        if not body:
+            return {}
+        media_type = content_type.split(";")[0].strip().lower()
+        if media_type == FORM_CONTENT_TYPE:
+            return self._mask_params(parse_qsl(body, keep_blank_values=True))
+        if media_type == JSON_CONTENT_TYPE:
+            return self._parse_json_body(body)
+        logger.debug("바디 파라미터를 풀지 않는 형식: %s", media_type or "(없음)")
+        return {}
+
+    def _parse_json_body(self, body: str) -> dict[str, list[str]]:
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError as error:
+            logger.warning("JSON 바디 해석 실패, 파라미터 없이 기록: %s", error.msg)
+            return {}
+        if not isinstance(parsed, dict):
+            logger.debug("최상위가 객체가 아닌 JSON 바디라 파라미터 없이 기록")
+            return {}
+        masked = self._mask_json(parsed)
+        return {key: [_to_param_text(value)] for key, value in masked.items()}
+
+    def _mask_json(self, value: object) -> object:
+        if isinstance(value, dict):
+            return {
+                key: SECRET_MASK if self._is_sensitive_key(key) else self._mask_json(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [self._mask_json(item) for item in value]
+        return value
+
+    def _mask_headers(self, headers: dict[str, str]) -> dict[str, str]:
+        masked: dict[str, str] = {}
+        for name, value in headers.items():
+            lowered = name.lower()
+            if lowered == COOKIE_HEADER:
+                masked[lowered] = _mask_cookie_header(value)
+            elif lowered == SET_COOKIE_HEADER:
+                masked[lowered] = SET_COOKIE_LINE_SEPARATOR.join(
+                    _mask_set_cookie_line(line) for line in value.split(SET_COOKIE_LINE_SEPARATOR)
+                )
+            elif lowered in AUTHORIZATION_HEADERS:
+                masked[lowered] = _mask_authorization(value)
+            elif self._is_sensitive_key(lowered):
+                masked[lowered] = SECRET_MASK
+            else:
+                masked[lowered] = value
+        return masked
+
+    def _scrub_known_secrets(self, value: object) -> object:
+        if isinstance(value, str):
+            for secret in self._known_secrets:
+                value = value.replace(secret, SECRET_MASK)
+            return value
+        if isinstance(value, dict):
+            return {self._scrub_known_secrets(key): self._scrub_known_secrets(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._scrub_known_secrets(item) for item in value]
+        return value
+
+
+def start_capture(context: BrowserContext, config: CrawlerConfig, role: str) -> RequestCapture:
+    """context에 캡처를 붙여 돌려준다. 붙인 뒤에 나가는 요청부터 기록된다."""
+    capture = RequestCapture(config, role)
+    capture.attach(context)
+    return capture
+
+
+def _list_secret_variants(secrets: Iterable[str]) -> tuple[str, ...]:
+    variants = {
+        variant for secret in secrets if secret for variant in (secret, quote(secret, safe=""), quote_plus(secret))
+    }
+    # 긴 것부터 바꿔야 인코딩된 형태가 원문 치환에 쪼개지지 않는다.
+    return tuple(sorted(variants, key=len, reverse=True))
+
+
+def _to_param_text(value: object) -> str:
+    # 중첩 객체·숫자는 JSON 문자열로 남겨 원래 모양을 잃지 않게 한다.
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+
+def _read_response(request: Request) -> Response | None:
+    if request.failure is not None:
+        return None
+    try:
+        return request.response()
+    except PlaywrightError as error:
+        logger.warning("응답을 읽지 못해 상태 없이 기록: %s", error.message.splitlines()[0] if error.message else "")
+        return None
+
+
+def _read_headers(message: Request | Response) -> dict[str, str]:
+    try:
+        return message.all_headers()
+    except PlaywrightError as error:
+        logger.warning("헤더를 읽지 못해 빈 값으로 기록: %s", error.message.splitlines()[0] if error.message else "")
+        return {}
+
+
+def _read_body(request: Request) -> str | None:
+    buffer = request.post_data_buffer
+    if buffer is None:
+        return None
+    return buffer.decode("utf-8", errors="replace")
+
+
+def _mask_cookie_header(value: str) -> str:
+    names = [pair.split("=", 1)[0].strip() for pair in value.split(COOKIE_PAIR_SEPARATOR) if pair.strip()]
+    return f"{COOKIE_PAIR_SEPARATOR} ".join(f"{name}={SECRET_MASK}" for name in names)
+
+
+def _mask_set_cookie_line(line: str) -> str:
+    # 첫 조각만 이름=값이고 나머지(Path, HttpOnly 등)는 속성이라 남긴다.
+    first, *attributes = line.split(COOKIE_PAIR_SEPARATOR)
+    name = first.split("=", 1)[0].strip()
+    return COOKIE_PAIR_SEPARATOR.join([f"{name}={SECRET_MASK}", *attributes])
+
+
+def _mask_authorization(value: str) -> str:
+    scheme, _, credentials = value.strip().partition(" ")
+    return f"{scheme} {SECRET_MASK}" if credentials else SECRET_MASK

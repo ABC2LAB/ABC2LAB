@@ -1,11 +1,10 @@
 import logging
 import socket
-import threading
 import traceback
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -13,6 +12,7 @@ from playwright.sync_api import Browser, BrowserContext, sync_playwright
 
 from crawler.auth import LoginError, open_role_context
 from crawler.config import GUEST_ROLE, CrawlerConfig, load_config
+from crawler.tests.helpers import LOCALHOST, make_counting_handler, run_server
 
 # 테스트 앱과 일부러 다른 경로·필드명을 써서 auth.py에 앱 전용 값이 없는지 확인한다.
 LOGIN_PATH = "/signin"
@@ -26,7 +26,6 @@ SESSION_COOKIE = "sid"
 SESSION_VALUE = "session-token-1"
 WELCOME_TEXT = "Welcome alice"
 INVALID_TEXT = "invalid credentials"
-LOCALHOST = "127.0.0.1"
 
 
 @dataclass
@@ -91,34 +90,6 @@ def make_site_handler(site: FakeSite) -> type[BaseHTTPRequestHandler]:
             pass
 
     return SiteHandler
-
-
-def make_counting_handler(requested_paths: list[str]) -> type[BaseHTTPRequestHandler]:
-    class CountingHandler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            requested_paths.append(self.path)
-            self.send_response(200)
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-
-        do_POST = do_GET
-
-        def log_message(self, format: str, *args: object) -> None:
-            pass
-
-    return CountingHandler
-
-
-@contextmanager
-def run_server(handler_class: type[BaseHTTPRequestHandler]) -> Iterator[str]:
-    server = ThreadingHTTPServer((LOCALHOST, 0), handler_class)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://{LOCALHOST}:{server.server_address[1]}"
-    finally:
-        server.shutdown()
-        server.server_close()
 
 
 @dataclass
