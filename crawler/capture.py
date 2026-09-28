@@ -7,6 +7,10 @@
 어떤 페이지의 어떤 행동이 낸 요청인지는 explorer가 set_source로 알려 준다. 값은 요청이 나가는 순간에
 찍히므로 응답이 늦게 와도 원래 행동에 붙는다. 다만 sync API는 이벤트를 다음 Playwright 호출 때 처리하므로,
 explorer는 행동의 요청이 다 나갈 때까지 기다린 뒤 source를 바꿔야 한다.
+
+응답 본문을 받는 중에 페이지가 새 문서로 바뀌면 Playwright가 그 요청의 끝남 이벤트를 주지 않는다.
+그런 요청은 새 문서가 뜰 때(domcontentloaded) 미완료로 기록하고 대기 목록에서 뺀다. 그래도 안 끝나는 요청
+(롱 폴링, 문서가 안 바뀌는 이동 등)은 explorer가 대기 시간 초과 때 flush_pending으로 정리한다.
 """
 
 import json
@@ -16,7 +20,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlsplit, urlunsplit
 
-from playwright.sync_api import BrowserContext, Request, Response
+from playwright.sync_api import BrowserContext, Frame, Page, Request, Response
 from playwright.sync_api import Error as PlaywrightError
 
 from crawler.auth import SECRET_MASK
@@ -80,6 +84,10 @@ class RequestCapture:
         self._source_page: str | None = None
         self._source_action: str | None = None
         self._pending_sources: dict[Request, RequestSource] = {}
+        # 대기 중 요청의 응답 헤더. 끝남 이벤트 없이 정리할 때 request.response()는 응답이 없으면 계속 기다리므로 이벤트로 받아 둔다.
+        self._responses: dict[Request, Response] = {}
+        # 메인 프레임 문서가 바뀌는 순간 대기 중이던 옛 문서의 요청. 새 문서가 뜨면 정리한다.
+        self._stale_candidates: dict[Page, list[Request]] = {}
         self._records: list[CapturedRequest] = []
         # 목록에 안 걸리는 이름이어도 설정의 로그인 비밀번호 필드는 가린다.
         self._sensitive_field_names = frozenset({config.login.password_field.lower()} if config.login else ())
@@ -101,8 +109,41 @@ class RequestCapture:
 
     def attach(self, context: BrowserContext) -> None:
         context.on("request", self._on_request)
+        context.on("response", self._on_response)
         context.on("requestfinished", self._on_request_done)
         context.on("requestfailed", self._on_request_done)
+        context.on("page", self._watch_page)
+        for page in context.pages:
+            self._watch_page(page)
+
+    def flush_pending(self) -> list[str]:
+        """아직 안 끝난 요청을 전부 미완료로 기록하고 대기 목록에서 뺀다. 정리한 요청의 endpoint를 돌려준다."""
+        requests = list(self._pending_sources)
+        for request in requests:
+            self._record_unfinished(request)
+        return [normalize_path(request.url).template for request in requests]
+
+    def _watch_page(self, page: Page) -> None:
+        page.on("framenavigated", lambda frame: self._on_frame_navigated(page, frame))
+        page.on("domcontentloaded", lambda _: self._on_document_loaded(page))
+
+    def _on_frame_navigated(self, page: Page, frame: Frame) -> None:
+        # pushState·해시 이동에도 불리므로 여기서 바로 끊지 않고 후보만 적어 둔다. 새 문서면 domcontentloaded가 이어진다.
+        if frame != page.main_frame:
+            return
+        self._stale_candidates[page] = select_stale_requests(self._pending_sources, frame)
+
+    def _on_document_loaded(self, page: Page) -> None:
+        candidates = self._stale_candidates.pop(page, [])
+        stale = [request for request in candidates if request in self._pending_sources]
+        for request in stale:
+            self._record_unfinished(request)
+        if stale:
+            logger.debug("새 문서로 바뀌며 끝나지 않은 요청 %d개를 미완료로 기록", len(stale))
+
+    def _on_response(self, response: Response) -> None:
+        if response.request in self._pending_sources:
+            self._responses[response.request] = response
 
     def _on_request(self, request: Request) -> None:
         if request.resource_type not in RECORDED_RESOURCE_TYPES:
@@ -113,14 +154,22 @@ class RequestCapture:
 
     def _on_request_done(self, request: Request) -> None:
         source = self._pending_sources.pop(request, None)
+        self._responses.pop(request, None)
         if source is None:
             return
         if request.failure is not None:
             logger.debug("요청 실패로 응답 없이 기록: %s", request.failure)
-        self._records.append(self._build_record(request, source))
+        self._records.append(self._build_record(request, source, _read_response(request), is_body_readable=True))
 
-    def _build_record(self, request: Request, source: RequestSource) -> CapturedRequest:
-        response = _read_response(request)
+    def _record_unfinished(self, request: Request) -> None:
+        """본문을 다 받지 못한 요청. 응답 헤더가 왔으면 그 status를 남기고 본문 모양은 null."""
+        source = self._pending_sources.pop(request)
+        response = self._responses.pop(request, None)
+        self._records.append(self._build_record(request, source, response, is_body_readable=False))
+
+    def _build_record(
+        self, request: Request, source: RequestSource, response: Response | None, is_body_readable: bool
+    ) -> CapturedRequest:
         request_headers = _read_headers(request)
         response_headers = _read_headers(response) if response is not None else {}
         normalized = normalize_path(request.url)
@@ -136,7 +185,7 @@ class RequestCapture:
             "resource_ids": list(normalized.path_values),
             "request_headers": self._mask_headers(request_headers),
             "response_headers": self._mask_headers(response_headers),
-            "response_shape": _read_response_shape(response, response_headers),
+            "response_shape": _read_response_shape(response, response_headers) if is_body_readable else None,
             "source_page": source.source_page,
             "source_action": source.source_action,
             "captured_at": source.requested_at,
@@ -262,6 +311,26 @@ def _read_response(request: Request) -> Response | None:
         return request.response()
     except PlaywrightError as error:
         logger.warning("응답을 읽지 못해 상태 없이 기록: %s", error.message.splitlines()[0] if error.message else "")
+        return None
+
+
+def select_stale_requests(pending_requests: Iterable[Request], frame: Frame) -> list[Request]:
+    """frame의 문서가 바뀔 때 옛 문서 소속으로 볼 대기 요청. 새 문서가 뜨면 이들을 미완료로 정리한다.
+
+    새 문서 자신(navigation 요청)은 보통 domcontentloaded 전에 끝나지만 순서가 보장되지 않아 뺀다.
+    """
+    return [
+        request
+        for request in pending_requests
+        if not request.is_navigation_request() and _frame_of(request) == frame
+    ]
+
+
+def _frame_of(request: Request) -> Frame | None:
+    try:
+        return request.frame
+    except PlaywrightError:
+        # 서비스워커 요청은 프레임이 없다(auth가 서비스워커를 막지만 방어).
         return None
 
 

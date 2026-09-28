@@ -1,3 +1,4 @@
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -10,7 +11,7 @@ from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 from pydantic import ValidationError
 
 from crawler.auth import open_role_context
-from crawler.capture import RequestCapture, start_capture
+from crawler.capture import RequestCapture, select_stale_requests, start_capture
 from crawler.config import GUEST_ROLE, CrawlerConfig, load_config
 from crawler.schemas import CapturedRequest
 from crawler.tests.helpers import make_counting_handler, run_server
@@ -48,6 +49,31 @@ PROBLEM_JSON_PATH = "/api/problem"
 PLAIN_TEXT_PATH = "/api/plain"
 BROKEN_JSON_PATH = "/api/broken"
 # 포트(최대 5자리)·captured_at 소수 초(6자리)와 우연히 겹치지 않게 숫자 값은 9자리 이상으로 둔다.
+SLOW_JSON_PATH = "/api/slow-json"
+SLOW_POST_PATH = "/api/slow-body"
+HANG_PATH = "/api/hang"
+SLOW_JSON_BODY = '{"id": 5, "name": "x"}'
+SLOW_JSON_SHAPE = {"id": "int", "name": "str"}
+# 헤더를 보낸 뒤 본문 뒷부분을 이만큼 늦게 보낸다. 그 사이에 페이지가 이동하게 만든다.
+SLOW_BODY_DELAY_S = 0.8
+# 끝나지 않는 응답을 붙잡아 둘 최대 시간. 테스트가 끝나면 그 전에 풀어 준다.
+HANG_MAX_S = 30
+# 응답 헤더를 받자마자 본문을 읽지 않고 다른 문서로 이동한다.
+NAV_AWAY_HTML = f"""<html><body><button id="go">go</button><script>
+document.getElementById("go").addEventListener("click", () => {{
+  fetch("{SLOW_POST_PATH}", {{method: "POST"}}).then(() => {{ location.href = "/inline"; }});
+}});
+</script></body></html>"""
+# 새 문서가 뜨면서 바로 보내는 느린 fetch. 옛 문서 요청을 정리할 때 같이 끊기면 안 된다.
+INLINE_FETCH_HTML = f'<html><body><script>fetch("{SLOW_JSON_PATH}");</script></body></html>'
+# 같은 문서 안 이동(pushState)은 진행 중 fetch를 끊지 않는다. fetch 본문이 오는 도중에 이동하도록 조금 늦춘다.
+PUSH_STATE_DELAY_MS = 300
+SPA_HTML = f"""<html><body><button id="spa">spa</button><script>
+document.getElementById("spa").addEventListener("click", () => {{
+  fetch("{SLOW_JSON_PATH}");
+  setTimeout(() => history.pushState({{}}, "", "/spa-next"), {PUSH_STATE_DELAY_MS});
+}});
+</script></body></html>"""
 NESTED_JSON_VALUES = ("carol@example.com", "carol-private-note", "3141.59265", "918273645")
 NESTED_JSON_BODY = (
     '{"user": {"id": 918273645, "email": "carol@example.com", "roles": ["admin"]},'
@@ -88,6 +114,8 @@ JSON_FETCH_SCRIPT = f"""() => fetch("/api/profile", {{
 @dataclass
 class FakeSite:
     received_paths: list[str] = field(default_factory=list)
+    # 끝나지 않는 응답을 테스트 끝에 풀어 준다.
+    release: threading.Event = field(default_factory=threading.Event)
 
 
 def make_site_handler(site: FakeSite) -> type[BaseHTTPRequestHandler]:
@@ -103,6 +131,9 @@ def make_site_handler(site: FakeSite) -> type[BaseHTTPRequestHandler]:
         PLAIN_TEXT_PATH: (200, "text/plain", '{"id": 1}'),
         BROKEN_JSON_PATH: (200, "application/json", '{"id": '),
         "/forbidden": (403, "text/html; charset=utf-8", "<html><body>no</body></html>"),
+        "/nav-away": (200, "text/html; charset=utf-8", NAV_AWAY_HTML),
+        "/inline": (200, "text/html; charset=utf-8", INLINE_FETCH_HTML),
+        "/spa": (200, "text/html; charset=utf-8", SPA_HTML),
     }
 
     class SiteHandler(BaseHTTPRequestHandler):
@@ -111,6 +142,11 @@ def make_site_handler(site: FakeSite) -> type[BaseHTTPRequestHandler]:
             site.received_paths.append(path)
             if path == "/moved":
                 self._redirect("/page")
+            elif path == SLOW_JSON_PATH:
+                self._send_slowly(SLOW_JSON_BODY)
+            elif path == HANG_PATH:
+                # 헤더조차 보내지 않고 붙잡아 둔다.
+                site.release.wait(HANG_MAX_S)
             elif path in get_routes:
                 self._send(*get_routes[path])
             else:
@@ -122,6 +158,8 @@ def make_site_handler(site: FakeSite) -> type[BaseHTTPRequestHandler]:
             self.rfile.read(int(self.headers.get("Content-Length", "0")))
             if path == "/submit":
                 self._redirect("/page", cookie=f"{SESSION_COOKIE}={SET_COOKIE_VALUE}; Path=/; HttpOnly")
+            elif path == SLOW_POST_PATH:
+                self._send_slowly(SLOW_JSON_BODY)
             else:
                 self._send(200, "application/json", "{}")
 
@@ -132,6 +170,22 @@ def make_site_handler(site: FakeSite) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
             self.wfile.write(encoded)
+
+        def _send_slowly(self, body: str) -> None:
+            encoded = body.encode()
+            half = len(encoded) // 2
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded[:half])
+            self.wfile.flush()
+            time.sleep(SLOW_BODY_DELAY_S)
+            try:
+                self.wfile.write(encoded[half:])
+            except OSError:
+                # 브라우저가 이동하며 연결을 끊었으면 나머지를 보낼 곳이 없다.
+                pass
 
         def _redirect(self, location: str, cookie: str | None = None) -> None:
             self.send_response(303)
@@ -163,7 +217,10 @@ def site() -> FakeSite:
 @pytest.fixture
 def site_url(site: FakeSite) -> Iterator[str]:
     with run_server(make_site_handler(site)) as url:
-        yield url
+        try:
+            yield url
+        finally:
+            site.release.set()
 
 
 @pytest.fixture
@@ -463,3 +520,75 @@ def test_shape_with_non_type_value_rejected(session: CaptureSession, site_url: s
 
     with pytest.raises(ValidationError):
         CapturedRequest.model_validate(broken)
+
+
+def test_request_cut_by_navigation_still_recorded(session: CaptureSession, site_url: str) -> None:
+    session.page.goto(f"{site_url}/nav-away")
+    session.capture.set_source("/nav-away", "button:0")
+    session.page.click("#go")
+    # 새 문서의 느린 fetch는 정상으로 끝까지 받아야 한다.
+    inline = wait_for_record(session, path_is(SLOW_JSON_PATH))
+    cut = wait_for_record(session, path_is(SLOW_POST_PATH))
+
+    assert cut.status == 200
+    assert cut.response_shape is None
+    assert (cut.source_page, cut.source_action) == ("/nav-away", "button:0")
+    assert inline.response_shape == SLOW_JSON_SHAPE
+    assert not session.capture.has_pending_requests
+
+
+def test_same_document_navigation_keeps_request(session: CaptureSession, site_url: str) -> None:
+    session.page.goto(f"{site_url}/spa")
+    session.page.click("#spa")
+    record = wait_for_record(session, path_is(SLOW_JSON_PATH))
+
+    assert record.response_shape == SLOW_JSON_SHAPE
+
+
+def test_flush_pending_records_unfinished_request(session: CaptureSession, site_url: str) -> None:
+    session.page.goto(f"{site_url}/page")
+    session.page.evaluate(f'() => {{ fetch("{HANG_PATH}"); }}')
+    deadline = time.monotonic() + WAIT_TIMEOUT_S
+    while not session.capture.has_pending_requests and time.monotonic() < deadline:
+        session.page.wait_for_timeout(POLL_INTERVAL_MS)
+
+    endpoints = session.capture.flush_pending()
+
+    record = wait_for_record(session, path_is(HANG_PATH))
+    assert endpoints == [HANG_PATH]
+    assert record.status is None
+    assert record.response_shape is None
+    assert not session.capture.has_pending_requests
+
+
+def test_slow_json_document_keeps_shape(session: CaptureSession, site_url: str) -> None:
+    # 문서 자신(navigation 요청)은 새 문서가 뜰 때 옛 요청으로 정리되면 안 된다.
+    session.page.goto(f"{site_url}{SLOW_JSON_PATH}")
+    record = wait_for_record(session, path_is(SLOW_JSON_PATH))
+
+    assert record.resource_type == "document"
+    assert record.response_shape == SLOW_JSON_SHAPE
+
+
+@dataclass
+class FakeRequest:
+    """후보 고르기가 쓰는 두 가지만 흉내 낸다."""
+
+    name: str
+    frame: object
+    is_navigation: bool
+
+    def is_navigation_request(self) -> bool:
+        return self.is_navigation
+
+
+def test_stale_candidates_exclude_navigation_and_other_frames() -> None:
+    main_frame = object()
+    child_frame = object()
+    old_fetch = FakeRequest("old fetch", main_frame, is_navigation=False)
+    new_document = FakeRequest("new document", main_frame, is_navigation=True)
+    iframe_fetch = FakeRequest("iframe fetch", child_frame, is_navigation=False)
+
+    candidates = select_stale_requests([old_fetch, new_document, iframe_fetch], main_frame)  # type: ignore[arg-type]
+
+    assert candidates == [old_fetch]

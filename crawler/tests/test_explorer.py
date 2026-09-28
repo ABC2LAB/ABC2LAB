@@ -4,12 +4,16 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlsplit
 
+import logging
+import threading
+
 import pytest
 from playwright.sync_api import Browser, sync_playwright
 
 from crawler.auth import open_role_context
 from crawler.capture import start_capture
 from crawler.config import GUEST_ROLE, CrawlerConfig, load_config
+from crawler import explorer
 from crawler.explorer import crawl
 from crawler.schemas import CapturedRequest, DiscoveredPage, FormField, PageAction, PageLink
 from crawler.tests.helpers import make_counting_handler, run_server
@@ -64,10 +68,10 @@ document.getElementById("cart").addEventListener("submit", event => {{
     .catch(() => {{ alert("failed"); afterAlert(); }});
 }});
 // POST를 보낸 뒤 결과와 상관없이 원래 GET 이동을 한다. 막힌 요청이 있으면 이동보다 그쪽을 outcome으로 남겨야 한다.
-// 본문을 다 읽고 이동한다. 본문을 받는 중에 이동하면 끝남 이벤트가 오지 않아 capture가 그 요청을 영영 기다린다(STATUS 열린 결정).
+// 응답 본문을 읽지 않고 바로 이동한다. 본문을 받는 중에 문서가 바뀌면 끝남 이벤트가 오지 않는데, 그래도 기록되고 기다리지 않아야 한다.
 document.getElementById("track").addEventListener("submit", event => {{
   event.preventDefault();
-  fetch("{TRACK_API_PATH}", {{method: "POST"}}).then(response => response.text()).finally(() => event.target.submit());
+  fetch("{TRACK_API_PATH}", {{method: "POST"}}).finally(() => event.target.submit());
 }});
 document.getElementById("lookup").addEventListener("submit", event => {{
   event.preventDefault();
@@ -75,6 +79,7 @@ document.getElementById("lookup").addEventListener("submit", event => {{
 }});
 </script>
 </body></html>"""
+TIMEOUT_WARNING_TEXT = "미완료로 기록"
 STATE_CHANGING_REQUESTS = [
     ("GET", "/logout"),
     ("POST", "/orders"),
@@ -302,7 +307,8 @@ def test_form_field_values_not_stored(default_run: CrawlRun) -> None:
             assert value not in text
 
 
-def test_state_changing_actions_executed_when_allowed(browser: Browser) -> None:
+def test_state_changing_actions_executed_when_allowed(browser: Browser, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.WARNING, logger=explorer.__name__)
     with serve_and_crawl(browser, CRAWLER_ALLOW_STATE_CHANGING="true") as crawl_run:
         root = page_at(crawl_run, "/")
         a_page = page_at(crawl_run, "/a")
@@ -316,6 +322,13 @@ def test_state_changing_actions_executed_when_allowed(browser: Browser) -> None:
         assert cart.outcome == "executed"
         assert record_for(crawl_run, "POST", CART_API_PATH).status == 200
         assert_dialogs_did_not_stop_crawl(crawl_run, a_page, cart)
+        # 본문을 받는 중에 이동한 요청도 기록되고, 이후 행동이 그 요청을 기다리지 않는다.
+        assert record_for(crawl_run, "POST", TRACK_API_PATH).status == 200
+        assert timeout_warnings(caplog) == []
+
+
+def timeout_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [record.getMessage() for record in caplog.records if TIMEOUT_WARNING_TEXT in record.getMessage()]
 
 
 def assert_dialogs_did_not_stop_crawl(crawl_run: CrawlRun, a_page: DiscoveredPage, cart: PageAction) -> None:
@@ -427,3 +440,81 @@ def test_pages_round_trip_as_json(default_run: CrawlRun) -> None:
     for page in default_run.pages:
         assert DiscoveredPage.model_validate_json(page.model_dump_json()) == page
     assert '"source_page":null' in page_at(default_run, "/").model_dump_json()
+
+
+# ---- 끝나지 않는 요청 안전망 ----
+
+HANG_API_PATH = "/api/hang"
+QUICK_API_PATHS = ("/api/quick-1", "/api/quick-2")
+# 시간 초과를 빨리 보려고 이 테스트에서만 줄인다.
+SHORT_QUIET_TIMEOUT_S = 1.0
+HANG_MAX_S = 30
+HANG_ROOT_HTML = f"""<html><head><title>Hang</title></head><body>
+<a href="/next">next</a>
+<button id="hang">hang</button>
+<button id="quick1">quick one</button>
+<button id="quick2">quick two</button>
+<script>
+document.getElementById("hang").addEventListener("click", () => fetch("{HANG_API_PATH}"));
+document.getElementById("quick1").addEventListener("click", () => fetch("{QUICK_API_PATHS[0]}"));
+document.getElementById("quick2").addEventListener("click", () => fetch("{QUICK_API_PATHS[1]}"));
+</script>
+</body></html>"""
+
+
+def make_hang_handler(release: threading.Event) -> type[BaseHTTPRequestHandler]:
+    class HangHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            path = urlsplit(self.path).path
+            if path == HANG_API_PATH:
+                # 롱 폴링처럼 헤더와 본문 일부만 보내고 끝내지 않는다.
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "100")
+                self.end_headers()
+                self.wfile.write(b'{"partial":')
+                self.wfile.flush()
+                release.wait(HANG_MAX_S)
+                return
+            body = HANG_ROOT_HTML if path == "/" else make_simple_html("Next")
+            content_type = "application/json" if path in QUICK_API_PATHS else "text/html; charset=utf-8"
+            encoded = ("{}" if path in QUICK_API_PATHS else body).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    return HangHandler
+
+
+def test_unfinished_request_waited_once_then_recorded(
+    browser: Browser, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(explorer, "QUIET_TIMEOUT_S", SHORT_QUIET_TIMEOUT_S)
+    caplog.set_level(logging.WARNING, logger=explorer.__name__)
+    release = threading.Event()
+    with run_server(make_hang_handler(release)) as site_url:
+        try:
+            pages, records = run_crawl(browser, load_config({"CRAWLER_TARGET_URL": f"{site_url}/"}))
+        finally:
+            release.set()
+    root = next(page for page in pages if urlsplit(page.url).path == "/")
+    hang_button = action_labeled(root, "hang")
+    hang = next(record for record in records if urlsplit(record.url).path == HANG_API_PATH)
+
+    # 한 번만 기다리고, 경고에는 건수와 endpoint만 남는다.
+    assert len(timeout_warnings(caplog)) == 1
+    assert "1개" in timeout_warnings(caplog)[0] and HANG_API_PATH in timeout_warnings(caplog)[0]
+    assert hang.status == 200
+    assert hang.response_shape is None
+    assert (hang.source_page, hang.source_action) == (root.url, hang_button.action_id)
+    # 뒤의 행동과 페이지도 제 행동에 붙어 정상 기록된다.
+    for label, path in zip(("quick one", "quick two"), QUICK_API_PATHS, strict=True):
+        quick = next(record for record in records if urlsplit(record.url).path == path)
+        assert quick.source_action == action_labeled(root, label).action_id
+        assert quick.response_shape == {}
+    assert "/next" in [urlsplit(page.url).path for page in pages]

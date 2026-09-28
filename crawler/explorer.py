@@ -392,7 +392,14 @@ class _Explorer:
             elif now - quiet_since >= QUIET_WINDOW_S:
                 return
             if now >= deadline:
-                logger.warning("요청이 %.1fs 안에 잦아들지 않아 다음으로 넘어감", QUIET_TIMEOUT_S)
+                # 롱 폴링이나 새 문서 신호가 없는 이동처럼 끝나지 않는 요청이 이후 행동마다 대기를 늘리지 않게 여기서 정리한다.
+                endpoints = self.capture.flush_pending()
+                logger.warning(
+                    "요청 %d개가 %.1fs 안에 끝나지 않아 미완료로 기록: %s",
+                    len(endpoints),
+                    QUIET_TIMEOUT_S,
+                    ", ".join(endpoints),
+                )
                 return
 
     def _has_state_changing_name(self, *names: str | None) -> bool:
