@@ -47,10 +47,11 @@ NESTED_JSON_PATH = "/api/account"
 PROBLEM_JSON_PATH = "/api/problem"
 PLAIN_TEXT_PATH = "/api/plain"
 BROKEN_JSON_PATH = "/api/broken"
-NESTED_JSON_VALUES = ("carol@example.com", "carol-private-note", "12.5", "77")
+# 포트(최대 5자리)·captured_at 소수 초(6자리)와 우연히 겹치지 않게 숫자 값은 9자리 이상으로 둔다.
+NESTED_JSON_VALUES = ("carol@example.com", "carol-private-note", "3141.59265", "918273645")
 NESTED_JSON_BODY = (
-    '{"user": {"id": 77, "email": "carol@example.com", "roles": ["admin"]},'
-    ' "orders": [{"id": 1, "total": 12.5}, {"id": 2, "note": "carol-private-note"}]}'
+    '{"user": {"id": 918273645, "email": "carol@example.com", "roles": ["admin"]},'
+    ' "orders": [{"id": 1, "total": 3141.59265}, {"id": 2, "note": "carol-private-note"}]}'
 )
 NESTED_JSON_SHAPE = {
     "user": {"id": "int", "email": "str", "roles": ["str"]},
