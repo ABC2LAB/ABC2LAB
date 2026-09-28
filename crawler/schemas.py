@@ -1,12 +1,16 @@
 """크롤러 출력 모델. common/schemas.py가 팀에서 확정되기 전까지 임시로 여기 둔다.
 
-draft와 다른 점(role·method를 str로, resource_type·헤더 추가, 파라미터 값을 list로)은 확정 회의에서 맞추고
-확정되면 common/으로 옮긴다.
+draft와 다른 점(role·method를 str로, resource_type·헤더·response_shape 추가, 파라미터 값을 list로)은
+확정 회의에서 맞추고 확정되면 common/으로 옮긴다.
 """
 
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
+
+# JSON 응답의 키 구조+타입. 잎은 "int", "int|null" 같은 타입 이름이고 값은 담지 않는다.
+# type 문으로 선언해야 pydantic이 중첩된 곳까지 재귀로 검증한다.
+type ShapeNode = str | dict[str, ShapeNode] | list[ShapeNode]
 
 
 class CapturedRequest(BaseModel):
@@ -31,6 +35,8 @@ class CapturedRequest(BaseModel):
     resource_ids: list[str]
     request_headers: dict[str, str]
     response_headers: dict[str, str]
+    # content-type이 JSON인 응답만. HTML·JSON 아닌 응답·읽기 실패는 null
+    response_shape: ShapeNode | None
     source_page: str | None
     source_action: str | None
     captured_at: datetime

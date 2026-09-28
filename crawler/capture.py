@@ -2,6 +2,7 @@
 
 문서 이동과 fetch/XHR만 기록하고, 허용 origin 밖 요청은 auth 가드와 별개로 여기서도 거른다.
 쿠키·Authorization·민감한 파라미터 값은 저장 전에 마스킹한다.
+응답 본문은 content-type이 JSON일 때만 읽고 값 없이 키 구조+타입(response_shape)만 남긴다.
 
 어떤 페이지의 어떤 행동이 낸 요청인지는 explorer가 set_source로 알려 준다. 값은 요청이 나가는 순간에
 찍히므로 응답이 늦게 와도 원래 행동에 붙는다. 다만 sync API는 이벤트를 다음 Playwright 호출 때 처리하므로,
@@ -21,7 +22,8 @@ from playwright.sync_api import Error as PlaywrightError
 from crawler.auth import SECRET_MASK
 from crawler.config import CrawlerConfig, is_request_allowed
 from crawler.normalize import normalize_path
-from crawler.schemas import CapturedRequest
+from crawler.response_shape import describe_json_shape
+from crawler.schemas import CapturedRequest, ShapeNode
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,10 @@ COOKIE_HEADER = "cookie"
 SET_COOKIE_HEADER = "set-cookie"
 AUTHORIZATION_HEADERS = frozenset({"authorization", "proxy-authorization"})
 CONTENT_TYPE_HEADER = "content-type"
+CONTENT_LENGTH_HEADER = "content-length"
+JSON_MEDIA_TYPE_SUFFIX = "+json"
+# 이보다 큰 응답 본문은 모양을 만들지 않는다. 한 요청이 크롤링 전체 메모리를 먹지 않게 하려는 상한.
+MAX_RESPONSE_BODY_BYTES = 1024 * 1024
 FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
 JSON_CONTENT_TYPE = "application/json"
 COOKIE_PAIR_SEPARATOR = ";"
@@ -116,6 +122,7 @@ class RequestCapture:
     def _build_record(self, request: Request, source: RequestSource) -> CapturedRequest:
         response = _read_response(request)
         request_headers = _read_headers(request)
+        response_headers = _read_headers(response) if response is not None else {}
         normalized = normalize_path(request.url)
         fields = {
             "role": self._role,
@@ -128,7 +135,8 @@ class RequestCapture:
             "body_params": self._parse_body(request, request_headers.get(CONTENT_TYPE_HEADER, "")),
             "resource_ids": list(normalized.path_values),
             "request_headers": self._mask_headers(request_headers),
-            "response_headers": self._mask_headers(_read_headers(response) if response is not None else {}),
+            "response_headers": self._mask_headers(response_headers),
+            "response_shape": _read_response_shape(response, response_headers),
             "source_page": source.source_page,
             "source_action": source.source_action,
             "captured_at": source.requested_at,
@@ -163,7 +171,7 @@ class RequestCapture:
         body = _read_body(request)
         if not body:
             return {}
-        media_type = content_type.split(";")[0].strip().lower()
+        media_type = _media_type(content_type)
         if media_type == FORM_CONTENT_TYPE:
             return self._mask_params(parse_qsl(body, keep_blank_values=True))
         if media_type == JSON_CONTENT_TYPE:
@@ -262,6 +270,42 @@ def _read_headers(message: Request | Response) -> dict[str, str]:
     except PlaywrightError as error:
         logger.warning("헤더를 읽지 못해 빈 값으로 기록: %s", error.message.splitlines()[0] if error.message else "")
         return {}
+
+
+def _media_type(content_type: str) -> str:
+    return content_type.split(";")[0].strip().lower()
+
+
+def _is_json_media_type(media_type: str) -> bool:
+    return media_type == JSON_CONTENT_TYPE or media_type.endswith(JSON_MEDIA_TYPE_SUFFIX)
+
+
+def _read_response_shape(response: Response | None, headers: dict[str, str]) -> ShapeNode | None:
+    """JSON 응답의 키 구조+타입. 본문 원문은 이 함수 밖으로 나가지 않는다."""
+    if response is None:
+        return None
+    # resource_type이 아니라 content-type으로 본다. 링크로 바로 연 JSON API도 문서 요청이라서다.
+    if not _is_json_media_type(_media_type(headers.get(CONTENT_TYPE_HEADER, ""))):
+        return None
+    declared_length = headers.get(CONTENT_LENGTH_HEADER, "")
+    if declared_length.isdigit() and int(declared_length) > MAX_RESPONSE_BODY_BYTES:
+        logger.info("응답 본문이 커서 모양 없이 기록: %s바이트", declared_length)
+        return None
+    try:
+        body = response.body()
+    except PlaywrightError as error:
+        logger.warning("응답 본문을 읽지 못해 모양 없이 기록: %s", error.message.splitlines()[0] if error.message else "")
+        return None
+    if len(body) > MAX_RESPONSE_BODY_BYTES:
+        logger.info("응답 본문이 커서 모양 없이 기록: %d바이트", len(body))
+        return None
+    try:
+        parsed = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        # 예외 메시지에 본문 조각이 섞이지 않게 종류만 남긴다.
+        logger.debug("JSON 응답 해석 실패, 모양 없이 기록: %s", type(error).__name__)
+        return None
+    return describe_json_shape(parsed)
 
 
 def _read_body(request: Request) -> str | None:

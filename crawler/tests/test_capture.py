@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 import pytest
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
+from pydantic import ValidationError
 
 from crawler.auth import open_role_context
 from crawler.capture import RequestCapture, start_capture
@@ -42,6 +43,19 @@ SESSION_COOKIE = "sid"
 ORDERS_PATH = "/api/orders/42"
 ORDERS_QUERY = f"order_id=7&token={TOKEN_VALUE}"
 STATIC_PATHS = ("/style.css", "/logo.png", "/font.woff2")
+NESTED_JSON_PATH = "/api/account"
+PROBLEM_JSON_PATH = "/api/problem"
+PLAIN_TEXT_PATH = "/api/plain"
+BROKEN_JSON_PATH = "/api/broken"
+NESTED_JSON_VALUES = ("carol@example.com", "carol-private-note", "12.5", "77")
+NESTED_JSON_BODY = (
+    '{"user": {"id": 77, "email": "carol@example.com", "roles": ["admin"]},'
+    ' "orders": [{"id": 1, "total": 12.5}, {"id": 2, "note": "carol-private-note"}]}'
+)
+NESTED_JSON_SHAPE = {
+    "user": {"id": "int", "email": "str", "roles": ["str"]},
+    "orders": [{"id": "int", "total": "float", "note": "str"}],
+}
 WAIT_TIMEOUT_S = 5
 POLL_INTERVAL_MS = 50
 SETTLE_MS = 200
@@ -83,6 +97,10 @@ def make_site_handler(site: FakeSite) -> type[BaseHTTPRequestHandler]:
         "/logo.png": (200, "image/png", ""),
         "/font.woff2": (200, "font/woff2", ""),
         ORDERS_PATH: (200, "application/json", '{"id": 42}'),
+        NESTED_JSON_PATH: (200, "application/json; charset=utf-8", NESTED_JSON_BODY),
+        PROBLEM_JSON_PATH: (400, "application/problem+json", '{"title": "bad"}'),
+        PLAIN_TEXT_PATH: (200, "text/plain", '{"id": 1}'),
+        BROKEN_JSON_PATH: (200, "application/json", '{"id": '),
         "/forbidden": (403, "text/html; charset=utf-8", "<html><body>no</body></html>"),
     }
 
@@ -200,6 +218,12 @@ def wait_for_record(session: CaptureSession, predicate: Callable[[CapturedReques
 
 def path_is(path: str) -> Callable[[CapturedRequest], bool]:
     return lambda record: urlsplit(record.url).path == path
+
+
+def fetch_path(session: CaptureSession, site_url: str, path: str) -> CapturedRequest:
+    session.page.goto(f"{site_url}/page")
+    session.page.evaluate(f'() => fetch("{path}").then(response => response.status)')
+    return wait_for_record(session, lambda record: path_is(path)(record) and record.resource_type == "fetch")
 
 
 def load_orders(session: CaptureSession, site_url: str) -> CapturedRequest:
@@ -368,3 +392,73 @@ def test_records_hide_secrets_and_round_trip_as_json(session: CaptureSession, si
     assert [CapturedRequest.model_validate_json(text) for text in dumped] == list(session.capture.records)
     first = session.capture.records[0].model_dump(mode="json")
     assert "source_page" in first and first["source_page"] is None
+
+
+def test_fetch_json_response_recorded_as_shape(session: CaptureSession, site_url: str) -> None:
+    orders = load_orders(session, site_url)
+    nested = fetch_path(session, site_url, NESTED_JSON_PATH)
+
+    assert orders.response_shape == {"id": "int"}
+    assert nested.response_shape == NESTED_JSON_SHAPE
+
+
+def test_json_suffix_content_type_recorded(session: CaptureSession, site_url: str) -> None:
+    record = fetch_path(session, site_url, PROBLEM_JSON_PATH)
+
+    assert record.response_shape == {"title": "str"}
+
+
+def test_document_json_recorded_but_html_is_null(session: CaptureSession, site_url: str) -> None:
+    # 링크로 바로 연 JSON API도 문서 요청이다. 판단은 resource_type이 아니라 content-type으로 한다.
+    session.page.goto(f"{site_url}{NESTED_JSON_PATH}")
+    json_document = wait_for_record(session, path_is(NESTED_JSON_PATH))
+    session.page.goto(f"{site_url}/page")
+    html_document = wait_for_record(session, path_is("/page"))
+
+    assert json_document.resource_type == "document"
+    assert json_document.response_shape == NESTED_JSON_SHAPE
+    assert html_document.response_shape is None
+
+
+@pytest.mark.parametrize("path", [PLAIN_TEXT_PATH, BROKEN_JSON_PATH])
+def test_non_json_or_broken_json_is_null(session: CaptureSession, site_url: str, path: str) -> None:
+    record = fetch_path(session, site_url, path)
+
+    assert record.status == 200
+    assert record.response_shape is None
+
+
+def test_redirect_response_is_null(session: CaptureSession, site_url: str) -> None:
+    session.page.goto(f"{site_url}/moved")
+    moved = wait_for_record(session, path_is("/moved"))
+
+    assert moved.response_shape is None
+
+
+def test_response_values_not_stored(session: CaptureSession, site_url: str) -> None:
+    fetch_path(session, site_url, NESTED_JSON_PATH)
+    session.page.goto(f"{site_url}{NESTED_JSON_PATH}")
+    wait_for_record(session, lambda record: path_is(NESTED_JSON_PATH)(record) and record.resource_type == "document")
+
+    for record in session.capture.records:
+        text = record.model_dump_json()
+        for value in NESTED_JSON_VALUES:
+            assert value not in text
+
+
+def test_nested_shape_round_trips_as_json(session: CaptureSession, site_url: str) -> None:
+    record = fetch_path(session, site_url, NESTED_JSON_PATH)
+
+    reloaded = CapturedRequest.model_validate_json(record.model_dump_json())
+
+    assert reloaded == record
+    assert reloaded.response_shape == NESTED_JSON_SHAPE
+
+
+def test_shape_with_non_type_value_rejected(session: CaptureSession, site_url: str) -> None:
+    record = load_orders(session, site_url)
+    # 재귀 검증이 동작해야 깊은 곳에 값이 섞인 shape도 거부된다.
+    broken = record.model_dump(mode="json") | {"response_shape": {"user": {"id": 77}}}
+
+    with pytest.raises(ValidationError):
+        CapturedRequest.model_validate(broken)
