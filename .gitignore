@@ -1,0 +1,109 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.envrc
+.direnv/
+*.local
+secrets/
+credentials/
+credentials.json
+service-account*.json
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.python-version.local
+
+# Tests, coverage, and static analysis
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.hypothesis/
+.tox/
+.nox/
+
+# Build and packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Runtime files and logs
+*.log
+logs/
+*.pid
+*.pid.lock
+tmp/
+temp/
+
+# Local databases and vector stores
+*.db
+*.sqlite
+*.sqlite3
+chroma/
+chroma_db/
+.chroma/
+qdrant_storage/
+faiss_index/
+
+# LLM caches, downloaded models, and checkpoints
+.cache/
+huggingface/
+local_models/
+downloaded_models/
+model_cache/
+checkpoints/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.ggml
+
+# Generated data and artifacts
+artifacts/
+outputs/
+runs/
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+.auth/
+auth.json
+storage-state.json
+
+# Neo4j local data
+neo4j/data/
+neo4j/logs/
+neo4j/import/
+neo4j/plugins/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
