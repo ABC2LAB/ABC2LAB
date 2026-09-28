@@ -63,7 +63,7 @@ const afterAlert = () => fetch("{AFTER_ALERT_PATH}");
 document.getElementById("cart").addEventListener("submit", event => {{
   event.preventDefault();
   confirm("add to cart?");
-  fetch("{CART_API_PATH}", {{method: "POST", body: new URLSearchParams(new FormData(event.target))}})
+  fetch("{CART_API_PATH}", {{method: "POST", body: new FormData(event.target)}})
     .then(() => {{ alert("added"); afterAlert(); }})
     .catch(() => {{ alert("failed"); afterAlert(); }});
 }});

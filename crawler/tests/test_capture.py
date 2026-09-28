@@ -11,7 +11,7 @@ from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 from pydantic import ValidationError
 
 from crawler.auth import open_role_context
-from crawler.capture import RequestCapture, select_stale_requests, start_capture
+from crawler.capture import FILE_PART_VALUE, RequestCapture, select_stale_requests, start_capture
 from crawler.config import GUEST_ROLE, CrawlerConfig, load_config
 from crawler.schemas import CapturedRequest
 from crawler.tests.helpers import make_counting_handler, run_server
@@ -592,3 +592,46 @@ def test_stale_candidates_exclude_navigation_and_other_frames() -> None:
     candidates = select_stale_requests([old_fetch, new_document, iframe_fetch], main_frame)  # type: ignore[arg-type]
 
     assert candidates == [old_fetch]
+
+
+MULTIPART_PATH = "/api/multipart"
+MULTIPART_PASSWORD = "multipart-pw-value"
+MULTIPART_CSRF = "multipart-csrf-value"
+FILE_CONTENT = "secret-file-content"
+FILE_NAME = "private-name.txt"
+BINARY_FILE_NAME = "private-photo.png"
+# fetch body에 FormData를 넣으면 multipart/form-data로 나간다.
+MULTIPART_FETCH_SCRIPT = f"""() => {{
+  const data = new FormData();
+  data.append("nickname", "bob");
+  data.append("tag", "a");
+  data.append("tag", "b");
+  data.append("상품명", "신발");
+  data.append("{PASSWORD_FIELD}", "{MULTIPART_PASSWORD}");
+  data.append("csrf_token", "{MULTIPART_CSRF}");
+  data.append("memo", "");
+  data.append("upload", new File(["{FILE_CONTENT}"], "{FILE_NAME}", {{type: "text/plain"}}));
+  data.append("photo", new File([new Uint8Array([0, 255, 128, 10, 13])], "{BINARY_FILE_NAME}", {{type: "image/png"}}));
+  return fetch("{MULTIPART_PATH}", {{method: "POST", body: data}}).then(response => response.status);
+}}"""
+
+
+def test_multipart_body_params_parsed_and_masked(session: CaptureSession, site_url: str) -> None:
+    session.page.goto(f"{site_url}/page")
+    assert session.page.evaluate(MULTIPART_FETCH_SCRIPT) == 200
+    record = wait_for_record(session, path_is(MULTIPART_PATH))
+
+    assert record.request_headers["content-type"].startswith("multipart/form-data")
+    assert record.body_params == {
+        "nickname": ["bob"],
+        "tag": ["a", "b"],
+        "상품명": ["신발"],
+        PASSWORD_FIELD: [MASK],
+        "csrf_token": [MASK],
+        "memo": [""],
+        "upload": [FILE_PART_VALUE],
+        "photo": [FILE_PART_VALUE],
+    }
+    text = record.model_dump_json()
+    for secret in (MULTIPART_PASSWORD, MULTIPART_CSRF, FILE_CONTENT, FILE_NAME, BINARY_FILE_NAME):
+        assert secret not in text

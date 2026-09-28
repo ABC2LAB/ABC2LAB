@@ -18,6 +18,10 @@ import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from email import policy
+from email.errors import MessageError
+from email.parser import BytesParser
+from email.utils import collapse_rfc2231_value
 from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlsplit, urlunsplit
 
 from playwright.sync_api import BrowserContext, Frame, Page, Request, Response
@@ -60,6 +64,10 @@ JSON_MEDIA_TYPE_SUFFIX = "+json"
 MAX_RESPONSE_BODY_BYTES = 1024 * 1024
 FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
 JSON_CONTENT_TYPE = "application/json"
+MULTIPART_FORM_CONTENT_TYPE = "multipart/form-data"
+MULTIPART_BOUNDARY_PARAM = "boundary="
+# 파일 파트는 내용도 파일 이름도 남기지 않고 이 값으로만 적는다. 개인 파일·파일명일 수 있다.
+FILE_PART_VALUE = "<file>"
 COOKIE_PAIR_SEPARATOR = ";"
 # all_headers()는 여러 Set-Cookie를 줄바꿈으로 이어서 준다.
 SET_COOKIE_LINE_SEPARATOR = "\n"
@@ -222,9 +230,12 @@ class RequestCapture:
             return {}
         media_type = _media_type(content_type)
         if media_type == FORM_CONTENT_TYPE:
-            return self._mask_params(parse_qsl(body, keep_blank_values=True))
+            return self._mask_params(parse_qsl(_decode_text(body), keep_blank_values=True))
         if media_type == JSON_CONTENT_TYPE:
-            return self._parse_json_body(body)
+            return self._parse_json_body(_decode_text(body))
+        if media_type == MULTIPART_FORM_CONTENT_TYPE:
+            # 이름·값 쌍으로 풀면 마스킹 규칙은 urlencoded와 같다.
+            return self._mask_params(_parse_multipart(content_type, body))
         logger.debug("바디 파라미터를 풀지 않는 형식: %s", media_type or "(없음)")
         return {}
 
@@ -378,11 +389,43 @@ def _read_response_shape(response: Response | None, headers: dict[str, str]) -> 
     return describe_json_shape(parsed)
 
 
-def _read_body(request: Request) -> str | None:
-    buffer = request.post_data_buffer
-    if buffer is None:
-        return None
-    return buffer.decode("utf-8", errors="replace")
+def _read_body(request: Request) -> bytes | None:
+    # 바이트로 둔다. multipart의 파일 바이트를 문자열로 먼저 풀면 경계가 깨질 수 있다.
+    return request.post_data_buffer
+
+
+def _decode_text(body: bytes) -> str:
+    return body.decode("utf-8", errors="replace")
+
+
+def _parse_multipart(content_type: str, body: bytes) -> list[tuple[str, str]]:
+    """multipart/form-data 본문을 (이름, 값) 쌍으로. 파일 파트는 값을 FILE_PART_VALUE로만 남긴다."""
+    if MULTIPART_BOUNDARY_PARAM not in content_type.lower():
+        logger.warning("boundary 없는 multipart 바디라 파라미터 없이 기록")
+        return []
+    try:
+        # 표준 라이브러리 email 파서는 헤더부터 읽으므로 Content-Type 줄을 앞에 붙여 한 메시지로 만든다.
+        message = BytesParser(policy=policy.HTTP).parsebytes(f"Content-Type: {content_type}\r\n\r\n".encode() + body)
+        if not message.is_multipart():
+            logger.warning("multipart 바디를 파트로 나누지 못해 파라미터 없이 기록")
+            return []
+        pairs: list[tuple[str, str]] = []
+        for part in message.iter_parts():
+            name = part.get_param("name", header="content-disposition")
+            if isinstance(name, tuple):
+                name = collapse_rfc2231_value(name)
+            if not name:
+                logger.debug("이름 없는 multipart 파트는 건너뜀")
+                continue
+            if part.get_filename() is not None:
+                pairs.append((name, FILE_PART_VALUE))
+            else:
+                pairs.append((name, _decode_text(part.get_payload(decode=True) or b"")))
+        return pairs
+    except (MessageError, ValueError, LookupError) as error:
+        # 예외 메시지에 본문 조각이 섞이지 않게 종류만 남긴다.
+        logger.warning("multipart 바디 해석 실패, 파라미터 없이 기록: %s", type(error).__name__)
+        return []
 
 
 def _mask_cookie_header(value: str) -> str:
