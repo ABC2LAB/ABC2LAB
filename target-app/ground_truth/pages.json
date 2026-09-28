@@ -1,0 +1,21 @@
+{
+  "description": "URL/타이틀/필요 최소 권한이 정의된 전체 페이지(HTML 렌더링 라우트) 목록. min_role: guest < user < admin (하위 권한도 상위 화면 접근 시 차단되어야 함)",
+  "pages": [
+    { "url": "/", "method": "GET", "title": "상품목록", "min_role": "guest" },
+    { "url": "/products/{id}", "method": "GET", "title": "상품상세", "min_role": "guest" },
+    { "url": "/signup", "method": "GET", "title": "회원가입 폼", "min_role": "guest" },
+    { "url": "/login", "method": "GET", "title": "로그인 폼", "min_role": "guest" },
+    { "url": "/cart", "method": "GET", "title": "장바구니", "min_role": "user" },
+    { "url": "/checkout", "method": "GET", "title": "주문서 작성", "min_role": "user" },
+    { "url": "/orders", "method": "GET", "title": "주문조회(내 주문 목록)", "min_role": "user" },
+    { "url": "/orders/{id}", "method": "GET", "title": "주문상세", "min_role": "user", "note": "본인 주문만 조회 가능해야 함 - V1 참조" },
+    { "url": "/mypage", "method": "GET", "title": "마이페이지", "min_role": "user" },
+    { "url": "/admin", "method": "GET", "title": "관리자 대시보드", "min_role": "admin" },
+    { "url": "/admin/users", "method": "GET", "title": "회원 관리", "min_role": "admin" },
+    { "url": "/admin/products", "method": "GET", "title": "상품 관리 목록", "min_role": "admin" },
+    { "url": "/admin/products/new", "method": "GET", "title": "상품 등록 폼", "min_role": "admin" },
+    { "url": "/admin/products/{id}/edit", "method": "GET", "title": "상품 수정 폼", "min_role": "admin" },
+    { "url": "/admin/orders", "method": "GET", "title": "전체 주문 관리", "min_role": "admin" }
+  ],
+  "total_pages": 15
+}

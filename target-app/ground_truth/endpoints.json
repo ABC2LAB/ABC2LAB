@@ -1,0 +1,27 @@
+{
+  "description": "폼 제출 및 JSON API 엔드포인트 전체 목록. linked_from_ui=false 인 항목은 어떤 화면에도 링크되어 있지 않아 크롤러가 링크 탐색만으로는 발견할 수 없음(강제 접근/숨은 엔드포인트 발견 능력 평가용).",
+  "endpoints": [
+    { "method": "POST", "path": "/signup", "params": ["email", "password", "name", "address"], "min_role": "guest", "linked_from_ui": true },
+    { "method": "POST", "path": "/login", "params": ["email", "password"], "min_role": "guest", "linked_from_ui": true },
+    { "method": "POST", "path": "/logout", "params": [], "min_role": "user", "linked_from_ui": true },
+    { "method": "POST", "path": "/cart/add", "params": ["product_id", "quantity", "price(optional)"], "min_role": "user", "linked_from_ui": true,
+      "note": "price는 클라이언트가 보내면 안 되는 필드 - V5 참조" },
+    { "method": "POST", "path": "/cart/update", "params": ["item_id", "quantity"], "min_role": "user", "linked_from_ui": true,
+      "note": "item_id 소유권 검증이 모드와 무관하게 항상 강제됨 (decoy - 취약점 아님)" },
+    { "method": "POST", "path": "/cart/remove", "params": ["item_id"], "min_role": "user", "linked_from_ui": true,
+      "note": "item_id 소유권 검증이 모드와 무관하게 항상 강제됨 (decoy - 취약점 아님)" },
+    { "method": "POST", "path": "/orders", "params": ["shipping_address"], "min_role": "user", "linked_from_ui": true },
+    { "method": "POST", "path": "/mypage", "params": ["name", "address"], "min_role": "user", "linked_from_ui": true,
+      "note": "대상은 항상 세션 사용자 본인 - URL/파라미터로 대상 id를 받지 않음 (decoy - 취약점 아님)" },
+    { "method": "GET", "path": "/api/users/{id}", "params": ["id(path)"], "min_role": "user", "linked_from_ui": false,
+      "note": "마이페이지(/mypage) 로드 시 fetch로 호출됨. a 태그 링크는 없음 - 네트워크 트레이싱으로 관측 가능(본인 id만 관측됨). V2 참조" },
+    { "method": "GET", "path": "/admin/api/users", "params": [], "min_role": "admin", "linked_from_ui": true,
+      "note": "admin/users.html이 fetch로 호출 - V3 참조" },
+    { "method": "POST", "path": "/admin/products", "params": ["name", "description", "price", "stock", "category", "image_emoji"], "min_role": "admin", "linked_from_ui": true },
+    { "method": "POST", "path": "/admin/products/{id}", "params": ["name", "description", "price", "stock", "category", "image_emoji"], "min_role": "admin", "linked_from_ui": true },
+    { "method": "POST", "path": "/admin/products/{id}/delete", "params": [], "min_role": "admin", "linked_from_ui": true },
+    { "method": "GET", "path": "/admin/export/orders", "params": [], "min_role": "admin", "linked_from_ui": false,
+      "note": "어떤 화면에도 링크되어 있지 않음 - V4 참조 (forced browsing 전용 테스트 엔드포인트)" }
+  ],
+  "total_endpoints": 14
+}

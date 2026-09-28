@@ -1,3 +1,7 @@
+# 테스트 앱(secure/vulnerable), Neo4j, frontend 실행 환경
+# target-app/ 은 테스트 앱 레포가 들어올 자리다.
+# vulnerable/secure/Neo4j 포트는 로컬호스트에만 바인딩한다.
+
 services:
   frontend:
     build:
@@ -7,3 +11,40 @@ services:
     ports:
       - "5173:80"
     restart: unless-stopped
+
+  testapp-secure:
+    build: ./target-app
+    environment:
+      VULN_MODE: secure
+      SECRET_KEY: ${SECURE_SECRET_KEY:?SECURE_SECRET_KEY를 .env에 설정}
+      DATABASE_URL: sqlite:////data/secure.db
+    volumes:
+      - secure_data:/data
+    ports:
+      - "127.0.0.1:${SECURE_PORT:-8000}:8000"
+
+  testapp-vulnerable:
+    build: ./target-app
+    environment:
+      VULN_MODE: vulnerable
+      SECRET_KEY: ${VULN_SECRET_KEY:?VULN_SECRET_KEY를 .env에 설정}
+      DATABASE_URL: sqlite:////data/vulnerable.db
+    volumes:
+      - vulnerable_data:/data
+    ports:
+      - "127.0.0.1:${VULN_PORT:-8001}:8000"
+
+  neo4j:
+    image: neo4j:5.26.31-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD를 .env에 설정}
+    volumes:
+      - neo4j_data:/data
+    ports:
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
+
+volumes:
+  secure_data:
+  vulnerable_data:
+  neo4j_data:

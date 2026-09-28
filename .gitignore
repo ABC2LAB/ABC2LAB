@@ -65,10 +65,14 @@ logs/
 tmp/
 temp/
 
-# Local databases and vector stores
+# Collected data and local databases
+data/
 *.db
+*.db-journal
 *.sqlite
 *.sqlite3
+
+# Local vector stores
 chroma/
 chroma_db/
 .chroma/

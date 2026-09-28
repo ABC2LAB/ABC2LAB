@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ product.name }} - Test Shop{% endblock %}
+{% block content %}
+<div class="card" style="max-width:480px">
+  <div class="emoji" style="font-size:4rem">{{ product.image_emoji }}</div>
+  <h2>{{ product.name }}</h2>
+  <p>{{ product.description }}</p>
+  <p class="price" style="font-size:1.3rem">{{ "{:,.0f}".format(product.price) }}원</p>
+  <p style="color:#888;font-size:.85rem">재고 {{ product.stock }}개 · 카테고리 {{ product.category }}</p>
+
+  {% if user %}
+  <form id="add-cart-form">
+    <input type="hidden" name="product_id" value="{{ product.id }}">
+    <label>수량 <input type="number" name="quantity" value="1" min="1" style="width:70px"></label>
+    <button type="submit" class="btn" style="margin-top:12px">장바구니 담기</button>
+  </form>
+  <script>
+    document.getElementById('add-cart-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const res = await fetch('/cart/add', { method: 'POST', body: fd });
+      if (res.ok) { alert('장바구니에 담았습니다.'); } else { alert('실패했습니다.'); }
+    });
+  </script>
+  {% else %}
+  <p><a href="/login" class="btn">로그인 후 구매하기</a></p>
+  {% endif %}
+</div>
+{% endblock %}

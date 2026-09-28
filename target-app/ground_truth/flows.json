@@ -1,0 +1,64 @@
+{
+  "description": "역할별 대표 사용자 행동 흐름. 크롤러/에이전트가 이 흐름에 포함된 페이지·액션·엔드포인트를 얼마나 커버했는지로 탐색 완전성(coverage)을 측정할 수 있음.",
+  "flows": [
+    {
+      "role": "guest",
+      "name": "둘러보기 후 가입",
+      "steps": [
+        { "page": "/", "action": "상품 목록 열람" },
+        { "page": "/products/{id}", "action": "상품 상세 열람" },
+        { "page": "/signup", "action": "회원가입 폼 열람" },
+        { "endpoint": "POST /signup", "action": "회원가입 제출" },
+        { "page": "/login", "action": "로그인 폼 열람" },
+        { "endpoint": "POST /login", "action": "로그인 제출" }
+      ]
+    },
+    {
+      "role": "user",
+      "name": "상품 구매",
+      "steps": [
+        { "page": "/", "action": "상품 목록 열람" },
+        { "page": "/products/{id}", "action": "상품 상세 열람" },
+        { "endpoint": "POST /cart/add", "action": "장바구니 담기" },
+        { "page": "/cart", "action": "장바구니 확인" },
+        { "endpoint": "POST /cart/update", "action": "수량 변경" },
+        { "page": "/checkout", "action": "주문서 작성" },
+        { "endpoint": "POST /orders", "action": "결제 완료" },
+        { "page": "/orders", "action": "주문 목록 확인" },
+        { "page": "/orders/{id}", "action": "본인 주문 상세 확인" }
+      ]
+    },
+    {
+      "role": "user",
+      "name": "회원정보 관리",
+      "steps": [
+        { "page": "/mypage", "action": "마이페이지 열람" },
+        { "endpoint": "GET /api/users/{id}", "action": "마이페이지 로드 시 본인 프로필 fetch(백그라운드)" },
+        { "endpoint": "POST /mypage", "action": "이름/주소 수정" }
+      ]
+    },
+    {
+      "role": "admin",
+      "name": "상품 관리",
+      "steps": [
+        { "page": "/admin", "action": "대시보드 열람" },
+        { "page": "/admin/products", "action": "상품 목록 열람" },
+        { "page": "/admin/products/new", "action": "상품 등록 폼 열람" },
+        { "endpoint": "POST /admin/products", "action": "상품 등록" },
+        { "page": "/admin/products/{id}/edit", "action": "상품 수정 폼 열람" },
+        { "endpoint": "POST /admin/products/{id}", "action": "상품 수정" },
+        { "endpoint": "POST /admin/products/{id}/delete", "action": "상품 삭제" }
+      ]
+    },
+    {
+      "role": "admin",
+      "name": "회원/주문 관리",
+      "steps": [
+        { "page": "/admin/users", "action": "회원 목록 열람" },
+        { "endpoint": "GET /admin/api/users", "action": "회원 목록 API 호출(백그라운드)" },
+        { "page": "/admin/orders", "action": "전체 주문 목록 열람" },
+        { "page": "/orders/{id}", "action": "임의 주문 상세 확인(admin 권한)" }
+      ]
+    }
+  ]
+}
