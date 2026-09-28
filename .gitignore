@@ -23,6 +23,7 @@ dist/
 
 # 테스트·Playwright 산출물
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 test-results/
