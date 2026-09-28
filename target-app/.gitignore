@@ -1,0 +1,52 @@
+# ── 데이터베이스 (앱 시작 시 자동 재생성됨) ──
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+/data/
+
+# ── 환경변수 ──
+.env
+.env.local
+.env.*.local
+.env.emample
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# ── 가상환경 ──
+venv/
+.venv/
+env/
+ENV/
+
+# ── IDE / 에디터 ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── 로그 / 임시 파일 ──
+*.log
+nohup.out
+*.tmp
+
+# ── 테스트/커버리지 산출물 ──
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 최초 1회만
+docker-compose.yml

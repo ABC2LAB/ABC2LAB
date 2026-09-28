@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}마이페이지 - Test Shop{% endblock %}
+{% block content %}
+<h2>마이페이지</h2>
+<form class="box" method="post" action="/mypage">
+  <label>이메일</label>
+  <input type="email" value="{{ user.email }}" disabled>
+  <label>이름</label>
+  <input type="text" name="name" value="{{ user.name }}" required>
+  <label>주소</label>
+  <input type="text" name="address" value="{{ user.address }}">
+  <button type="submit" class="btn" style="margin-top:16px">저장</button>
+  {% if saved %}<div class="success">저장되었습니다.</div>{% endif %}
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+</form>
+<div id="profile-summary" style="margin-top:16px;color:#666;font-size:.9rem"></div>
+<script>
+fetch('/api/users/{{ user.id }}')
+  .then(r => r.json())
+  .then(d => {
+    if (d.email) document.getElementById('profile-summary').textContent = d.name + ' · ' + d.email;
+  })
+  .catch(console.error);
+</script>
+{% endblock %}

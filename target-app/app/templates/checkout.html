@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}주문서 작성 - Test Shop{% endblock %}
+{% block content %}
+<h2>주문서 작성</h2>
+<table>
+  <tr><th>상품</th><th>수량</th><th>소계</th></tr>
+  {% for i in items %}
+  <tr><td>{{ i.product.name }}</td><td>{{ i.quantity }}</td><td>{{ "{:,.0f}".format(i.price_at_add * i.quantity) }}원</td></tr>
+  {% endfor %}
+</table>
+<p style="text-align:right;font-weight:700;margin:12px 0">총 결제금액: {{ "{:,.0f}".format(total) }}원</p>
+
+<form class="box" method="post" action="/orders">
+  <label>배송지 주소</label>
+  <input type="text" name="shipping_address" value="{{ user.address }}" required>
+  <button type="submit" class="btn" style="margin-top:16px">결제하기</button>
+</form>
+{% endblock %}

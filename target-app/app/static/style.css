@@ -1,0 +1,48 @@
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  margin: 0; background: #f6f7f9; color: #222;
+}
+.nav {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #1a1f36; color: #fff; padding: 14px 28px;
+}
+.nav .brand { color: #fff; font-weight: 700; text-decoration: none; font-size: 1.1rem; }
+.nav nav a, .nav nav span { color: #cfd3e6; margin-left: 16px; text-decoration: none; font-size: .92rem; }
+.nav nav a:hover { color: #fff; }
+.nav .who { color: #8ee6b7; }
+.nav form.inline { display: inline; margin-left: 16px; }
+.nav form.inline button {
+  background: none; border: none; color: #cfd3e6; cursor: pointer; font-size: .92rem; padding: 0;
+}
+.container { max-width: 960px; margin: 32px auto; padding: 0 20px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+.card {
+  background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+.card .emoji { font-size: 2.4rem; }
+.card h3 { margin: 8px 0 4px; font-size: 1rem; }
+.card .price { color: #4a5cff; font-weight: 700; }
+.card a { text-decoration: none; color: inherit; }
+
+.btn {
+  display: inline-block; background: #4a5cff; color: #fff; border: none;
+  padding: 10px 18px; border-radius: 6px; cursor: pointer; font-size: .92rem; text-decoration: none;
+}
+.btn.secondary { background: #e5e7ef; color: #333; }
+.btn.danger { background: #e5484d; }
+
+table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #eee; font-size: .9rem; }
+th { background: #f0f1f6; }
+
+form.box { background: #fff; padding: 24px; border-radius: 10px; max-width: 420px; }
+form.box label { display: block; margin: 10px 0 4px; font-size: .88rem; color: #555; }
+form.box input, form.box textarea { width: 100%; padding: 9px; border: 1px solid #ddd; border-radius: 6px; }
+.error { color: #e5484d; font-size: .88rem; margin-top: 8px; }
+.success { color: #16a34a; font-size: .88rem; margin-top: 8px; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
+.stat-card { background: #fff; padding: 18px; border-radius: 10px; }
+.stat-card .num { font-size: 1.6rem; font-weight: 700; color: #4a5cff; }

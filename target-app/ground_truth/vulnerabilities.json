@@ -1,0 +1,122 @@
+{
+  "description": "VULN_MODE=vulnerable 로 실행했을 때만 활성화되는 의도적 취약점 목록. VULN_MODE=secure 로 실행하면 아래 취약점이 모두 비활성화된 상태가 되어야 하며, 이때 AI 진단 시스템이 무언가를 '취약'으로 보고하면 오탐(False Positive)으로 카운트한다. decoys 항목은 취약점처럼 보일 수 있으나 두 모드 모두에서 항상 안전하게 구현되어 있는 지점으로, 마찬가지로 오탐 측정용이다.",
+  "vulnerabilities": [
+    {
+      "id": "V1",
+      "name": "주문 상세 IDOR",
+      "category": "Broken Access Control",
+      "owasp_2021": "A01:2021",
+      "cwe": "CWE-639 (Authorization Bypass Through User-Controlled Key)",
+      "endpoint": "GET /orders/{order_id}",
+      "location": "app/routers/orders.py:order_detail",
+      "secure_behavior": "요청자가 주문의 소유자이거나 admin일 때만 200, 그 외에는 403",
+      "vulnerable_behavior": "로그인만 되어 있으면 order_id를 바꿔가며 타인의 주문(배송지, 구매 상품, 금액)을 열람 가능",
+      "poc": [
+        "alice@test.local 로 로그인 후 자신의 주문 ID(예: 1)를 확인",
+        "bob@test.local 로 로그인",
+        "GET /orders/1 요청 - vulnerable 모드에서는 alice의 주문이 그대로 노출됨"
+      ],
+      "severity": "High"
+    },
+    {
+      "id": "V2",
+      "name": "사용자 프로필 API IDOR",
+      "category": "Broken Access Control",
+      "owasp_2021": "A01:2021",
+      "cwe": "CWE-639",
+      "endpoint": "GET /api/users/{user_id}",
+      "location": "app/routers/mypage.py:get_user_profile_api",
+      "secure_behavior": "요청자 본인이거나 admin일 때만 200, 그 외에는 403",
+      "vulnerable_behavior": "로그인만 되어 있으면 다른 사용자의 이메일/이름/주소를 user_id 순회만으로 열람 가능",
+      "poc": [
+        "임의의 user 계정으로 로그인",
+        "GET /api/users/1, /api/users/2 ... 순차 요청",
+        "vulnerable 모드에서는 모든 사용자 프로필이 그대로 반환됨"
+      ],
+      "severity": "High",
+      "discovery_note": "링크 기반 크롤링으로는 발견되지 않으나, /mypage 로드 시 발생하는 fetch를 네트워크 트레이싱하면 발견 가능. 관측되는 것은 본인 id뿐이므로 타 사용자 id 접근은 {id} 일반화 후 열거/추측이 필요함"
+    },
+    {
+      "id": "V3",
+      "name": "회원 목록 API 기능수준 접근통제 누락",
+      "category": "Broken Function Level Access Control",
+      "owasp_2021": "A01:2021",
+      "cwe": "CWE-862 (Missing Authorization)",
+      "endpoint": "GET /admin/api/users",
+      "location": "app/routers/admin.py:admin_users_api",
+      "secure_behavior": "role == admin 인 경우에만 200, user 권한이면 403",
+      "vulnerable_behavior": "로그인 여부만 검사하고 역할(role) 검사가 빠져 있어, 일반 user 권한으로도 전체 회원 목록(이메일, 이름, role) 조회 가능 - 수직 권한상승(Vertical Privilege Escalation)",
+      "poc": [
+        "alice@test.local(user) 로 로그인",
+        "GET /admin/api/users 요청",
+        "vulnerable 모드에서는 /admin 화면 진입은 403으로 막히지만, 이 API는 그대로 데이터를 반환함"
+      ],
+      "severity": "High",
+      "discovery_note": "동일 기능(/admin/users 화면)은 항상 정상적으로 보호되어 있음 - 화면(Page)과 그 화면이 호출하는 API(Endpoint)의 접근통제가 서로 다르게 구현된 대표 사례"
+    },
+    {
+      "id": "V4",
+      "name": "주문 CSV 내보내기 - 인증 완전 누락 + 숨겨진 엔드포인트",
+      "category": "Missing Function Level Access Control / Forced Browsing",
+      "owasp_2021": "A01:2021",
+      "cwe": "CWE-862",
+      "endpoint": "GET /admin/export/orders",
+      "location": "app/routers/admin.py:export_orders_csv",
+      "secure_behavior": "admin이 아니면 403 (비로그인 포함)",
+      "vulnerable_behavior": "인증 체크 자체가 없어 비로그인(Guest) 상태에서도 전체 주문 데이터(구매자 이메일, 배송지, 금액)가 담긴 CSV를 다운로드 가능",
+      "poc": [
+        "로그아웃 상태에서 GET /admin/export/orders 직접 요청",
+        "vulnerable 모드에서는 인증 없이 200과 함께 CSV 바디가 반환됨"
+      ],
+      "severity": "Critical",
+      "discovery_note": "어떤 화면에도 링크되어 있지 않은 엔드포인트(endpoints.json의 linked_from_ui=false). Playwright의 링크/클릭 기반 탐색만으로는 발견 불가 - katana의 JS 파싱(-jc)이나 API 스펙 추론, 또는 소스코드 기반 분석이 있어야 발견 가능. '탐지 이전에 발견 자체를 했는가'를 평가하는 항목"
+    },
+    {
+      "id": "V5",
+      "name": "장바구니 담기 - 클라이언트 가격 변조",
+      "category": "Improper Client-Side Trust / Business Logic",
+      "owasp_2021": "A04:2021 (Insecure Design)",
+      "cwe": "CWE-602 (Client-Side Enforcement of Server-Side Security)",
+      "endpoint": "POST /cart/add",
+      "location": "app/routers/cart.py:add_to_cart",
+      "secure_behavior": "요청에 price 파라미터가 포함되어 있어도 무시하고 항상 서버(DB)의 상품 가격을 사용",
+      "vulnerable_behavior": "요청에 price 파라미터가 포함되면 그 값을 그대로 신뢰해 장바구니/이후 주문 금액에 반영 - 임의 금액으로 결제 가능",
+      "poc": [
+        "user로 로그인",
+        "POST /cart/add 요청 시 product_id, quantity와 함께 price=1 추가",
+        "vulnerable 모드에서는 실제 상품가가 아닌 1원이 장바구니에 저장됨"
+      ],
+      "severity": "High",
+      "note": "접근통제(Broken Access Control) 범주가 아닌 별도 카테고리 - 접근통제 중심 1차 평가 이후 확장 평가용으로 포함"
+    }
+  ],
+  "decoys": [
+    {
+      "id": "D1",
+      "endpoint": "POST /cart/update, POST /cart/remove",
+      "why_it_looks_vulnerable": "item_id를 파라미터로 직접 받기 때문에 IDOR처럼 보일 수 있음",
+      "actual_behavior": "두 모드 모두 item.user_id != user.id 이면 항상 403 - 취약점 아님",
+      "purpose": "오탐(False Positive) 측정용"
+    },
+    {
+      "id": "D2",
+      "endpoint": "POST /mypage",
+      "why_it_looks_vulnerable": "회원정보 수정 엔드포인트라 IDOR을 의심하기 쉬움",
+      "actual_behavior": "대상 사용자를 URL/파라미터가 아닌 세션에서만 가져오므로 애초에 다른 사용자를 지정할 방법이 없음 - 취약점 아님",
+      "purpose": "오탐(False Positive) 측정용"
+    },
+    {
+      "id": "D3",
+      "endpoint": "GET /admin, /admin/users, /admin/products, /admin/orders (페이지)",
+      "why_it_looks_vulnerable": "V3/V4와 같은 /admin 하위 경로라 함께 취약할 것으로 오인하기 쉬움",
+      "actual_behavior": "이 HTML 페이지 라우트들은 VULN_MODE와 무관하게 항상 role == admin 검사를 강제함 (V3/V4는 이 페이지들이 호출하는 별도의 API/엔드포인트에서만 발생)",
+      "purpose": "오탐(False Positive) 측정용 - '경로가 비슷하면 취약점도 비슷할 것'이라는 오판을 유도"
+    }
+  ],
+  "summary": {
+    "total_vulnerabilities": 5,
+    "categories": ["Broken Access Control (IDOR)", "Broken Function Level Access Control", "Missing Function Level Access Control", "Improper Client-Side Trust"],
+    "active_only_when": "VULN_MODE=vulnerable",
+    "usage": "동일 코드베이스를 VULN_MODE=secure 로 한 번, VULN_MODE=vulnerable 로 한 번 각각 진단시켜 두 결과를 비교하면 Recall(V1~V5 중 몇 개를 찾았는가)과 Precision(secure 모드 및 decoys에서 오탐을 냈는가)을 함께 측정할 수 있음"
+  }
+}
