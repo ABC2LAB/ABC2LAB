@@ -83,7 +83,7 @@ class RequestCapture:
         self._records: list[CapturedRequest] = []
         # 목록에 안 걸리는 이름이어도 설정의 로그인 비밀번호 필드는 가린다.
         self._sensitive_field_names = frozenset({config.login.password_field.lower()} if config.login else ())
-        self._known_secrets = _list_secret_variants(account.password for account in config.accounts.values())
+        self._known_secrets = list_secret_variants(account.password for account in config.accounts.values())
 
     @property
     def records(self) -> tuple[CapturedRequest, ...]:
@@ -241,7 +241,8 @@ def start_capture(context: BrowserContext, config: CrawlerConfig, role: str) -> 
     return capture
 
 
-def _list_secret_variants(secrets: Iterable[str]) -> tuple[str, ...]:
+def list_secret_variants(secrets: Iterable[str]) -> tuple[str, ...]:
+    """비밀값의 원문·URL 인코딩 형태를 긴 것부터. run이 에러 메시지를 가릴 때도 같은 규칙을 쓴다."""
     variants = {
         variant for secret in secrets if secret for variant in (secret, quote(secret, safe=""), quote_plus(secret))
     }
