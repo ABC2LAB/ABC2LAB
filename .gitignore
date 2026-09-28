@@ -1,40 +1,123 @@
-# 환경변수: .env.example만 커밋
+# Secrets and local configuration
 .env
 .env.*
 !.env.example
+!.env.sample
+!.env.template
+.envrc
+.direnv/
+*.local
+secrets/
+credentials/
+credentials.json
+service-account*.json
 
-# 가상환경
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 .venv/
 venv/
+env/
+.python-version.local
 
-# 수집 결과·로컬 DB
+# Tests, coverage, and static analysis
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.hypothesis/
+.tox/
+.nox/
+
+# Build and packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Node.js and frontend
+node_modules/
+.npm/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime files and logs
+*.log
+logs/
+*.pid
+*.pid.lock
+tmp/
+temp/
+
+# Collected data and local databases
 data/
 *.db
 *.db-journal
 *.sqlite
 *.sqlite3
 
-# Python 캐시
-__pycache__/
-*.py[cod]
-*.egg-info/
-build/
-dist/
+# Local vector stores
+chroma/
+chroma_db/
+.chroma/
+qdrant_storage/
+faiss_index/
 
-# 테스트·Playwright 산출물
-.pytest_cache/
-.ruff_cache/
-.coverage
-htmlcov/
+# LLM caches, downloaded models, and checkpoints
+.cache/
+huggingface/
+local_models/
+downloaded_models/
+model_cache/
+checkpoints/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.ggml
+
+# Generated data and artifacts
+artifacts/
+outputs/
+runs/
+
+# Playwright
 test-results/
 playwright-report/
+blob-report/
+playwright/.cache/
+.auth/
+auth.json
+storage-state.json
 
-# IDE·OS
-.vscode/
+# Neo4j local data
+neo4j/data/
+neo4j/logs/
+neo4j/import/
+neo4j/plugins/
+
+# Editors and operating systems
 .idea/
+.vscode/
 *.swp
+*.swo
 .DS_Store
 Thumbs.db
-
-# 로그
-*.log
