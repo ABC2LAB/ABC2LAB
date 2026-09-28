@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Test Shop{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="/">🛒 Test Shop</a>
+  <nav>
+    <a href="/">상품목록</a>
+    {% if user %}
+      <a href="/cart">장바구니</a>
+      <a href="/orders">주문조회</a>
+      <a href="/mypage">마이페이지</a>
+      {% if user.role == "admin" %}
+        <a href="/admin">관리자</a>
+      {% endif %}
+      <span class="who">{{ user.name }}({{ user.role }})</span>
+      <form action="/logout" method="post" class="inline"><button type="submit">로그아웃</button></form>
+    {% else %}
+      <a href="/login">로그인</a>
+      <a href="/signup">회원가입</a>
+    {% endif %}
+  </nav>
+</header>
+<main class="container">
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

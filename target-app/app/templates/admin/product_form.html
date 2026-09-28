@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ "상품 수정" if product else "상품 등록" }} - Test Shop{% endblock %}
+{% block content %}
+<h2>{{ "상품 수정" if product else "상품 등록" }}</h2>
+<form class="box" method="post" action="{{ '/admin/products/' + product.id|string if product else '/admin/products' }}">
+  <label>상품명</label>
+  <input type="text" name="name" value="{{ product.name if product else '' }}" required>
+  <label>설명</label>
+  <textarea name="description" rows="3">{{ product.description if product else '' }}</textarea>
+  <label>가격</label>
+  <input type="number" name="price" step="1" value="{{ product.price if product else '' }}" required>
+  <label>재고</label>
+  <input type="number" name="stock" value="{{ product.stock if product else 0 }}">
+  <label>카테고리</label>
+  <input type="text" name="category" value="{{ product.category if product else 'general' }}">
+  <label>이모지</label>
+  <input type="text" name="image_emoji" value="{{ product.image_emoji if product else '📦' }}">
+  <button type="submit" class="btn" style="margin-top:16px">저장</button>
+</form>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}회원가입 - Test Shop{% endblock %}
+{% block content %}
+<h2>회원가입</h2>
+<form class="box" method="post" action="/signup">
+  <label>이메일</label>
+  <input type="email" name="email" required>
+  <label>비밀번호</label>
+  <input type="password" name="password" required>
+  <label>이름</label>
+  <input type="text" name="name" required>
+  <label>주소</label>
+  <input type="text" name="address">
+  <button type="submit" class="btn" style="margin-top:16px">가입하기</button>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+</form>
+{% endblock %}

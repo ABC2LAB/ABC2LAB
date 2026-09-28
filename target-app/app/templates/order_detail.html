@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}주문상세 - Test Shop{% endblock %}
+{% block content %}
+<h2>주문 #{{ order.id }} 상세</h2>
+<p style="color:#888">주문자: {{ order.user.name }} ({{ order.user.email }}) · 배송지: {{ order.shipping_address }}</p>
+<table>
+  <tr><th>상품명</th><th>수량</th><th>가격</th></tr>
+  {% for it in order.items %}
+  <tr><td>{{ it.product_name }}</td><td>{{ it.quantity }}</td><td>{{ "{:,.0f}".format(it.price) }}원</td></tr>
+  {% endfor %}
+</table>
+<p style="text-align:right;font-weight:700;margin-top:12px">총액: {{ "{:,.0f}".format(order.total_price) }}원</p>
+<p><a href="/orders" class="btn secondary">목록으로</a></p>
+{% endblock %}
