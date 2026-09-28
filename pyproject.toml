@@ -1,0 +1,31 @@
+[project]
+name = "abc2lab"
+version = "0.1.0"
+description = "AI 기반 웹 취약점 진단 시스템 (crawler → KG → 접근통제 분석)"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi==0.141.1",
+    "neo4j==6.3.1",
+    "openai==3.19.2",
+    "pydantic==2.13.5",
+    "python-dotenv==1.2.3",
+    "uvicorn==0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx==0.28.1",
+    "pytest==9.1.1",
+]
+crawler = [
+    "playwright==1.63.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+# 테스트는 모듈마다 <모듈>/tests/ 에 둔다
+testpaths = ["crawler", "analyzer", "kg", "common"]
+python_files = ["test_*.py"]
+
