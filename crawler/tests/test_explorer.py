@@ -11,18 +11,41 @@ from crawler.auth import open_role_context
 from crawler.capture import start_capture
 from crawler.config import GUEST_ROLE, CrawlerConfig, load_config
 from crawler.explorer import crawl
-from crawler.schemas import CapturedRequest, DiscoveredPage, PageAction, PageLink
+from crawler.schemas import CapturedRequest, DiscoveredPage, FormField, PageAction, PageLink
 from crawler.tests.helpers import make_counting_handler, run_server
 
 DEFAULT_MAX_DEPTH = "2"
 BUTTON_FETCH_DELAY_MS = 150
 # 기본 설정(max_depth=2)에서 기대하는 BFS 방문 순서. /items/2는 /items/1과 같은 템플릿이라 없다.
 EXPECTED_ORDER = ["/", "/a", "/b", "/items/1", "/search", "/c", "/a/deep"]
+# 입력칸 값은 어떤 결과에도 남으면 안 된다.
+FIELD_VALUES = ("nick-field-value", "pw-field-value", "note-field-value", "mail-field-value")
+PROFILE_FORM_HTML = f"""<form method="post" action="/profile">
+<input name="nickname" value="{FIELD_VALUES[0]}">
+<input type="PASSWORD" name="new_pw" value="{FIELD_VALUES[1]}">
+<input type="bogus" name="mail" value="{FIELD_VALUES[3]}">
+<input type="radio" name="color" value="red"><input type="radio" name="color" value="blue">
+<select name="size"><option value="s">S</option></select>
+<textarea name="bio">{FIELD_VALUES[2]}</textarea>
+<input type="checkbox" name="agree">
+<button>save profile</button>
+</form>"""
+EXPECTED_PROFILE_FIELDS = [
+    FormField(name="nickname", type="text"),
+    FormField(name="new_pw", type="password"),
+    # 브라우저가 모르는 type은 text로 본다.
+    FormField(name="mail", type="text"),
+    FormField(name="color", type="radio"),
+    FormField(name="size", type="select"),
+    FormField(name="bio", type="textarea"),
+    FormField(name="agree", type="checkbox"),
+]
 STATE_CHANGING_REQUESTS = [
     ("GET", "/logout"),
     ("POST", "/orders"),
     ("POST", "/api/remove-item"),
     ("POST", "/api/save"),
+    ("POST", "/profile"),
 ]
 
 
@@ -35,7 +58,8 @@ def make_root_html(outside_url: str) -> str:
 <a href="/logout">Log out</a>
 <a href="{outside_url}/steal">outside</a>
 <form method="get" action="/search"><input name="q" value="shoes"><button>search</button></form>
-<form method="post" action="/orders"><input name="csrf_token" value="csrf-value"><button>order</button></form>
+<form method="post" action="/orders"><input type="hidden" name="csrf_token" value="csrf-value"><button>order</button></form>
+{PROFILE_FORM_HTML}
 <button id="load">load</button>
 <button id="remove">삭제</button>
 <button id="save">save</button>
@@ -213,7 +237,7 @@ def test_state_changing_actions_not_executed(default_run: CrawlRun) -> None:
     order_form = action_labeled(root, "order")
     assert order_form.kind == "form"
     assert order_form.method == "POST"
-    assert order_form.field_names == ["csrf_token"]
+    assert order_form.fields == [FormField(name="csrf_token", type="hidden")]
     assert order_form.outcome == "not_executed_state_changing"
     assert action_labeled(root, "삭제").outcome == "not_executed_state_changing"
     save = action_labeled(root, "save")
@@ -223,6 +247,21 @@ def test_state_changing_actions_not_executed(default_run: CrawlRun) -> None:
     blocked = record_for(default_run, "POST", "/api/save")
     assert blocked.status is None
     assert (blocked.source_page, blocked.source_action) == (root.url, save.action_id)
+
+
+def test_form_fields_recorded_as_name_and_type(default_run: CrawlRun) -> None:
+    root = page_at(default_run, "/")
+
+    assert action_labeled(root, "save profile").fields == EXPECTED_PROFILE_FIELDS
+    assert action_labeled(root, "search").fields == [FormField(name="q", type="text")]
+    assert all(action.fields == [] for action in root.actions if action.kind == "button")
+
+
+def test_form_field_values_not_stored(default_run: CrawlRun) -> None:
+    for page in default_run.pages:
+        text = page.model_dump_json()
+        for value in FIELD_VALUES:
+            assert value not in text
 
 
 def test_state_changing_actions_executed_when_allowed(browser: Browser) -> None:

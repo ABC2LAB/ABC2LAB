@@ -57,6 +57,16 @@ class PageLink(BaseModel):
     outcome: str
 
 
+class FormField(BaseModel):
+    """폼 입력칸 하나. 값은 CSRF 토큰·기본 개인정보가 섞일 수 있어 남기지 않는다."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    # input은 브라우저가 정규화한 type(없거나 모르는 값이면 "text"), 그 밖은 태그명("select", "textarea" 등)
+    type: str
+
+
 class PageAction(BaseModel):
     """페이지의 폼·버튼 하나와 크롤러가 그걸 어떻게 다뤘는지."""
 
@@ -70,8 +80,8 @@ class PageAction(BaseModel):
     method: str | None
     # 폼은 action, 버튼은 클릭 뒤 이동한 URL. 없으면 null
     target_url: str | None
-    # 값은 CSRF 토큰 같은 게 섞여 있어 이름만 남긴다.
-    field_names: list[str]
+    # 폼만. 버튼은 []
+    fields: list[FormField]
     is_state_changing: bool
     # "executed" | "enqueued" | "already_visited" | "beyond_max_depth" | "not_executed_state_changing"
     # | "blocked_state_changing_request" | "outside_origin" | "not_visible" | "not_found" | "failed"

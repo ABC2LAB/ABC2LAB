@@ -28,7 +28,7 @@ from crawler.auth import SUBMIT_FORM_SCRIPT
 from crawler.capture import RequestCapture
 from crawler.config import CrawlerConfig, is_request_allowed
 from crawler.normalize import normalize_path
-from crawler.schemas import DiscoveredPage, PageAction, PageLink
+from crawler.schemas import DiscoveredPage, FormField, PageAction, PageLink
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ FORM_SELECTOR = "form"
 BUTTON_SELECTOR = ":is(button, input[type=button], input[type=submit], [role=button]):not(form *)"
 READ_LABEL_SCRIPT = "el => (el.innerText || el.value || el.getAttribute('aria-label') || '').trim() || null"
 # 요청을 내지 않고 DOM만 읽는다. form.action·form.elements는 name="action" 같은 input에 가려질 수 있어 속성·셀렉터로 읽는다.
+# 입력칸은 이름과 타입만 읽고 값은 읽지 않는다. input.type은 브라우저가 소문자·"text" 기본값으로 정규화해 준다.
 READ_ELEMENTS_SCRIPT = (
     """buttonSelector => {
   const labelOf = """
@@ -75,9 +76,19 @@ READ_ELEMENTS_SCRIPT = (
       url.search = new URLSearchParams(new FormData(form)).toString();
       getUrl = url.href;
     }
-    const names = [...form.querySelectorAll('[name]')].map(el => el.getAttribute('name'));
+    const seen = new Set();
+    const fields = [];
+    for (const el of form.querySelectorAll('[name]')) {
+      const field = {name: el.getAttribute('name'), type: el.tagName === 'INPUT' ? el.type : el.tagName.toLowerCase()};
+      // 라디오 그룹처럼 같은 이름·타입이 반복되면 하나로 남긴다.
+      const key = JSON.stringify(field);
+      if (!seen.has(key)) {
+        seen.add(key);
+        fields.push(field);
+      }
+    }
     const submitter = form.querySelector('button, input[type=submit]');
-    return {method, action: action.href, get_url: getUrl, field_names: [...new Set(names)],
+    return {method, action: action.href, get_url: getUrl, fields,
             label: submitter ? labelOf(submitter) : null, hints: hintsOf(form)};
   });
   const buttons = [...document.querySelectorAll(buttonSelector)]
@@ -127,7 +138,7 @@ class _FoundForm:
     method: str
     action: str
     get_url: str | None
-    field_names: tuple[str, ...]
+    fields: tuple[FormField, ...]
     label: str | None
     hints: tuple[str, ...]
 
@@ -309,7 +320,7 @@ class _Explorer:
             label=form.label,
             method=form.method,
             target_url=self.capture.mask_url(form.action),
-            field_names=list(form.field_names),
+            fields=list(form.fields),
             is_state_changing=is_state_changing or outcome is ActionOutcome.BLOCKED_STATE_CHANGING_REQUEST,
             outcome=outcome.value,
         )
@@ -333,7 +344,7 @@ class _Explorer:
             label=button.label,
             method=None,
             target_url=self.capture.mask_url(navigated_url) if navigated_url is not None else None,
-            field_names=[],
+            fields=[],
             is_state_changing=is_state_changing or outcome is ActionOutcome.BLOCKED_STATE_CHANGING_REQUEST,
             outcome=outcome.value,
         )
@@ -416,7 +427,7 @@ def _read_elements(page: Page) -> _FoundElements:
                 method=item["method"],
                 action=item["action"],
                 get_url=item["get_url"],
-                field_names=tuple(item["field_names"]),
+                fields=tuple(FormField.model_validate(field) for field in item["fields"]),
                 label=item["label"],
                 hints=tuple(item["hints"]),
             )
