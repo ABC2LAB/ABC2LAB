@@ -1,0 +1,9 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: abc2lab-frontend
+    ports:
+      - "5173:80"
+    restart: unless-stopped

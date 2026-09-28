@@ -47,6 +47,16 @@ dist/
 *.egg-info/
 .eggs/
 
+# Node.js and frontend
+node_modules/
+.npm/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
 # Runtime files and logs
 *.log
 logs/
