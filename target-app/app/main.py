@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .config import SECRET_KEY, VULN_MODE
+from .config import SECRET_KEY, VULN_MODE, SESSION_COOKIE_NAME, SESSION_MAX_AGE
 from .database import Base, engine, SessionLocal
 from .seed import seed
 from .routers import pages, auth_routes, cart, orders, mypage, admin
@@ -15,7 +15,12 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY,
+    session_cookie=SESSION_COOKIE_NAME,
+    max_age=SESSION_MAX_AGE,
+)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 app.include_router(pages.router)

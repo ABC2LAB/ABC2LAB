@@ -12,3 +12,8 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./testapp.db")
 
 ADMIN_EMAIL = "admin@test.local"
 ADMIN_PASSWORD = "Admin1234!"
+
+# 쿠키는 포트가 아닌 호스트 기준으로 공유되므로, 같은 호스트에서 두 인스턴스를
+# 동시에 띄우면 쿠키 이름이 같을 때 서로 덮어쓴다. 모드별로 이름을 분리한다.
+SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", f"session_{VULN_MODE}")
+SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(14 * 24 * 60 * 60)))  # 초, 기본 14일
