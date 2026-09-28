@@ -24,7 +24,6 @@ from urllib.parse import urlsplit, urlunsplit
 from playwright.sync_api import BrowserContext, Locator, Page, Route
 from playwright.sync_api import Error as PlaywrightError
 
-from crawler.auth import SUBMIT_FORM_SCRIPT
 from crawler.capture import RequestCapture
 from crawler.config import CrawlerConfig, is_request_allowed
 from crawler.normalize import normalize_path
@@ -54,6 +53,9 @@ QUIET_TIMEOUT_S = 5.0
 FORM_SELECTOR = "form"
 # form 안 버튼은 폼 제출로 따로 다루므로 form 밖 버튼만 센다.
 BUTTON_SELECTOR = ":is(button, input[type=button], input[type=submit], [role=button]):not(form *)"
+# 브라우저 검증(required 등)만 끄고 제출한다. 값은 넣지 않는다(규칙 5). submit 이벤트는 그대로 나가므로
+# JS가 가로채 fetch를 보내는 폼도 관찰된다.
+SUBMIT_FORM_SCRIPT = "form => { form.noValidate = true; HTMLFormElement.prototype.requestSubmit.call(form); }"
 READ_LABEL_SCRIPT = "el => (el.innerText || el.value || el.getAttribute('aria-label') || '').trim() || null"
 # 요청을 내지 않고 DOM만 읽는다. form.action·form.elements는 name="action" 같은 input에 가려질 수 있어 속성·셀렉터로 읽는다.
 # 입력칸은 이름과 타입만 읽고 값은 읽지 않는다. input.type은 브라우저가 소문자·"text" 기본값으로 정규화해 준다.
@@ -70,12 +72,6 @@ READ_ELEMENTS_SCRIPT = (
     const method = (form.getAttribute('method') || 'get').toUpperCase();
     const action = new URL(form.getAttribute('action') ?? '', document.baseURI);
     action.hash = '';
-    let getUrl = null;
-    if (method === 'GET') {
-      const url = new URL(action.href);
-      url.search = new URLSearchParams(new FormData(form)).toString();
-      getUrl = url.href;
-    }
     const seen = new Set();
     const fields = [];
     for (const el of form.querySelectorAll('[name]')) {
@@ -88,7 +84,7 @@ READ_ELEMENTS_SCRIPT = (
       }
     }
     const submitter = form.querySelector('button, input[type=submit]');
-    return {method, action: action.href, get_url: getUrl, fields,
+    return {method, action: action.href, fields,
             label: submitter ? labelOf(submitter) : null, hints: hintsOf(form)};
   });
   const buttons = [...document.querySelectorAll(buttonSelector)]
@@ -137,7 +133,6 @@ class _FoundLink:
 class _FoundForm:
     method: str
     action: str
-    get_url: str | None
     fields: tuple[FormField, ...]
     label: str | None
     hints: tuple[str, ...]
@@ -308,12 +303,18 @@ class _Explorer:
             outcome = ActionOutcome.NOT_EXECUTED_STATE_CHANGING
         elif not is_request_allowed(self.config, form.action):
             outcome = ActionOutcome.OUTSIDE_ORIGIN
-        elif is_get and form.get_url is not None:
-            # GET 폼은 링크처럼 이동할 URL을 큐에 넣고 BFS 차례에 연다.
-            outcome = self._enqueue(form.get_url, current.depth + 1, current.masked_url, action_id)
         else:
+            # GET 폼도 실제로 제출한다. JS가 submit을 가로채 fetch를 보내는 폼은 URL만 봐서는 요청을 알 수 없다.
             step = _ActionStep(action_id, FORM_SELECTOR, index, None, _submit_form)
-            outcome, _ = self._execute(current, step)
+            outcome, navigated_url = self._execute(current, step)
+            if (
+                is_get
+                and outcome is ActionOutcome.EXECUTED
+                and navigated_url is not None
+                and is_request_allowed(self.config, navigated_url)
+            ):
+                # 이동했으면 링크처럼 BFS 차례에 다시 연다. 이미 본 템플릿이면 already_visited로 남는다.
+                outcome = self._enqueue(navigated_url, current.depth + 1, current.masked_url, action_id)
         return PageAction(
             action_id=action_id,
             kind=FORM_KIND,
@@ -426,7 +427,6 @@ def _read_elements(page: Page) -> _FoundElements:
             _FoundForm(
                 method=item["method"],
                 action=item["action"],
-                get_url=item["get_url"],
                 fields=tuple(FormField.model_validate(field) for field in item["fields"]),
                 label=item["label"],
                 hints=tuple(item["hints"]),

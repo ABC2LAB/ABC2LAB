@@ -40,12 +40,49 @@ EXPECTED_PROFILE_FIELDS = [
     FormField(name="bio", type="textarea"),
     FormField(name="agree", type="checkbox"),
 ]
+CART_API_PATH = "/api/cart-add"
+LOOKUP_API_PATH = "/api/lookup"
+TRACK_API_PATH = "/api/track"
+# alert 다음 줄에서 보낸다. 이 요청이 기록되면 대화상자가 닫혀 스크립트가 이어졌다는 증거다.
+AFTER_ALERT_PATH = "/api/after-alert"
+# JS가 submit을 가로채는 폼들. method·action이 없어 GET 폼으로 보이지만 제출해야 요청이 나간다.
+# 장바구니 폼은 실제 앱처럼 confirm → POST fetch → alert 순으로 대화상자를 띄운다.
+A_HTML = f"""<html><head><title>A</title></head><body>
+<a href="/a/deep">deep</a>
+<form id="cart"><input type="hidden" name="product_id" value="3"><input name="note" required>
+<button>add to cart</button></form>
+<form id="lookup"><button>lookup</button></form>
+<form method="get" action="/items/9"><button>open item</button></form>
+<form id="track" method="get" action="/items/9"><button>track and open</button></form>
+<script>
+const afterAlert = () => fetch("{AFTER_ALERT_PATH}");
+document.getElementById("cart").addEventListener("submit", event => {{
+  event.preventDefault();
+  confirm("add to cart?");
+  fetch("{CART_API_PATH}", {{method: "POST", body: new URLSearchParams(new FormData(event.target))}})
+    .then(() => {{ alert("added"); afterAlert(); }})
+    .catch(() => {{ alert("failed"); afterAlert(); }});
+}});
+// POST를 보낸 뒤 결과와 상관없이 원래 GET 이동을 한다. 막힌 요청이 있으면 이동보다 그쪽을 outcome으로 남겨야 한다.
+// 본문을 다 읽고 이동한다. 본문을 받는 중에 이동하면 끝남 이벤트가 오지 않아 capture가 그 요청을 영영 기다린다(STATUS 열린 결정).
+document.getElementById("track").addEventListener("submit", event => {{
+  event.preventDefault();
+  fetch("{TRACK_API_PATH}", {{method: "POST"}}).then(response => response.text()).finally(() => event.target.submit());
+}});
+document.getElementById("lookup").addEventListener("submit", event => {{
+  event.preventDefault();
+  fetch("{LOOKUP_API_PATH}");
+}});
+</script>
+</body></html>"""
 STATE_CHANGING_REQUESTS = [
     ("GET", "/logout"),
     ("POST", "/orders"),
     ("POST", "/api/remove-item"),
     ("POST", "/api/save"),
     ("POST", "/profile"),
+    ("POST", CART_API_PATH),
+    ("POST", TRACK_API_PATH),
 ]
 
 
@@ -95,17 +132,18 @@ class FakeSite:
 def make_site_handler(site: FakeSite) -> type[BaseHTTPRequestHandler]:
     html_routes = {
         "/": make_root_html(site.outside_url),
-        "/a": make_simple_html("A", "/a/deep"),
+        "/a": A_HTML,
         "/a/deep": make_simple_html("Deep", "/a/deep/deeper"),
         "/a/deep/deeper": make_simple_html("Deeper"),
         "/b": B_HTML,
         "/c": make_simple_html("C"),
         "/items/1": make_simple_html("Item"),
         "/items/2": make_simple_html("Item"),
+        "/items/9": make_simple_html("Item"),
         "/search": make_simple_html("Search"),
         "/logout": make_simple_html("Bye"),
     }
-    json_routes = {"/api/data", "/api/b-load"}
+    json_routes = {"/api/data", "/api/b-load", LOOKUP_API_PATH, AFTER_ALERT_PATH}
 
     class SiteHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -267,11 +305,87 @@ def test_form_field_values_not_stored(default_run: CrawlRun) -> None:
 def test_state_changing_actions_executed_when_allowed(browser: Browser) -> None:
     with serve_and_crawl(browser, CRAWLER_ALLOW_STATE_CHANGING="true") as crawl_run:
         root = page_at(crawl_run, "/")
+        a_page = page_at(crawl_run, "/a")
+        cart = action_labeled(a_page, "add to cart")
 
         for request in STATE_CHANGING_REQUESTS:
             assert request in crawl_run.site.received
         assert action_labeled(root, "order").outcome == "executed"
         assert action_labeled(root, "save").outcome == "executed"
+        # POST가 성공한 뒤 뜨는 alert도 탐색을 멈추지 않는다.
+        assert cart.outcome == "executed"
+        assert record_for(crawl_run, "POST", CART_API_PATH).status == 200
+        assert_dialogs_did_not_stop_crawl(crawl_run, a_page, cart)
+
+
+def assert_dialogs_did_not_stop_crawl(crawl_run: CrawlRun, a_page: DiscoveredPage, cart: PageAction) -> None:
+    after_alert = record_for(crawl_run, "GET", AFTER_ALERT_PATH)
+    assert (after_alert.source_page, after_alert.source_action) == (a_page.url, cart.action_id)
+    # 장바구니 폼 뒤의 행동과 그다음 페이지도 계속 처리됐다.
+    assert action_labeled(a_page, "lookup").outcome == "executed"
+    assert action_labeled(a_page, "open item").outcome == "already_visited"
+    assert "/a/deep" in [urlsplit(page.url).path for page in crawl_run.pages]
+
+
+def test_intercepted_post_form_recorded_and_blocked(default_run: CrawlRun) -> None:
+    a_page = page_at(default_run, "/a")
+    cart = action_labeled(a_page, "add to cart")
+
+    assert cart.kind == "form"
+    assert cart.method == "GET"
+    assert cart.outcome == "blocked_state_changing_request"
+    assert cart.is_state_changing is True
+    blocked = record_for(default_run, "POST", CART_API_PATH)
+    assert blocked.status is None
+    assert (blocked.source_page, blocked.source_action) == (a_page.url, cart.action_id)
+    # 비어 있는 required 칸이 있어도 값을 채우지 않고 제출 이벤트까지 간다.
+    assert blocked.body_params == {"product_id": ["3"], "note": [""]}
+
+
+def test_dialogs_after_blocked_request_do_not_stop_crawl(default_run: CrawlRun) -> None:
+    a_page = page_at(default_run, "/a")
+
+    assert_dialogs_did_not_stop_crawl(default_run, a_page, action_labeled(a_page, "add to cart"))
+
+
+def test_blocked_request_outranks_navigation(default_run: CrawlRun) -> None:
+    a_page = page_at(default_run, "/a")
+    track = action_labeled(a_page, "track and open")
+
+    assert track.outcome == "blocked_state_changing_request"
+    assert track.is_state_changing is True
+    blocked = record_for(default_run, "POST", TRACK_API_PATH)
+    assert (blocked.source_page, blocked.source_action) == (a_page.url, track.action_id)
+    # 막힌 뒤의 이동도 실제로 일어났다.
+    assert any(
+        urlsplit(record.url).path == "/items/9" and record.source_action == track.action_id
+        for record in default_run.records
+    )
+
+
+def test_intercepted_form_without_navigation_links_fetch(default_run: CrawlRun) -> None:
+    a_page = page_at(default_run, "/a")
+    lookup = action_labeled(a_page, "lookup")
+    record = record_for(default_run, "GET", LOOKUP_API_PATH)
+
+    assert lookup.outcome == "executed"
+    assert record.status == 200
+    assert (record.source_page, record.source_action) == (a_page.url, lookup.action_id)
+
+
+def test_get_form_navigation_enqueued_or_already_visited(default_run: CrawlRun) -> None:
+    root = page_at(default_run, "/")
+    a_page = page_at(default_run, "/a")
+    search = action_labeled(root, "search")
+    open_item = action_labeled(a_page, "open item")
+
+    assert search.outcome == "enqueued"
+    search_page = page_at(default_run, "/search")
+    assert (search_page.source_page, search_page.source_action) == (root.url, search.action_id)
+    # 이미 본 템플릿이라 큐에는 안 들어가지만 제출은 실제로 해서 문서 요청이 그 폼에 붙는다.
+    assert open_item.outcome == "already_visited"
+    item_request = record_for(default_run, "GET", "/items/9")
+    assert (item_request.source_page, item_request.source_action) == (a_page.url, open_item.action_id)
 
 
 def test_requests_linked_to_actions(default_run: CrawlRun) -> None:
