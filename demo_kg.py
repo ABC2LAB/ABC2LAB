@@ -6,14 +6,11 @@ KG 파이프라인 실습: 크롤 JSON -> 규칙 그래프 -> LLM 보강 -> 저�
 import json
 import pathlib
 
+from common.crawl_schema import CrawlSession
 from kg.builder import build_kg
 from kg.enrich import (
-    EndpointClass,
-    LLMClassification,
-    enrich_with_llm,
-    make_default_client,
+    EndpointClass, LLMClassification, enrich_with_llm, make_default_client,
 )
-from kg.kg_schema import CrawlResult
 
 
 # 키가 없을 때 쓰는 연습용 가짜 LLM (네트워크·비용 0)
@@ -31,11 +28,11 @@ class PracticeLLM:
 
 # 1) 크롤 결과 읽기 (나중에 민준 형님 실제 파일 경로로 바꾸면 됨)
 sample = pathlib.Path("kg/tests/data/crawl_sample.json")
-crawl = CrawlResult.model_validate(json.loads(sample.read_text(encoding="utf-8")))
-print(f"[1.입력]  target={crawl.target_base_url}  roles={[r.role for r in crawl.roles]}")
+session = CrawlSession.model_validate(json.loads(sample.read_text(encoding="utf-8")))
+print(f"[1.입력]  target={session.target_base_url}  roles={[r.role for r in session.roles]}")
 
 # 2) 규칙 기반으로 그래프 만들기
-kg = build_kg(crawl)
+kg = build_kg(session)
 print(f"[2.빌드]  노드 {len(kg.nodes)}개, 엣지 {len(kg.edges)}개")
 
 # 3) LLM 보강 (키 있으면 진짜, 없으면 연습용)

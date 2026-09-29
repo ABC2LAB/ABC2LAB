@@ -1,20 +1,21 @@
+from common.schemas import RelType
 from analyzer.observed import build_observed
-from analyzer.schemas import DerivedBy
 from analyzer.tests._helpers import load_crawl
 
 
-def test_observed_builds_api_and_param():
-    nodes, rels = build_observed(load_crawl())
-    ids = {n.id for n in nodes}
-    assert "api:GET:/api/products/{id}" in ids
-    assert "api:GET:/api/orders/{id}" in ids
-    assert "param:api:GET:/api/products/{id}:query:sort" in ids
-    # 모든 관찰 노드는 rule
-    assert all(n.derived_by == DerivedBy.RULE for n in nodes)
-    # HAS_PARAMETER 관계, 양 끝 존재
-    hp = [r for r in rels if r.type == "HAS_PARAMETER"]
-    assert hp and all(r.from_id in ids and r.to_id in ids for r in hp)
-    # evidence 는 request:N 그대로
-    api = next(n for n in nodes if n.id == "api:GET:/api/products/{id}")
-    assert api.evidence_ids == ["request:1"]
-    assert api.properties == {"method": "GET", "endpoint": "/api/products/{id}"}
+def test_observed_nodes_and_no_dangling():
+    nodes, rels, evid = build_observed(load_crawl())
+    assert [r.name for r in nodes.roles] == ["user"]
+    assert any(p.id == "page:/products/{id}" for p in nodes.pages)
+    api_ids = {a.id for a in nodes.api_operations}
+    assert {"api:GET:/api/products/{id}", "api:GET:/api/orders/{id}"} <= api_ids
+
+    node_ids = {x.id for g in (nodes.roles, nodes.pages, nodes.api_operations, nodes.parameters) for x in g}
+    for r in rels:
+        assert r.from_id in node_ids and r.to_id in node_ids
+
+    types = {r.type for r in rels}
+    assert {RelType.CAN_ACCESS, RelType.CAN_CALL, RelType.CALLS, RelType.ACCEPTS} <= types
+    # 모든 관찰 관계 evidence_ids는 실제 evidence를 가리킴
+    ev_ids = {e.id for e in evid}
+    assert all(all(e in ev_ids for e in r.evidence_ids) for r in rels)

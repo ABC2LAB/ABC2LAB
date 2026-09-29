@@ -8,15 +8,9 @@ LINKS_TO/EXPOSES)로 펼친다. 판단(접근통제 위반 추론)은 analyzer �
 """
 from __future__ import annotations
 
-from kg.kg_schema import (
-    CrawlResult,
-    EdgeCandidate,
-    Evidence,
-    KGCandidates,
-    NodeCandidate,
-    NodeLabel,
-    RelType,
-    RoleResult,
+from common.crawl_schema import CrawlSession, RoleCapture
+from common.kg_schema import (
+    Evidence, EdgeCandidate, KGCandidates, NodeCandidate, NodeLabel, RelType,
 )
 
 
@@ -59,30 +53,25 @@ class _Graph:
             e.evidence.append(ev)
 
 
-def _add_role(g: _Graph, rc: RoleResult, base_url: str) -> None:
+def _add_role(g: _Graph, rc: RoleCapture, base_url: str) -> None:
     role = rc.role
-    rev = Evidence(source_url=base_url, locator="crawl.role", evidence_id=rc.id,
-                   role=role, confidence=1.0)
+    rev = Evidence(source_url=base_url, locator="crawl.role", role=role, confidence=1.0)
     g.node(_role_id(role), NodeLabel.ROLE, {"role": role}, rev)
 
-    # 요청을 발생시킨 페이지를 되짚기 위한 맵. 크롤 레코드 id 가 우선, 없으면 url
-    ep_by_page_id = {p.id: p.endpoint for p in rc.pages}
-    ep_by_url = {p.url: p.endpoint for p in rc.pages}
+    # url -> page endpoint 맵 (요청을 발생시킨 페이지를 되짚기 위해)
+    url2ep = {p.url: p.endpoint for p in rc.pages}
 
     # ── 페이지 ──
     for p in rc.pages:
-        pev = Evidence(source_url=p.url, locator="discovered_page", evidence_id=p.id,
-                       role=role, snippet=f"{p.title} ({p.status})", confidence=0.9)
+        pev = Evidence(source_url=p.url, locator="discovered_page", role=role,
+                       snippet=f"{p.title} ({p.status})", confidence=0.9)
         g.node(_page_id(p.endpoint), NodeLabel.PAGE,
                {"endpoint": p.endpoint, "title": p.title, "sample_url": p.url}, pev)
         g.edge(_role_id(role), _page_id(p.endpoint), RelType.VISITED,
                {"status": p.status, "depth": p.depth}, pev)
         for ln in p.links:
-            # 목적지를 모르는 링크(javascript: 등)는 그래프로 이을 수 없다
-            if ln.endpoint is None:
-                continue
-            lev = Evidence(source_url=p.url, locator="link", evidence_id=p.id, role=role,
-                           snippet=(ln.text or "")[:100], confidence=0.7)
+            lev = Evidence(source_url=p.url, locator="link", role=role,
+                           snippet=ln.text[:100], confidence=0.7)
             g.node(_page_id(ln.endpoint), NodeLabel.PAGE, {"endpoint": ln.endpoint}, lev)
             g.edge(_page_id(p.endpoint), _page_id(ln.endpoint), RelType.LINKS_TO,
                    {"text": ln.text, "is_state_changing": ln.is_state_changing,
@@ -91,14 +80,14 @@ def _add_role(g: _Graph, rc: RoleResult, base_url: str) -> None:
     # ── 요청 ──
     for r in rc.requests:
         ep_id = _endpoint_id(r.method, r.endpoint)
-        rev2 = Evidence(source_url=r.url, locator="captured_request", evidence_id=r.id,
-                        role=role, snippet=f"{r.method} {r.status}", confidence=0.9)
+        rev2 = Evidence(source_url=r.url, locator="captured_request", role=role,
+                        snippet=f"{r.method} {r.status}", confidence=0.9)
         g.node(ep_id, NodeLabel.ENDPOINT,
                {"method": r.method.upper(), "template": r.endpoint,
                 "resource_type": r.resource_type}, rev2)
 
         # 요청을 발생시킨 페이지 -> 엔드포인트 (EXPOSES)
-        src_ep = ep_by_page_id.get(r.source_page_id or "") or ep_by_url.get(r.source_page or "")
+        src_ep = url2ep.get(r.source_page or "")
         if src_ep:
             g.edge(_page_id(src_ep), ep_id, RelType.EXPOSES,
                    {"method": r.method.upper(), "status": r.status,
@@ -119,16 +108,14 @@ def _add_role(g: _Graph, rc: RoleResult, base_url: str) -> None:
                     "captured_at": r.captured_at}, rev2)
 
 
-def build_kg(crawl: CrawlResult) -> KGCandidates:
-    """크롤 결과(crawl_result.json)를 근거가 달린 KG 후보로 펼친다."""
+def build_kg(session: CrawlSession) -> KGCandidates:
     g = _Graph()
-    for rc in crawl.roles:
-        _add_role(g, rc, crawl.target_base_url)
+    for rc in session.roles:
+        _add_role(g, rc, session.target_base_url)
     return KGCandidates(
-        target_base_url=crawl.target_base_url,
-        crawl_run_id=crawl.run_id,
+        target_base_url=session.target_base_url,
         nodes=list(g.nodes.values()),
         edges=list(g.edges.values()),
-        meta={"role_count": len(crawl.roles),
+        meta={"role_count": len(session.roles),
               "node_count": len(g.nodes), "edge_count": len(g.edges)},
     )

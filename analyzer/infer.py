@@ -1,7 +1,6 @@
 """
-추론(llm) 단계: ApiOperation 이 다루는 Resource 를 추론하고
-ApiOperation -ACCESSES-> Resource 관계를 만든다. derived_by="llm".
-Feature/Flow 추론은 다음 단계(스텁).
+LLM 추론 레이어. prompts + llm_client로 관찰 그래프에 의미를 얹는다.
+V1은 Resource 추론을 구현하고, Feature/Flow는 스텁(다음 단계).
 """
 from __future__ import annotations
 
@@ -10,9 +9,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from common.schemas import (
+    ApiOperationNode, FeatureNode, FlowStepNode, BusinessFlowNode,
+    Relationship, RelType, ResourceNode, Source,
+)
 from analyzer.llm_client import LLMClient
-from analyzer.normalize import resource_id
-from analyzer.schemas import DerivedBy, Node, NodeType, Relationship
+from analyzer.normalize import rel_id
 
 _PROMPTS = Path(__file__).parent / "prompts"
 
@@ -21,6 +23,7 @@ def load_prompt(name: str) -> str:
     return (_PROMPTS / f"{name}.md").read_text(encoding="utf-8")
 
 
+# LLM이 돌려줄 형식 (계약 노드가 아니라 내부 응답 스키마)
 class ResourceGuess(BaseModel):
     resource_name: str
     resource_type: str = "business_object"
@@ -28,47 +31,45 @@ class ResourceGuess(BaseModel):
     rationale: str = ""
 
 
-def infer_resources(api_nodes: list[Node], client: LLMClient
-                    ) -> tuple[list[Node], list[Relationship]]:
+def _slug(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", s.strip().lower()).strip("-") or "resource"
+
+
+def infer_resources(api_ops: list[ApiOperationNode], client: LLMClient
+                    ) -> tuple[list[ResourceNode], list[Relationship]]:
+    """각 ApiOperation → Resource 추론 + ApiOperation-ACCESSES->Resource."""
     tmpl = load_prompt("resource")
-    resources: dict[str, Node] = {}
+    resources: dict[str, ResourceNode] = {}
     rels: list[Relationship] = []
-    for api in api_nodes:
-        if api.type != NodeType.API_OPERATION:
-            continue
-        method = str(api.properties.get("method", ""))
-        endpoint = str(api.properties.get("endpoint", ""))
-        # 프롬프트 예시에 {id} 같은 literal 중괄호가 있어 .format 대신 replace 사용
-        prompt = tmpl.replace("{method}", method).replace("{endpoint}", endpoint)
+    for api in api_ops:
+        prompt = tmpl.format(method=api.method, endpoint=api.endpoint)
         guess = client.infer(prompt, ResourceGuess)
-        rid = resource_id(guess.resource_name)
-        if rid not in resources:
-            resources[rid] = Node(
-                id=rid, type=NodeType.RESOURCE, name=guess.resource_name.title(),
-                derived_by=DerivedBy.LLM, confidence=guess.confidence,
-                evidence_ids=list(api.evidence_ids),
-                properties={"resource_type": guess.resource_type},
-            )
+        rid = f"resource:{_slug(guess.resource_name)}"
+        resources.setdefault(rid, ResourceNode(
+            id=rid, name=guess.resource_name.title(), resource_type=guess.resource_type,
+            source=Source.LLM, confidence=guess.confidence, evidence_ids=list(api.evidence_ids)))
         rels.append(Relationship(
-            from_id=api.id, type="ACCESSES", to_id=rid, derived_by=DerivedBy.LLM,
+            id=rel_id(api.id, "ACCESSES", rid), type=RelType.ACCESSES,
+            from_id=api.id, to_id=rid, source=Source.LLM,
             confidence=guess.confidence, evidence_ids=list(api.evidence_ids)))
     return list(resources.values()), rels
 
 
-def infer_features(*args, **kwargs):
+def infer_features(*args, **kwargs) -> tuple[list[FeatureNode], list[Relationship]]:
     """TODO(analyzer): Feature 추론 (USES_PAGE/USES_API)."""
     return [], []
 
 
-def infer_flows(*args, **kwargs):
+def infer_flows(*args, **kwargs) -> tuple[list[BusinessFlowNode], list[FlowStepNode], list[Relationship]]:
     """TODO(analyzer): BusinessFlow/FlowStep 추론 (HAS_STEP/NEXT/VISITS)."""
     return [], [], []
 
 
 def demo_fake_responder(prompt: str, schema: type) -> BaseModel:
-    """키 없이 테스트/데모용. 프롬프트의 endpoint 줄만 보고 Resource 를 흉내낸다."""
+    """키 없이 테스트/데모용. 프롬프트의 endpoint 키워드로 Resource를 흉내낸다."""
     if schema is ResourceGuess:
-        m = re.search(r"경로:\s*(\S+)", prompt)
+        # 프롬프트 예시 문구가 아니라 'endpoint:' 줄만 보고 판단
+        m = re.search(r"엔드포인트:\s*\S+\s+(\S+)", prompt)
         low = (m.group(1) if m else prompt).lower()
         for kw, name in (("order", "order"), ("product", "product"),
                          ("user", "user"), ("cart", "cart")):
