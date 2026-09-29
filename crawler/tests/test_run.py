@@ -1,9 +1,12 @@
+import logging
 import os
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from email.utils import formatdate
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -403,3 +406,54 @@ def test_main_without_config_fails_without_file(tmp_path: Path) -> None:
 
     assert exit_code == 2
     assert not output.exists()
+
+
+# ---- 서버 시계 역행 감지 ----
+
+CLOCK_STEP_S = 3
+# 이만큼 응답한 뒤부터 서버 Date를 뒤로 돌린다.
+CLOCK_STEP_AFTER = 2
+CLOCK_WARNING_TEXT = "시계 역행"
+CLOCK_SITE_PATHS = ("/p1", "/p2", "/p3")
+
+
+def make_clock_site_handler(step_after: int | None) -> type[BaseHTTPRequestHandler]:
+    served = [0]
+
+    class ClockSiteHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            links = "".join(f'<a href="{path}">{path}</a>' for path in CLOCK_SITE_PATHS)
+            encoded = f"<html><body>{links}</body></html>".encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+            served[0] += 1
+
+        def date_time_string(self, timestamp: float | None = None) -> str:
+            # 테스트 환경 VM 시계가 뒤로 점프한 것처럼 Date 헤더를 돌린다.
+            is_stepped = step_after is not None and served[0] >= step_after
+            return formatdate(time.time() - (CLOCK_STEP_S if is_stepped else 0), usegmt=True)
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    return ClockSiteHandler
+
+
+@pytest.mark.parametrize(("step_after", "expected_warnings"), [(CLOCK_STEP_AFTER, 1), (None, 0)])
+def test_server_clock_regression_warned(
+    browser: Browser, caplog: pytest.LogCaptureFixture, step_after: int | None, expected_warnings: int
+) -> None:
+    caplog.set_level(logging.WARNING, logger=run.__name__)
+    with run_server(make_clock_site_handler(step_after)) as url:
+        crawl_result = run_crawl(browser, load_config({"CRAWLER_TARGET_URL": f"{url}/"}))
+
+    warnings = [record.getMessage() for record in caplog.records if CLOCK_WARNING_TEXT in record.getMessage()]
+    assert len(crawl_result.roles[0].pages) == 1 + len(CLOCK_SITE_PATHS)
+    # 역할별 경고 1줄 + 실행 전체 경고 1줄
+    assert len(warnings) == expected_warnings * 2
+    if expected_warnings:
+        assert "guest" in warnings[0] and "1회" in warnings[0]
+        assert "다시 돌리" in warnings[-1]

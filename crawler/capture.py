@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from email import policy
 from email.errors import MessageError
 from email.parser import BytesParser
-from email.utils import collapse_rfc2231_value
+from email.utils import collapse_rfc2231_value, parsedate_to_datetime
 from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlsplit, urlunsplit
 
 from playwright.sync_api import BrowserContext, Frame, Page, Request, Response
@@ -32,6 +32,7 @@ from crawler.config import CrawlerConfig, is_request_allowed
 from crawler.normalize import normalize_path
 from crawler.response_shape import describe_json_shape
 from crawler.schemas import CapturedRequest, ShapeNode
+from crawler.server_clock import ServerClockSample
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ SET_COOKIE_HEADER = "set-cookie"
 AUTHORIZATION_HEADERS = frozenset({"authorization", "proxy-authorization"})
 CONTENT_TYPE_HEADER = "content-type"
 CONTENT_LENGTH_HEADER = "content-length"
+DATE_HEADER = "date"
 JSON_MEDIA_TYPE_SUFFIX = "+json"
 # 이보다 큰 응답 본문은 모양을 만들지 않는다. 한 요청이 크롤링 전체 메모리를 먹지 않게 하려는 상한.
 MAX_RESPONSE_BODY_BYTES = 1024 * 1024
@@ -96,6 +98,8 @@ class RequestCapture:
         self._responses: dict[Request, Response] = {}
         # 메인 프레임 문서가 바뀌는 순간 대기 중이던 옛 문서의 요청. 새 문서가 뜨면 정리한다.
         self._stale_candidates: dict[Page, list[Request]] = {}
+        # 응답 받은 시각과 서버 Date. run이 대상 서버 시계 역행을 감지하는 데 쓴다. 결과 파일에는 넣지 않는다.
+        self._clock_samples: list[ServerClockSample] = []
         self._records: list[CapturedRequest] = []
         # 목록에 안 걸리는 이름이어도 설정의 로그인 비밀번호 필드는 가린다.
         self._sensitive_field_names = frozenset({config.login.password_field.lower()} if config.login else ())
@@ -109,6 +113,10 @@ class RequestCapture:
     def has_pending_requests(self) -> bool:
         """기록 대상 요청 중 아직 끝나지 않은 게 있는지. explorer가 행동 뒤 잦아듦을 판단할 때 쓴다."""
         return bool(self._pending_sources)
+
+    @property
+    def clock_samples(self) -> tuple[ServerClockSample, ...]:
+        return tuple(self._clock_samples)
 
     def set_source(self, source_page: str | None, source_action: str | None) -> None:
         """이후 나가는 요청에 붙일 페이지와 행동. 둘 다 None이면 해제."""
@@ -150,8 +158,12 @@ class RequestCapture:
             logger.debug("새 문서로 바뀌며 끝나지 않은 요청 %d개를 미완료로 기록", len(stale))
 
     def _on_response(self, response: Response) -> None:
-        if response.request in self._pending_sources:
-            self._responses[response.request] = response
+        if response.request not in self._pending_sources:
+            return
+        self._responses[response.request] = response
+        sample = _read_clock_sample(response)
+        if sample is not None:
+            self._clock_samples.append(sample)
 
     def _on_request(self, request: Request) -> None:
         if request.resource_type not in RECORDED_RESOURCE_TYPES:
@@ -335,6 +347,21 @@ def select_stale_requests(pending_requests: Iterable[Request], frame: Frame) -> 
         for request in pending_requests
         if not request.is_navigation_request() and _frame_of(request) == frame
     ]
+
+
+def _read_clock_sample(response: Response) -> ServerClockSample | None:
+    # headers는 IPC 없이 읽히는 속성이라 이벤트 처리 중에도 안전하다.
+    date_text = response.headers.get(DATE_HEADER)
+    if not date_text:
+        return None
+    try:
+        server_date = parsedate_to_datetime(date_text)
+    except (TypeError, ValueError):
+        logger.debug("해석할 수 없는 Date 헤더는 시계 비교에서 뺌")
+        return None
+    if server_date.tzinfo is None:
+        return None
+    return ServerClockSample(datetime.now(UTC), server_date)
 
 
 def _frame_of(request: Request) -> Frame | None:

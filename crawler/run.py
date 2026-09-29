@@ -32,6 +32,7 @@ from crawler.schemas import (
     RequestRecord,
     RoleResult,
 )
+from crawler.server_clock import count_clock_regressions
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,8 @@ class RoleCrawl:
     pages: tuple[DiscoveredPage, ...]
     records: tuple[CapturedRequest, ...]
     error: str | None
+    # 대상 서버 시계가 뒤로 간 횟수. 결과 파일에는 넣지 않고 경고로만 알린다.
+    clock_regressions: int = 0
 
 
 def make_run_id(now: datetime) -> str:
@@ -80,6 +83,12 @@ def run_crawl(browser: Browser, config: CrawlerConfig) -> CrawlResult:
     run_id = make_run_id(started_at)
     logger.info("실행 시작 %s: 역할 %s", run_id, ", ".join(config.roles))
     role_crawls = [crawl_role(browser, config, role) for role in config.roles]
+    total_regressions = sum(role_crawl.clock_regressions for role_crawl in role_crawls)
+    if total_regressions:
+        logger.warning(
+            "대상 서버 시계 역행 총 %d회: 시간 기반 세션이 끊겼을 수 있으니 이 결과는 쓰지 말고 다시 돌리세요",
+            total_regressions,
+        )
     run = RunInfo(run_id, config.start_url, started_at, datetime.now(UTC))
     return assign_evidence_ids(run, role_crawls)
 
@@ -100,8 +109,8 @@ def crawl_role(browser: Browser, config: CrawlerConfig, role: str) -> RoleCrawl:
         # traceback에는 URL·입력값이 섞일 수 있어 평소 로그에는 남기지 않는다.
         logger.debug("%s 역할 실패 상세", role, exc_info=True)
         records = capture.records if capture is not None else ()
-        return RoleCrawl(role, (), records, message)
-    return RoleCrawl(role, tuple(pages), capture.records, None)
+        return RoleCrawl(role, (), records, message, _count_role_clock_regressions(role, capture))
+    return RoleCrawl(role, tuple(pages), capture.records, None, _count_role_clock_regressions(role, capture))
 
 
 def assign_evidence_ids(run: RunInfo, role_crawls: Sequence[RoleCrawl]) -> CrawlResult:
@@ -211,6 +220,13 @@ def main(argv: Sequence[str] | None = None, env_path: Path = DEFAULT_ENV_PATH) -
     save_result(result, args.output)
     log_summary(result, args.output)
     return EXIT_OK if all(role.error is None for role in result.roles) else EXIT_ROLE_FAILED
+
+
+def _count_role_clock_regressions(role: str, capture: RequestCapture | None) -> int:
+    count = count_clock_regressions(capture.clock_samples) if capture is not None else 0
+    if count:
+        logger.warning("%s 역할 중 대상 서버 시계 역행 %d회 감지", role, count)
+    return count
 
 
 def _find_page_id(page_id_by_url: dict[str, str], url: str | None) -> str | None:
