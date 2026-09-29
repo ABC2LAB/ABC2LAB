@@ -1,13 +1,14 @@
-import json, pathlib
-from common.crawl_schema import CrawlSession
-from common.kg_schema import NodeLabel, RelType
+import json
+import pathlib
+
 from kg.builder import build_kg
+from kg.schemas import CrawlResult, NodeLabel, RelType
 
 SAMPLE = pathlib.Path(__file__).resolve().parent / "data" / "crawl_sample.json"
 
 
 def _kg():
-    s = CrawlSession.model_validate(json.loads(SAMPLE.read_text(encoding="utf-8")))
+    s = CrawlResult.model_validate(json.loads(SAMPLE.read_text(encoding="utf-8")))
     return build_kg(s)
 
 
@@ -48,3 +49,18 @@ def test_evidence_records_role():
     kg = _kg()
     accessed = [e for e in kg.edges if e.type == RelType.ACCESSED]
     assert all(e.evidence[0].role in {"user", "admin"} for e in accessed)
+
+
+def test_evidence_points_to_crawl_record():
+    # 근거마다 크롤 레코드 id 가 남아야 입력(crawl_result.json)과 대조할 수 있다
+    kg = _kg()
+    accessed = [e for e in kg.edges if e.type == RelType.ACCESSED]
+    assert all(e.evidence[0].evidence_id.startswith("request:") for e in accessed)
+
+
+def test_blocked_request_keeps_null_status():
+    # 막힌 요청(status=null)도 거부하지 않고, status 키는 null 로 남긴다
+    kg = _kg()
+    cart = next(e for e in kg.edges
+                if e.type == RelType.ACCESSED and e.target == "ep:POST:/api/cart")
+    assert cart.properties["status"] is None

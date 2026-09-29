@@ -1,18 +1,20 @@
 import json
 import pathlib
 
-from common.crawl_schema import CrawlSession
-from common.kg_schema import KGCandidates, NodeLabel
 from kg.builder import build_kg
 from kg.enrich import (
-    EndpointClass, LLMClassification, enrich_with_llm, make_default_client,
+    EndpointClass,
+    LLMClassification,
+    enrich_with_llm,
+    make_default_client,
 )
+from kg.schemas import CrawlResult, KGCandidates, NodeLabel
 
 SAMPLE = pathlib.Path(__file__).resolve().parent / "data" / "crawl_sample.json"
 
 
 def _base_kg():
-    s = CrawlSession.model_validate(json.loads(SAMPLE.read_text(encoding="utf-8")))
+    s = CrawlResult.model_validate(json.loads(SAMPLE.read_text(encoding="utf-8")))
     return build_kg(s)
 
 
