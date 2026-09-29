@@ -8,7 +8,8 @@ LLM 한 겹. 위층(infer)이 어느 모델인지 몰라도 되게 같은 인터
 from __future__ import annotations
 
 import os
-from typing import Callable, Protocol, TypeVar
+from collections.abc import Callable
+from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
 

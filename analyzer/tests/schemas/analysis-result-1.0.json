@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://abc2lab.local/schemas/analysis-result-1.0.json",
+  "title": "ABC2LAB analysis_result 1.0",
+  "type": "object",
+  "required": ["schema_version","analysis","nodes","relationships"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "analysis": {"$ref": "#/$defs/analysis"},
+    "nodes": {"type": "array","items": {"$ref": "#/$defs/node"}},
+    "relationships": {"type": "array","items": {"$ref": "#/$defs/relationship"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "analysis": {
+      "type": "object",
+      "required": ["crawl_run_id","target_base_url","analyzed_at","source"],
+      "properties": {
+        "crawl_run_id": {"type": "string","pattern": "^[0-9]{8}-[0-9]{6}-[A-Za-z0-9]{4}$"},
+        "target_base_url": {"type": "string","format": "uri"},
+        "analyzed_at": {"type": "string","format": "date-time"},
+        "source": {"type": "string","minLength": 1},
+        "analyzer_version": {"type": "string"},
+        "inference_policy_version": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": ["id","type","name","derived_by"],
+      "properties": {
+        "id": {"type": "string","minLength": 1},
+        "type": {"enum": ["Website","Page","ApiOperation","Parameter","Resource","Feature","BusinessFlow","FlowStep"]},
+        "name": {"type": "string","minLength": 1},
+        "derived_by": {"enum": ["crawler","rule","llm"]},
+        "confidence": {"type": "number","minimum": 0,"maximum": 1},
+        "evidence_ids": {"type": "array","uniqueItems": true,"items": {"type": "string","minLength": 1}},
+        "properties": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "relationship": {
+      "type": "object",
+      "required": ["from_id","type","to_id","derived_by"],
+      "properties": {
+        "from_id": {"type": "string","minLength": 1},
+        "type": {"type": "string","minLength": 1},
+        "to_id": {"type": "string","minLength": 1},
+        "derived_by": {"enum": ["crawler","rule","llm"]},
+        "confidence": {"type": "number","minimum": 0,"maximum": 1},
+        "evidence_ids": {"type": "array","uniqueItems": true,"items": {"type": "string","minLength": 1}},
+        "properties": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

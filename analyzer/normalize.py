@@ -1,23 +1,20 @@
-"""결정적 ID·정규화 (순수 함수). '같은 입력=같은 ID'를 이 한 곳에서 보장한다."""
+"""결정적 canonical ID (명세 9.4). 같은 입력이면 항상 같은 ID."""
 from __future__ import annotations
 
-
-def role_id(name: str) -> str:
-    return f"role:{name}"
-
-
-def page_id(endpoint: str) -> str:
-    return f"page:{endpoint}"
+import re
 
 
 def api_id(method: str, endpoint: str) -> str:
+    # api:{METHOD}:{endpoint}  — method 대문자, endpoint 는 크롤러 정규화값 그대로
     return f"api:{method.upper()}:{endpoint}"
 
 
-def param_id(method: str, endpoint: str, location: str, name: str) -> str:
-    return f"param:{method.upper()}:{endpoint}:{location}:{name}"
+def param_id(api_id_: str, location: str, parameter_path: str) -> str:
+    # param:{api_id}:{location}:{parameter_path}
+    return f"{'param:' + api_id_}:{location}:{parameter_path}"
 
 
-def rel_id(from_id: str, rel_type: str, to_id: str) -> str:
-    # 관계 type은 대문자로 (통합 명세 부록 A 기준)
-    return f"rel:{from_id}:{rel_type.upper()}:{to_id}"
+def resource_id(canonical_name: str) -> str:
+    # resource:{canonical_name}  — lowercase kebab-case
+    slug = re.sub(r"[^a-z0-9]+", "-", canonical_name.strip().lower()).strip("-")
+    return f"resource:{slug or 'resource'}"
