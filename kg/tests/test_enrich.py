@@ -8,7 +8,7 @@ from kg.enrich import (
     enrich_with_llm,
     make_default_client,
 )
-from kg.schemas import CrawlResult, KGCandidates, NodeLabel
+from kg.kg_schema import CrawlResult, KGCandidates, NodeLabel
 
 SAMPLE = pathlib.Path(__file__).resolve().parent / "data" / "crawl_sample.json"
 

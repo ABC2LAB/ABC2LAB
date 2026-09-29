@@ -8,7 +8,7 @@ LINKS_TO/EXPOSES)로 펼친다. 판단(접근통제 위반 추론)은 analyzer �
 """
 from __future__ import annotations
 
-from kg.schemas import (
+from kg.kg_schema import (
     CrawlResult,
     EdgeCandidate,
     Evidence,

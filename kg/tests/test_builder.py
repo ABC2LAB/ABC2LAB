@@ -2,7 +2,7 @@ import json
 import pathlib
 
 from kg.builder import build_kg
-from kg.schemas import CrawlResult, NodeLabel, RelType
+from kg.kg_schema import CrawlResult, NodeLabel, RelType
 
 SAMPLE = pathlib.Path(__file__).resolve().parent / "data" / "crawl_sample.json"
 

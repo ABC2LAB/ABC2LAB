@@ -4,7 +4,7 @@ import pathlib
 import pytest
 from pydantic import ValidationError
 
-from kg.schemas import CrawlResult
+from kg.kg_schema import CrawlResult
 
 SAMPLE = pathlib.Path(__file__).resolve().parent / "data" / "crawl_sample.json"
 

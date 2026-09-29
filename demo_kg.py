@@ -13,7 +13,7 @@ from kg.enrich import (
     enrich_with_llm,
     make_default_client,
 )
-from kg.schemas import CrawlResult
+from kg.kg_schema import CrawlResult
 
 
 # 키가 없을 때 쓰는 연습용 가짜 LLM (네트워크·비용 0)

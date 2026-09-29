@@ -21,7 +21,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel
 
-from kg.schemas import Evidence, KGCandidates, NodeLabel
+from kg.kg_schema import Evidence, KGCandidates, NodeLabel
 
 AccessScope = Literal["public", "authenticated", "user_owned", "admin_only"]
 
