@@ -1,0 +1,3222 @@
+{
+  "schema_version": "1.0",
+  "run_id": "20260929-012947-c4e5",
+  "target_base_url": "http://localhost:8001",
+  "started_at": "2026-09-29T01:29:47.545566Z",
+  "finished_at": "2026-09-29T01:29:57.879917Z",
+  "roles": [
+    {
+      "id": "role:guest",
+      "role": "guest",
+      "error": null,
+      "pages": [
+        {
+          "role": "guest",
+          "url": "http://localhost:8001/",
+          "endpoint": "/",
+          "title": "상품목록 - Test Shop",
+          "status": 200,
+          "depth": 0,
+          "source_page": null,
+          "source_action": "start",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/login",
+              "endpoint": "/login",
+              "text": "로그인",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/signup",
+              "endpoint": "/signup",
+              "text": "회원가입",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/products/1",
+              "endpoint": "/products/{id}",
+              "text": "🎧\n무선 이어폰\n89,000원",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/products/2",
+              "endpoint": "/products/{id}",
+              "text": "⌨️\n기계식 키보드\n125,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:6",
+              "url": "http://localhost:8001/products/3",
+              "endpoint": "/products/{id}",
+              "text": "🎒\n캔버스 백팩\n45,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:7",
+              "url": "http://localhost:8001/products/4",
+              "endpoint": "/products/{id}",
+              "text": "🥤\n스테인리스 텀블러\n18,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:8",
+              "url": "http://localhost:8001/products/5",
+              "endpoint": "/products/{id}",
+              "text": "💡\nLED 데스크 램프\n32,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:9",
+              "url": "http://localhost:8001/products/6",
+              "endpoint": "/products/{id}",
+              "text": "🔊\n블루투스 스피커\n56,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [],
+          "id": "page:1",
+          "source_page_id": null
+        },
+        {
+          "role": "guest",
+          "url": "http://localhost:8001/login",
+          "endpoint": "/login",
+          "title": "로그인 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:2",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/login",
+              "endpoint": "/login",
+              "text": "로그인",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/signup",
+              "endpoint": "/signup",
+              "text": "회원가입",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그인",
+              "method": "POST",
+              "target_url": "http://localhost:8001/login",
+              "fields": [
+                {
+                  "name": "email",
+                  "type": "email"
+                },
+                {
+                  "name": "password",
+                  "type": "password"
+                }
+              ],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:2",
+          "source_page_id": "page:1"
+        },
+        {
+          "role": "guest",
+          "url": "http://localhost:8001/signup",
+          "endpoint": "/signup",
+          "title": "회원가입 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:3",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/login",
+              "endpoint": "/login",
+              "text": "로그인",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/signup",
+              "endpoint": "/signup",
+              "text": "회원가입",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "가입하기",
+              "method": "POST",
+              "target_url": "http://localhost:8001/signup",
+              "fields": [
+                {
+                  "name": "email",
+                  "type": "email"
+                },
+                {
+                  "name": "password",
+                  "type": "password"
+                },
+                {
+                  "name": "name",
+                  "type": "text"
+                },
+                {
+                  "name": "address",
+                  "type": "text"
+                }
+              ],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:3",
+          "source_page_id": "page:1"
+        },
+        {
+          "role": "guest",
+          "url": "http://localhost:8001/products/1",
+          "endpoint": "/products/{id}",
+          "title": "무선 이어폰 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:4",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/login",
+              "endpoint": "/login",
+              "text": "로그인",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/signup",
+              "endpoint": "/signup",
+              "text": "회원가입",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/login",
+              "endpoint": "/login",
+              "text": "로그인 후 구매하기",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [],
+          "id": "page:4",
+          "source_page_id": "page:1"
+        }
+      ],
+      "requests": [
+        {
+          "role": "guest",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/",
+          "endpoint": "/",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1647",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:47 GMT",
+            "server": "uvicorn"
+          },
+          "response_shape": null,
+          "source_page": null,
+          "source_action": "start",
+          "captured_at": "2026-09-29T01:29:47.643165Z",
+          "id": "request:1",
+          "source_page_id": null
+        },
+        {
+          "role": "guest",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/login",
+          "endpoint": "/login",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "810",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:47 GMT",
+            "server": "uvicorn"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:2",
+          "captured_at": "2026-09-29T01:29:48.044699Z",
+          "id": "request:2",
+          "source_page_id": "page:1"
+        },
+        {
+          "role": "guest",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/signup",
+          "endpoint": "/signup",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "948",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:48 GMT",
+            "server": "uvicorn"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:3",
+          "captured_at": "2026-09-29T01:29:48.442754Z",
+          "id": "request:3",
+          "source_page_id": "page:1"
+        },
+        {
+          "role": "guest",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/products/1",
+          "endpoint": "/products/{id}",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [
+            "1"
+          ],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "895",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:48 GMT",
+            "server": "uvicorn"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:4",
+          "captured_at": "2026-09-29T01:29:48.796122Z",
+          "id": "request:4",
+          "source_page_id": "page:1"
+        }
+      ]
+    },
+    {
+      "id": "role:user",
+      "role": "user",
+      "error": null,
+      "pages": [
+        {
+          "role": "user",
+          "url": "http://localhost:8001/",
+          "endpoint": "/",
+          "title": "상품목록 - Test Shop",
+          "status": 200,
+          "depth": 0,
+          "source_page": null,
+          "source_action": "start",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/products/1",
+              "endpoint": "/products/{id}",
+              "text": "🎧\n무선 이어폰\n89,000원",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:6",
+              "url": "http://localhost:8001/products/2",
+              "endpoint": "/products/{id}",
+              "text": "⌨️\n기계식 키보드\n125,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:7",
+              "url": "http://localhost:8001/products/3",
+              "endpoint": "/products/{id}",
+              "text": "🎒\n캔버스 백팩\n45,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:8",
+              "url": "http://localhost:8001/products/4",
+              "endpoint": "/products/{id}",
+              "text": "🥤\n스테인리스 텀블러\n18,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:9",
+              "url": "http://localhost:8001/products/5",
+              "endpoint": "/products/{id}",
+              "text": "💡\nLED 데스크 램프\n32,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:10",
+              "url": "http://localhost:8001/products/6",
+              "endpoint": "/products/{id}",
+              "text": "🔊\n블루투스 스피커\n56,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:5",
+          "source_page_id": null
+        },
+        {
+          "role": "user",
+          "url": "http://localhost:8001/cart",
+          "endpoint": "/cart",
+          "title": "장바구니 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:2",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/checkout",
+              "endpoint": "/checkout",
+              "text": "주문하기",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "button:0",
+              "kind": "button",
+              "label": "삭제",
+              "method": null,
+              "target_url": null,
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:6",
+          "source_page_id": "page:5"
+        },
+        {
+          "role": "user",
+          "url": "http://localhost:8001/orders",
+          "endpoint": "/orders",
+          "title": "주문조회 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:3",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/orders/1",
+              "endpoint": "/orders/{id}",
+              "text": "상세보기",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:7",
+          "source_page_id": "page:5"
+        },
+        {
+          "role": "user",
+          "url": "http://localhost:8001/mypage",
+          "endpoint": "/mypage",
+          "title": "마이페이지 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:4",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:1",
+              "kind": "form",
+              "label": "저장",
+              "method": "POST",
+              "target_url": "http://localhost:8001/mypage",
+              "fields": [
+                {
+                  "name": "name",
+                  "type": "text"
+                },
+                {
+                  "name": "address",
+                  "type": "text"
+                }
+              ],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:8",
+          "source_page_id": "page:5"
+        },
+        {
+          "role": "user",
+          "url": "http://localhost:8001/products/1",
+          "endpoint": "/products/{id}",
+          "title": "무선 이어폰 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:5",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:1",
+              "kind": "form",
+              "label": "장바구니 담기",
+              "method": "GET",
+              "target_url": "http://localhost:8001/products/1",
+              "fields": [
+                {
+                  "name": "product_id",
+                  "type": "hidden"
+                },
+                {
+                  "name": "quantity",
+                  "type": "number"
+                }
+              ],
+              "is_state_changing": true,
+              "outcome": "blocked_state_changing_request"
+            }
+          ],
+          "id": "page:9",
+          "source_page_id": "page:5"
+        },
+        {
+          "role": "user",
+          "url": "http://localhost:8001/checkout",
+          "endpoint": "/checkout",
+          "title": "주문서 작성 - Test Shop",
+          "status": 200,
+          "depth": 2,
+          "source_page": "http://localhost:8001/cart",
+          "source_action": "link:5",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:1",
+              "kind": "form",
+              "label": "결제하기",
+              "method": "POST",
+              "target_url": "http://localhost:8001/orders",
+              "fields": [
+                {
+                  "name": "shipping_address",
+                  "type": "text"
+                }
+              ],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:10",
+          "source_page_id": "page:6"
+        },
+        {
+          "role": "user",
+          "url": "http://localhost:8001/orders/1",
+          "endpoint": "/orders/{id}",
+          "title": "주문상세 - Test Shop",
+          "status": 200,
+          "depth": 2,
+          "source_page": "http://localhost:8001/orders",
+          "source_action": "link:5",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "목록으로",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:11",
+          "source_page_id": "page:7"
+        }
+      ],
+      "requests": [
+        {
+          "role": "user",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/",
+          "endpoint": "/",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1852",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:49 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": null,
+          "source_action": "start",
+          "captured_at": "2026-09-29T01:29:49.468324Z",
+          "id": "request:5",
+          "source_page_id": null
+        },
+        {
+          "role": "user",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/cart",
+          "endpoint": "/cart",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1934",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:49 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:2",
+          "captured_at": "2026-09-29T01:29:49.805241Z",
+          "id": "request:6",
+          "source_page_id": "page:5"
+        },
+        {
+          "role": "user",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/orders",
+          "endpoint": "/orders",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1022",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:49 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:3",
+          "captured_at": "2026-09-29T01:29:50.195006Z",
+          "id": "request:7",
+          "source_page_id": "page:5"
+        },
+        {
+          "role": "user",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/mypage",
+          "endpoint": "/mypage",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1439",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:50 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:4",
+          "captured_at": "2026-09-29T01:29:50.573453Z",
+          "id": "request:8",
+          "source_page_id": "page:5"
+        },
+        {
+          "role": "user",
+          "method": "GET",
+          "resource_type": "fetch",
+          "url": "http://localhost:8001/api/users/2",
+          "endpoint": "/api/users/{id}",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [
+            "2"
+          ],
+          "request_headers": {
+            "accept": "*/*",
+            "cookie": "session=***",
+            "referer": "http://localhost:8001/mypage",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "112",
+            "content-type": "application/json",
+            "date": "Tue, 29 Sep 2026 01:29:50 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": {
+            "id": "int",
+            "email": "str",
+            "name": "str",
+            "address": "str",
+            "role": "str"
+          },
+          "source_page": "http://localhost:8001/mypage",
+          "source_action": "load",
+          "captured_at": "2026-09-29T01:29:50.618144Z",
+          "id": "request:9",
+          "source_page_id": "page:8"
+        },
+        {
+          "role": "user",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/products/1",
+          "endpoint": "/products/{id}",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [
+            "1"
+          ],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1678",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:50 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:5",
+          "captured_at": "2026-09-29T01:29:50.947712Z",
+          "id": "request:10",
+          "source_page_id": "page:5"
+        },
+        {
+          "role": "user",
+          "method": "POST",
+          "resource_type": "fetch",
+          "url": "http://localhost:8001/cart/add",
+          "endpoint": "/cart/add",
+          "status": null,
+          "query_params": {},
+          "body_params": {
+            "product_id": [
+              "1"
+            ],
+            "quantity": [
+              "1"
+            ]
+          },
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "*/*",
+            "content-type": "multipart/form-data; boundary=----WebKitFormBoundary5e7B8QMaph4kLOu2",
+            "cookie": "session=***",
+            "origin": "http://localhost:8001",
+            "referer": "http://localhost:8001/products/1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {},
+          "response_shape": null,
+          "source_page": "http://localhost:8001/products/1",
+          "source_action": "form:1",
+          "captured_at": "2026-09-29T01:29:51.341976Z",
+          "id": "request:11",
+          "source_page_id": "page:9"
+        },
+        {
+          "role": "user",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/checkout",
+          "endpoint": "/checkout",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1246",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:51 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/cart",
+          "source_action": "link:5",
+          "captured_at": "2026-09-29T01:29:51.667436Z",
+          "id": "request:12",
+          "source_page_id": "page:6"
+        },
+        {
+          "role": "user",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/orders/1",
+          "endpoint": "/orders/{id}",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [
+            "1"
+          ],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1217",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:51 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/orders",
+          "source_action": "link:5",
+          "captured_at": "2026-09-29T01:29:52.046645Z",
+          "id": "request:13",
+          "source_page_id": "page:7"
+        }
+      ]
+    },
+    {
+      "id": "role:admin",
+      "role": "admin",
+      "error": null,
+      "pages": [
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/",
+          "endpoint": "/",
+          "title": "상품목록 - Test Shop",
+          "status": 200,
+          "depth": 0,
+          "source_page": null,
+          "source_action": "start",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:6",
+              "url": "http://localhost:8001/products/1",
+              "endpoint": "/products/{id}",
+              "text": "🎧\n무선 이어폰\n89,000원",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:7",
+              "url": "http://localhost:8001/products/2",
+              "endpoint": "/products/{id}",
+              "text": "⌨️\n기계식 키보드\n125,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:8",
+              "url": "http://localhost:8001/products/3",
+              "endpoint": "/products/{id}",
+              "text": "🎒\n캔버스 백팩\n45,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:9",
+              "url": "http://localhost:8001/products/4",
+              "endpoint": "/products/{id}",
+              "text": "🥤\n스테인리스 텀블러\n18,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:10",
+              "url": "http://localhost:8001/products/5",
+              "endpoint": "/products/{id}",
+              "text": "💡\nLED 데스크 램프\n32,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:11",
+              "url": "http://localhost:8001/products/6",
+              "endpoint": "/products/{id}",
+              "text": "🔊\n블루투스 스피커\n56,000원",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:12",
+          "source_page_id": null
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/cart",
+          "endpoint": "/cart",
+          "title": "장바구니 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:2",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:6",
+              "url": "http://localhost:8001/checkout",
+              "endpoint": "/checkout",
+              "text": "주문하기",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "button:0",
+              "kind": "button",
+              "label": "삭제",
+              "method": null,
+              "target_url": null,
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:13",
+          "source_page_id": "page:12"
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/orders",
+          "endpoint": "/orders",
+          "title": "주문조회 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:3",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:14",
+          "source_page_id": "page:12"
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/mypage",
+          "endpoint": "/mypage",
+          "title": "마이페이지 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:4",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:1",
+              "kind": "form",
+              "label": "저장",
+              "method": "POST",
+              "target_url": "http://localhost:8001/mypage",
+              "fields": [
+                {
+                  "name": "name",
+                  "type": "text"
+                },
+                {
+                  "name": "address",
+                  "type": "text"
+                }
+              ],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:15",
+          "source_page_id": "page:12"
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/admin",
+          "endpoint": "/admin",
+          "title": "관리자 대시보드 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:5",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:6",
+              "url": "http://localhost:8001/admin/users",
+              "endpoint": "/admin/users",
+              "text": "회원 관리",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:7",
+              "url": "http://localhost:8001/admin/products",
+              "endpoint": "/admin/products",
+              "text": "상품 관리",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:8",
+              "url": "http://localhost:8001/admin/orders",
+              "endpoint": "/admin/orders",
+              "text": "주문 관리",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:16",
+          "source_page_id": "page:12"
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/products/1",
+          "endpoint": "/products/{id}",
+          "title": "무선 이어폰 - Test Shop",
+          "status": 200,
+          "depth": 1,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:6",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:1",
+              "kind": "form",
+              "label": "장바구니 담기",
+              "method": "GET",
+              "target_url": "http://localhost:8001/products/1",
+              "fields": [
+                {
+                  "name": "product_id",
+                  "type": "hidden"
+                },
+                {
+                  "name": "quantity",
+                  "type": "number"
+                }
+              ],
+              "is_state_changing": true,
+              "outcome": "blocked_state_changing_request"
+            }
+          ],
+          "id": "page:17",
+          "source_page_id": "page:12"
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/checkout",
+          "endpoint": "/checkout",
+          "title": "주문서 작성 - Test Shop",
+          "status": 200,
+          "depth": 2,
+          "source_page": "http://localhost:8001/cart",
+          "source_action": "link:6",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:1",
+              "kind": "form",
+              "label": "결제하기",
+              "method": "POST",
+              "target_url": "http://localhost:8001/orders",
+              "fields": [
+                {
+                  "name": "shipping_address",
+                  "type": "text"
+                }
+              ],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:18",
+          "source_page_id": "page:13"
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/admin/users",
+          "endpoint": "/admin/users",
+          "title": "회원 관리 - Test Shop",
+          "status": 200,
+          "depth": 2,
+          "source_page": "http://localhost:8001/admin",
+          "source_action": "link:6",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:19",
+          "source_page_id": "page:16"
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/admin/products",
+          "endpoint": "/admin/products",
+          "title": "상품 관리 - Test Shop",
+          "status": 200,
+          "depth": 2,
+          "source_page": "http://localhost:8001/admin",
+          "source_action": "link:7",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:6",
+              "url": "http://localhost:8001/admin/products/new",
+              "endpoint": "/admin/products/new",
+              "text": "+ 상품 추가",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:7",
+              "url": "http://localhost:8001/admin/products/1/edit",
+              "endpoint": "/admin/products/{id}/edit",
+              "text": "수정",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            },
+            {
+              "action_id": "link:8",
+              "url": "http://localhost:8001/admin/products/2/edit",
+              "endpoint": "/admin/products/{id}/edit",
+              "text": "수정",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:9",
+              "url": "http://localhost:8001/admin/products/3/edit",
+              "endpoint": "/admin/products/{id}/edit",
+              "text": "수정",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:10",
+              "url": "http://localhost:8001/admin/products/4/edit",
+              "endpoint": "/admin/products/{id}/edit",
+              "text": "수정",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:11",
+              "url": "http://localhost:8001/admin/products/5/edit",
+              "endpoint": "/admin/products/{id}/edit",
+              "text": "수정",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:12",
+              "url": "http://localhost:8001/admin/products/6/edit",
+              "endpoint": "/admin/products/{id}/edit",
+              "text": "수정",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:1",
+              "kind": "form",
+              "label": "삭제",
+              "method": "POST",
+              "target_url": "http://localhost:8001/admin/products/1/delete",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:2",
+              "kind": "form",
+              "label": "삭제",
+              "method": "POST",
+              "target_url": "http://localhost:8001/admin/products/2/delete",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:3",
+              "kind": "form",
+              "label": "삭제",
+              "method": "POST",
+              "target_url": "http://localhost:8001/admin/products/3/delete",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:4",
+              "kind": "form",
+              "label": "삭제",
+              "method": "POST",
+              "target_url": "http://localhost:8001/admin/products/4/delete",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:5",
+              "kind": "form",
+              "label": "삭제",
+              "method": "POST",
+              "target_url": "http://localhost:8001/admin/products/5/delete",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:6",
+              "kind": "form",
+              "label": "삭제",
+              "method": "POST",
+              "target_url": "http://localhost:8001/admin/products/6/delete",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:20",
+          "source_page_id": "page:16"
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/admin/orders",
+          "endpoint": "/admin/orders",
+          "title": "주문 관리 - Test Shop",
+          "status": 200,
+          "depth": 2,
+          "source_page": "http://localhost:8001/admin",
+          "source_action": "link:8",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:6",
+              "url": "http://localhost:8001/orders/1",
+              "endpoint": "/orders/{id}",
+              "text": "상세보기",
+              "is_state_changing": false,
+              "outcome": "enqueued"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:21",
+          "source_page_id": "page:16"
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/admin/products/new",
+          "endpoint": "/admin/products/new",
+          "title": "상품 등록 - Test Shop",
+          "status": 200,
+          "depth": 3,
+          "source_page": "http://localhost:8001/admin/products",
+          "source_action": "link:6",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:1",
+              "kind": "form",
+              "label": "저장",
+              "method": "POST",
+              "target_url": "http://localhost:8001/admin/products",
+              "fields": [
+                {
+                  "name": "name",
+                  "type": "text"
+                },
+                {
+                  "name": "description",
+                  "type": "textarea"
+                },
+                {
+                  "name": "price",
+                  "type": "number"
+                },
+                {
+                  "name": "stock",
+                  "type": "number"
+                },
+                {
+                  "name": "category",
+                  "type": "text"
+                },
+                {
+                  "name": "image_emoji",
+                  "type": "text"
+                }
+              ],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:22",
+          "source_page_id": "page:20"
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/admin/products/1/edit",
+          "endpoint": "/admin/products/{id}/edit",
+          "title": "상품 수정 - Test Shop",
+          "status": 200,
+          "depth": 3,
+          "source_page": "http://localhost:8001/admin/products",
+          "source_action": "link:7",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            },
+            {
+              "action_id": "form:1",
+              "kind": "form",
+              "label": "저장",
+              "method": "POST",
+              "target_url": "http://localhost:8001/admin/products/1",
+              "fields": [
+                {
+                  "name": "name",
+                  "type": "text"
+                },
+                {
+                  "name": "description",
+                  "type": "textarea"
+                },
+                {
+                  "name": "price",
+                  "type": "number"
+                },
+                {
+                  "name": "stock",
+                  "type": "number"
+                },
+                {
+                  "name": "category",
+                  "type": "text"
+                },
+                {
+                  "name": "image_emoji",
+                  "type": "text"
+                }
+              ],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:23",
+          "source_page_id": "page:20"
+        },
+        {
+          "role": "admin",
+          "url": "http://localhost:8001/orders/1",
+          "endpoint": "/orders/{id}",
+          "title": "주문상세 - Test Shop",
+          "status": 200,
+          "depth": 3,
+          "source_page": "http://localhost:8001/admin/orders",
+          "source_action": "link:6",
+          "links": [
+            {
+              "action_id": "link:0",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "🛒 Test Shop",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:1",
+              "url": "http://localhost:8001/",
+              "endpoint": "/",
+              "text": "상품목록",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:2",
+              "url": "http://localhost:8001/cart",
+              "endpoint": "/cart",
+              "text": "장바구니",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:3",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "주문조회",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:4",
+              "url": "http://localhost:8001/mypage",
+              "endpoint": "/mypage",
+              "text": "마이페이지",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:5",
+              "url": "http://localhost:8001/admin",
+              "endpoint": "/admin",
+              "text": "관리자",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            },
+            {
+              "action_id": "link:6",
+              "url": "http://localhost:8001/orders",
+              "endpoint": "/orders",
+              "text": "목록으로",
+              "is_state_changing": false,
+              "outcome": "already_visited"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "form:0",
+              "kind": "form",
+              "label": "로그아웃",
+              "method": "POST",
+              "target_url": "http://localhost:8001/logout",
+              "fields": [],
+              "is_state_changing": true,
+              "outcome": "not_executed_state_changing"
+            }
+          ],
+          "id": "page:24",
+          "source_page_id": "page:21"
+        }
+      ],
+      "requests": [
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/",
+          "endpoint": "/",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1903",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:52 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": null,
+          "source_action": "start",
+          "captured_at": "2026-09-29T01:29:52.732460Z",
+          "id": "request:14",
+          "source_page_id": null
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/cart",
+          "endpoint": "/cart",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1985",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:52 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:2",
+          "captured_at": "2026-09-29T01:29:53.130269Z",
+          "id": "request:15",
+          "source_page_id": "page:12"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/orders",
+          "endpoint": "/orders",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "820",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:53 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:3",
+          "captured_at": "2026-09-29T01:29:53.488161Z",
+          "id": "request:16",
+          "source_page_id": "page:12"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/mypage",
+          "endpoint": "/mypage",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1493",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:53 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:4",
+          "captured_at": "2026-09-29T01:29:53.838546Z",
+          "id": "request:17",
+          "source_page_id": "page:12"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "fetch",
+          "url": "http://localhost:8001/api/users/1",
+          "endpoint": "/api/users/{id}",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [
+            "1"
+          ],
+          "request_headers": {
+            "accept": "*/*",
+            "cookie": "session=***",
+            "referer": "http://localhost:8001/mypage",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "116",
+            "content-type": "application/json",
+            "date": "Tue, 29 Sep 2026 01:29:53 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": {
+            "id": "int",
+            "email": "str",
+            "name": "str",
+            "address": "str",
+            "role": "str"
+          },
+          "source_page": "http://localhost:8001/mypage",
+          "source_action": "load",
+          "captured_at": "2026-09-29T01:29:53.857325Z",
+          "id": "request:18",
+          "source_page_id": "page:15"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/admin",
+          "endpoint": "/admin",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1336",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:53 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:5",
+          "captured_at": "2026-09-29T01:29:54.180475Z",
+          "id": "request:19",
+          "source_page_id": "page:12"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/products/1",
+          "endpoint": "/products/{id}",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [
+            "1"
+          ],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1729",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:54 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/",
+          "source_action": "link:6",
+          "captured_at": "2026-09-29T01:29:54.547808Z",
+          "id": "request:20",
+          "source_page_id": "page:12"
+        },
+        {
+          "role": "admin",
+          "method": "POST",
+          "resource_type": "fetch",
+          "url": "http://localhost:8001/cart/add",
+          "endpoint": "/cart/add",
+          "status": null,
+          "query_params": {},
+          "body_params": {
+            "product_id": [
+              "1"
+            ],
+            "quantity": [
+              "1"
+            ]
+          },
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "*/*",
+            "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryK7wcH0jcUWZJAlmC",
+            "cookie": "session=***",
+            "origin": "http://localhost:8001",
+            "referer": "http://localhost:8001/products/1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {},
+          "response_shape": null,
+          "source_page": "http://localhost:8001/products/1",
+          "source_action": "form:1",
+          "captured_at": "2026-09-29T01:29:54.990562Z",
+          "id": "request:21",
+          "source_page_id": "page:17"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/checkout",
+          "endpoint": "/checkout",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1296",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:55 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/cart",
+          "source_action": "link:6",
+          "captured_at": "2026-09-29T01:29:55.305371Z",
+          "id": "request:22",
+          "source_page_id": "page:13"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/admin/users",
+          "endpoint": "/admin/users",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1492",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:55 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/admin",
+          "source_action": "link:6",
+          "captured_at": "2026-09-29T01:29:55.669809Z",
+          "id": "request:23",
+          "source_page_id": "page:16"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "fetch",
+          "url": "http://localhost:8001/admin/api/users",
+          "endpoint": "/admin/api/users",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "*/*",
+            "cookie": "session=***",
+            "referer": "http://localhost:8001/admin/users",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "197",
+            "content-type": "application/json",
+            "date": "Tue, 29 Sep 2026 01:29:55 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": [
+            {
+              "id": "int",
+              "email": "str",
+              "name": "str",
+              "role": "str"
+            }
+          ],
+          "source_page": "http://localhost:8001/admin/users",
+          "source_action": "load",
+          "captured_at": "2026-09-29T01:29:55.710307Z",
+          "id": "request:24",
+          "source_page_id": "page:19"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/admin/products",
+          "endpoint": "/admin/products",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "3463",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:55 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/admin",
+          "source_action": "link:7",
+          "captured_at": "2026-09-29T01:29:56.028679Z",
+          "id": "request:25",
+          "source_page_id": "page:16"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/admin/orders",
+          "endpoint": "/admin/orders",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1118",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:56 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/admin",
+          "source_action": "link:8",
+          "captured_at": "2026-09-29T01:29:56.434886Z",
+          "id": "request:26",
+          "source_page_id": "page:16"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/admin/products/new",
+          "endpoint": "/admin/products/new",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1403",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:56 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/admin/products",
+          "source_action": "link:6",
+          "captured_at": "2026-09-29T01:29:56.800029Z",
+          "id": "request:27",
+          "source_page_id": "page:20"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/admin/products/1/edit",
+          "endpoint": "/admin/products/{id}/edit",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [
+            "1"
+          ],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1459",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:56 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/admin/products",
+          "source_action": "link:7",
+          "captured_at": "2026-09-29T01:29:57.163985Z",
+          "id": "request:28",
+          "source_page_id": "page:20"
+        },
+        {
+          "role": "admin",
+          "method": "GET",
+          "resource_type": "document",
+          "url": "http://localhost:8001/orders/1",
+          "endpoint": "/orders/{id}",
+          "status": 200,
+          "query_params": {},
+          "body_params": {},
+          "resource_ids": [
+            "1"
+          ],
+          "request_headers": {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "cookie": "session=***",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\""
+          },
+          "response_headers": {
+            "content-length": "1268",
+            "content-type": "text/html; charset=utf-8",
+            "date": "Tue, 29 Sep 2026 01:29:57 GMT",
+            "server": "uvicorn",
+            "set-cookie": "session=***; path=/; Max-Age=1209600; httponly; samesite=lax"
+          },
+          "response_shape": null,
+          "source_page": "http://localhost:8001/admin/orders",
+          "source_action": "link:6",
+          "captured_at": "2026-09-29T01:29:57.514330Z",
+          "id": "request:29",
+          "source_page_id": "page:21"
+        }
+      ]
+    }
+  ]
+}
