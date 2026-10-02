@@ -1,17 +1,24 @@
-# ABC2LAB — AI 기반 웹 취약점 진단 시스템
+# ABC2LAB — 인가 취약점 특화 온프레미스 DAST
 
-웹앱을 자동 탐색해 구조를 Knowledge Graph로 만들고, 그 위에서 접근통제 문제를 추론하는 프로젝트입니다.
+폐쇄망 안에서 설치해 돌리는 진단 도구입니다. 소유 관계·권한 경계를 알아야 판정되는 인가 취약점(IDOR·권한 상승)을 대상으로 합니다.
+
+## 파이프라인
+
+7단계로 구성합니다. 단계 이름과 순서만 정해졌고, 단계 사이 입출력 형식과 폴더 이름은 명세 작성 중입니다(미정).
+
+1. 웹 정보 수집기
+2. 의미 분석기
+3. 지식 그래프 저장소
+4. 접근 통제 분석기
+5. 검증 요청 생성기
+6. 재현·검증기
+7. 평가·리포트
 
 ## 현재 구성
 
 - Python 3.13
-- FastAPI
-- Neo4j
+- Neo4j (도커 서비스만 있음, 연동 코드는 새로 개발)
 - Playwright 기반 웹 크롤러
-- React + Vite + JavaScript 프론트엔드
-- Knowledge Graph 기반 웹 구조 표현 및 분석
-
-현재 프론트엔드는 정적 mock 데이터를 중심으로 구성되어 있으며, API 및 Neo4j 연동은 단계적으로 추가합니다.
 
 ## 개발 환경 준비
 
@@ -51,28 +58,9 @@ docker compose up -d --build
 
 Docker Compose를 통해 다음 서비스를 실행합니다.
 
-- Frontend
 - Secure 테스트 앱
 - Vulnerable 테스트 앱
 - Neo4j
-
-프론트엔드는 다음 주소에서 확인할 수 있습니다.
-
-```text
-http://localhost:5173
-```
-
-프론트엔드에 대한 자세한 실행 방법과 구조는 [frontend/README.md](frontend/README.md)를 참고하세요.
-
-## 프론트엔드만 실행
-
-프론트엔드만 로컬 개발 서버로 실행하려면:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
 
 ## 테스트 실행
 
@@ -96,9 +84,6 @@ uv run pytest crawler/
 
 ```text
 crawler/tests/
-analyzer/tests/
-kg/tests/
-common/tests/
 ```
 
 ## 크롤러 의존성을 제외하고 설치
