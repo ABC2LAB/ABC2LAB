@@ -1,17 +1,8 @@
-# 테스트 앱(secure/vulnerable), Neo4j, frontend 실행 환경
+# 테스트 앱(secure/vulnerable), Neo4j 실행 환경
 # target-app/ 은 테스트 앱 레포가 들어올 자리다.
 # vulnerable/secure/Neo4j 포트는 로컬호스트에만 바인딩한다.
 
 services:
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: abc2lab-frontend
-    ports:
-      - "5173:80"
-    restart: unless-stopped
-
   testapp-secure:
     build: ./target-app
     environment:
