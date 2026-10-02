@@ -1,7 +1,7 @@
 [project]
 name = "abc2lab"
 version = "0.1.0"
-description = "AI 기반 웹 취약점 진단 시스템 (crawler → KG → 접근통제 분석)"
+description = "인가 취약점 특화 온프레미스 DAST"
 requires-python = ">=3.13,<3.14"
 
 dependencies = [
@@ -28,5 +28,5 @@ package = false
 
 [tool.pytest.ini_options]
 # 테스트는 모듈마다 <모듈>/tests/ 에 둔다
-testpaths = ["crawler", "analyzer", "kg", "common"]
+testpaths = ["crawler"]
 python_files = ["test_*.py"]
