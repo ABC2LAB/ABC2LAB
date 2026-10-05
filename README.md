@@ -126,3 +126,11 @@ docker compose up -d --build
 - Secure 테스트 앱 (기본 8000)
 - Vulnerable 테스트 앱 (기본 8001)
 - Neo4j (기본 7474·7687)
+
+## 환경 검증 기록
+
+새 clone·새 `.venv`에서 "최초 설치" 명령과 전체 테스트를 실행한 결과입니다.
+
+| 날짜 | 검증 커밋 | OS | Python | uv | 결과 |
+|---|---|---|---|---|---|
+| 2026-10-06 | `cc1541c` (feature/minjun-setup) | Ubuntu 24.04.1 (WSL2) x86_64 | 3.12.13 | 0.12.23 | 잠금 19개 `--require-hashes` 설치 · `uv pip check` 통과 · 초기 패키지 import 성공 · pytest 205 passed |
