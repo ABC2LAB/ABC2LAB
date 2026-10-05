@@ -1,0 +1,127 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.envrc
+.direnv/
+*.local
+secrets/
+credentials/
+credentials.json
+service-account*.json
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.python-version.local
+
+# Tests, coverage, and static analysis
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.hypothesis/
+.tox/
+.nox/
+
+# Build and packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Node.js and frontend
+node_modules/
+.npm/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime files and logs
+*.log
+logs/
+*.pid
+*.pid.lock
+tmp/
+temp/
+
+# Collected data and local databases
+data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Local vector stores
+chroma/
+chroma_db/
+.chroma/
+qdrant_storage/
+faiss_index/
+
+# LLM caches, downloaded models, and checkpoints
+.cache/
+huggingface/
+local_models/
+downloaded_models/
+model_cache/
+checkpoints/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.ggml
+
+# Generated data and artifacts
+artifacts/
+outputs/
+runs/
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+.auth/
+auth.json
+storage-state.json
+
+# Neo4j local data
+neo4j/data/
+neo4j/logs/
+neo4j/import/
+neo4j/plugins/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# 모듈 테스트 fixture는 runs/ 실행 구조(artifacts·logs·data 등)를 흉내 내므로 디렉토리를 다시 추적한다.
+# 파일 규칙(.env·*.log·*.db 등)은 그대로 적용된다.
+!modules/*/tests/fixtures/**/

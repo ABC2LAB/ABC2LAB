@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}회원 관리 - Test Shop{% endblock %}
+{% block content %}
+<h2>회원 관리</h2>
+<table>
+  <tr><th>ID</th><th>이메일</th><th>이름</th><th>권한</th></tr>
+  {% for u in users %}
+  <tr><td>{{ u.id }}</td><td>{{ u.email }}</td><td>{{ u.name }}</td><td>{{ u.role }}</td></tr>
+  {% endfor %}
+</table>
+<p style="color:#888;font-size:.85rem;margin-top:10px">
+  이 표는 서버 렌더링 데이터이며, 화면은 별도로 <code>/admin/api/users</code> 를
+  fetch로 다시 호출해 동일 데이터를 JSON으로도 노출합니다(API 엔드포인트 탐지 테스트용).
+</p>
+<script>
+fetch('/admin/api/users').then(r => r.json()).then(console.log).catch(console.error);
+</script>
+{% endblock %}

@@ -1,0 +1,16 @@
+# 팀 공통 잠금의 입력. GitHub 관리자만 고친다. 패키지 추가는 각 모듈 requirements.txt에 선언하고 관리자에게 요청한다.
+# 고친 뒤 잠금 파일은 손으로 고치지 않고 다시 만든다:
+#   uv pip compile --python .venv/bin/python --generate-hashes requirements.txt -o requirements.lock.txt
+
+# 초기 공통: Schema 검증·단위 테스트
+jsonschema==4.26.0
+pytest==9.1.1
+
+-r modules/collector/requirements.txt
+-r modules/semantic_analyzer/requirements.txt
+-r modules/knowledge_graph/requirements.txt
+-r modules/access_analyzer/requirements.txt
+-r modules/scenario_generator/requirements.txt
+-r modules/safety_policy/requirements.txt
+-r modules/verifier/requirements.txt
+-r modules/reporter/requirements.txt

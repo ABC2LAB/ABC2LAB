@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}관리자 대시보드 - Test Shop{% endblock %}
+{% block content %}
+<h2>관리자 대시보드</h2>
+<div class="stat-grid">
+  <div class="stat-card"><div class="num">{{ stats.user_count }}</div>회원 수</div>
+  <div class="stat-card"><div class="num">{{ stats.product_count }}</div>상품 수</div>
+  <div class="stat-card"><div class="num">{{ stats.order_count }}</div>주문 수</div>
+  <div class="stat-card"><div class="num">{{ "{:,.0f}".format(stats.revenue) }}원</div>총 매출</div>
+</div>
+<p style="margin-top:20px">
+  <a href="/admin/users" class="btn secondary">회원 관리</a>
+  <a href="/admin/products" class="btn secondary">상품 관리</a>
+  <a href="/admin/orders" class="btn secondary">주문 관리</a>
+</p>
+{% endblock %}
