@@ -121,3 +121,7 @@ neo4j/plugins/
 *.swo
 .DS_Store
 Thumbs.db
+
+# 모듈 테스트 fixture는 runs/ 실행 구조(artifacts·logs·data 등)를 흉내 내므로 디렉토리를 다시 추적한다.
+# 파일 규칙(.env·*.log·*.db 등)은 그대로 적용된다.
+!modules/*/tests/fixtures/**/
