@@ -19,7 +19,7 @@
 | `verifier` | verify | `verification_results.json` | 최민준 |
 | `reporter` | report · evaluate | `diagnosis_report.json` · `evaluation_results.json` | 이동찬 |
 
-기존 크롤러는 `modules/collector/core/`로 옮겼고(명세 형식 `crawl_result.json` 출력은 작업 중), `target-app/`은 테스트용 쇼핑몰입니다.
+collector는 `modules/collector/`에서 명세 형식 `crawl_result.json`을 공개합니다(근거 파일·복수 계정은 작업 중). `target-app/`은 테스트용 쇼핑몰입니다.
 
 ## 표준 개발 환경
 
@@ -92,9 +92,9 @@ uv pip sync --python .venv/bin/python --require-hashes requirements.lock.txt
 항상 레포 루트에서 실행합니다. 모듈 폴더 안에서 실행하면 import가 깨집니다.
 
 ```bash
-.venv/bin/python -m pytest                       # 전체
-.venv/bin/python -m pytest modules/collector/    # 모듈 하나
-.venv/bin/python -m modules.collector.core.run   # collector (명세 형식 entrypoint 전까지는 옛 v1.0 출력)
+.venv/bin/python -m pytest                                              # 전체
+.venv/bin/python -m pytest modules/collector/                           # 모듈 하나
+.venv/bin/python -m modules.collector.entrypoint collect --mode development  # collector → runs/<run_id>/
 ```
 
 `uv run pytest`도 같은 `.venv`를 그대로 씁니다. 각 모듈의 테스트는 `modules/<module_id>/tests/`에 둡니다.
