@@ -8,8 +8,8 @@
 import logging
 import re
 
-from crawler.normalize import ID_PLACEHOLDER, ID_SEGMENT_PATTERNS
-from crawler.schemas import ShapeNode
+from modules.collector.core.normalize import ID_PLACEHOLDER, ID_SEGMENT_PATTERNS
+from modules.collector.core.models import ShapeNode
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,14 @@ from playwright.sync_api import Browser, BrowserContext, Locator, Page, Route
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from crawler.config import GUEST_ROLE, CrawlerConfig, LoginSettings, LoginSuccessCheck, RoleAccount, is_request_allowed
+from modules.collector.core.config import (
+    GUEST_ROLE,
+    CrawlerConfig,
+    LoginSettings,
+    LoginSuccessCheck,
+    RoleAccount,
+    is_request_allowed,
+)
 
 logger = logging.getLogger(__name__)
 

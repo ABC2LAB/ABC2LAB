@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from crawler.config import (
+from modules.collector.core.config import (
     DEFAULT_MAX_DEPTH,
     DEFAULT_STATE_CHANGING_KEYWORDS,
     GUEST_ROLE,

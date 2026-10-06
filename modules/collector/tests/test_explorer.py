@@ -10,13 +10,13 @@ import threading
 import pytest
 from playwright.sync_api import Browser, sync_playwright
 
-from crawler.auth import open_role_context
-from crawler.capture import start_capture
-from crawler.config import GUEST_ROLE, CrawlerConfig, load_config
-from crawler import explorer
-from crawler.explorer import crawl
-from crawler.schemas import CapturedRequest, DiscoveredPage, FormField, PageAction, PageLink
-from crawler.tests.helpers import make_counting_handler, run_server
+from modules.collector.core.auth import open_role_context
+from modules.collector.core.capture import start_capture
+from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
+from modules.collector.core import explorer
+from modules.collector.core.explorer import crawl
+from modules.collector.core.models import CapturedRequest, DiscoveredPage, FormField, PageAction, PageLink
+from modules.collector.tests.helpers import make_counting_handler, run_server
 
 DEFAULT_MAX_DEPTH = "2"
 BUTTON_FETCH_DELAY_MS = 150
