@@ -1,0 +1,291 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "crawl_result",
+  "artifact_id": "crawl_result-run_demo_001-000-7c3e9a10",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "collector",
+  "mode": "development",
+  "created_at": "2026-10-06T03:00:05Z",
+  "status": "completed",
+  "input_refs": [],
+  "errors": [],
+  "runtime_metrics": {
+    "duration_ms": 65000,
+    "llm_calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "peak_memory_mb": null
+  },
+  "data": {
+    "target_url": "http://localhost:8080/",
+    "roles": [
+      {"role_id": "role:guest", "name": "guest"},
+      {"role_id": "role:member", "name": "member"}
+    ],
+    "accounts": [
+      {"account_id": "account:guest", "role_id": "role:guest", "alias": "guest", "session_ref": null},
+      {"account_id": "account:member_a", "role_id": "role:member", "alias": "member_a", "session_ref": "session:5d1e0c7a9b3f4e21"},
+      {"account_id": "account:member_b", "role_id": "role:member", "alias": "member_b", "session_ref": "session:c84f2a61e07d4b93"}
+    ],
+    "pages": [
+      {
+        "page_id": "page:1",
+        "url": "http://localhost:8080/",
+        "title": "Demo Catalog",
+        "evidence_refs": [
+          {"evidence_id": "evidence:dom:page:1", "kind": "dom", "path": "evidence/collector/dom/page-1.json", "sha256": "6b2d3cbddf66481d370031182baad71c63359e1568d436174e0f69ced7f26ce0", "redacted": true}
+        ]
+      },
+      {
+        "page_id": "page:2",
+        "url": "http://localhost:8080/items",
+        "title": "Items",
+        "evidence_refs": [
+          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "c03c4857dde1c73262421b13b2c1034943ad047ace9c4efb147d901d105902b5", "redacted": true}
+        ]
+      },
+      {
+        "page_id": "page:3",
+        "url": "http://localhost:8080/items",
+        "title": "Items",
+        "evidence_refs": []
+      }
+    ],
+    "actions": [
+      {
+        "action_id": "action:1",
+        "page_id": "page:1",
+        "kind": "navigate",
+        "label": "Items",
+        "evidence_refs": [
+          {"evidence_id": "evidence:dom:page:1", "kind": "dom", "path": "evidence/collector/dom/page-1.json", "sha256": "6b2d3cbddf66481d370031182baad71c63359e1568d436174e0f69ced7f26ce0", "redacted": true}
+        ]
+      },
+      {
+        "action_id": "action:2",
+        "page_id": "page:2",
+        "kind": "navigate",
+        "label": "Item 7",
+        "evidence_refs": [
+          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "c03c4857dde1c73262421b13b2c1034943ad047ace9c4efb147d901d105902b5", "redacted": true}
+        ]
+      },
+      {
+        "action_id": "action:3",
+        "page_id": "page:2",
+        "kind": "submit",
+        "label": "Delete",
+        "evidence_refs": [
+          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "c03c4857dde1c73262421b13b2c1034943ad047ace9c4efb147d901d105902b5", "redacted": true}
+        ]
+      },
+      {
+        "action_id": "action:4",
+        "page_id": "page:2",
+        "kind": "click",
+        "label": "Refresh",
+        "evidence_refs": [
+          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "c03c4857dde1c73262421b13b2c1034943ad047ace9c4efb147d901d105902b5", "redacted": true}
+        ]
+      }
+    ],
+    "requests": [
+      {
+        "request_id": "request:1",
+        "account_id": "account:guest",
+        "role_id": "role:guest",
+        "session_ref": null,
+        "page_id": null,
+        "action_id": null,
+        "method": "GET",
+        "url": "http://localhost:8080/",
+        "observed_at": "2026-10-06T02:59:00.100000Z",
+        "parameters": [],
+        "headers": [
+          {"name": "accept", "value": "text/html", "redacted": false}
+        ],
+        "body_ref": null,
+        "response": {
+          "status_code": 200,
+          "content_type": "text/html; charset=utf-8",
+          "headers": [
+            {"name": "content-type", "value": "text/html; charset=utf-8", "redacted": false},
+            {"name": "set-cookie", "value": "[REDACTED]", "redacted": true}
+          ],
+          "body_ref": null
+        },
+        "evidence_refs": []
+      },
+      {
+        "request_id": "request:2",
+        "account_id": "account:guest",
+        "role_id": "role:guest",
+        "session_ref": null,
+        "page_id": "page:1",
+        "action_id": "action:1",
+        "method": "GET",
+        "url": "http://localhost:8080/items",
+        "observed_at": "2026-10-06T02:59:01.250000Z",
+        "parameters": [],
+        "headers": [
+          {"name": "accept", "value": "text/html", "redacted": false}
+        ],
+        "body_ref": null,
+        "response": {
+          "status_code": 302,
+          "content_type": null,
+          "headers": [
+            {"name": "location", "value": "/", "redacted": false}
+          ],
+          "body_ref": null
+        },
+        "evidence_refs": []
+      },
+      {
+        "request_id": "request:3",
+        "account_id": "account:member_a",
+        "role_id": "role:member",
+        "session_ref": "session:5d1e0c7a9b3f4e21",
+        "page_id": null,
+        "action_id": null,
+        "method": "GET",
+        "url": "http://localhost:8080/items",
+        "observed_at": "2026-10-06T02:59:10.000000Z",
+        "parameters": [
+          {"name": "sid", "location": "cookie", "value": null, "is_sensitive": true}
+        ],
+        "headers": [
+          {"name": "accept", "value": "text/html", "redacted": false},
+          {"name": "cookie", "value": "[REDACTED]", "redacted": true}
+        ],
+        "body_ref": null,
+        "response": {
+          "status_code": 200,
+          "content_type": "text/html; charset=utf-8",
+          "headers": [
+            {"name": "content-type", "value": "text/html; charset=utf-8", "redacted": false}
+          ],
+          "body_ref": null
+        },
+        "evidence_refs": []
+      },
+      {
+        "request_id": "request:4",
+        "account_id": "account:member_a",
+        "role_id": "role:member",
+        "session_ref": "session:5d1e0c7a9b3f4e21",
+        "page_id": "page:2",
+        "action_id": null,
+        "method": "GET",
+        "url": "http://localhost:8080/api/items?page=1&access_token=***",
+        "observed_at": "2026-10-06T02:59:10.400000Z",
+        "parameters": [
+          {"name": "page", "location": "query", "value": "1", "is_sensitive": false},
+          {"name": "access_token", "location": "query", "value": null, "is_sensitive": true},
+          {"name": "sid", "location": "cookie", "value": null, "is_sensitive": true}
+        ],
+        "headers": [
+          {"name": "accept", "value": "application/json", "redacted": false},
+          {"name": "cookie", "value": "[REDACTED]", "redacted": true}
+        ],
+        "body_ref": null,
+        "response": {
+          "status_code": 200,
+          "content_type": "application/json",
+          "headers": [
+            {"name": "content-type", "value": "application/json", "redacted": false}
+          ],
+          "body_ref": {"evidence_id": "evidence:response:request:4", "kind": "response", "path": "evidence/collector/response/request-4.json", "sha256": "09268523a2d146001a1c6fb07c8db273d0926b649465ddcac3cd3376366bb9a5", "redacted": true}
+        },
+        "evidence_refs": []
+      },
+      {
+        "request_id": "request:5",
+        "account_id": "account:member_a",
+        "role_id": "role:member",
+        "session_ref": "session:5d1e0c7a9b3f4e21",
+        "page_id": "page:2",
+        "action_id": "action:2",
+        "method": "GET",
+        "url": "http://localhost:8080/items/7",
+        "observed_at": "2026-10-06T02:59:11.800000Z",
+        "parameters": [
+          {"name": "path:1", "location": "path", "value": "7", "is_sensitive": false},
+          {"name": "sid", "location": "cookie", "value": null, "is_sensitive": true}
+        ],
+        "headers": [
+          {"name": "accept", "value": "text/html", "redacted": false},
+          {"name": "cookie", "value": "[REDACTED]", "redacted": true}
+        ],
+        "body_ref": null,
+        "response": {
+          "status_code": 200,
+          "content_type": "text/html; charset=utf-8",
+          "headers": [
+            {"name": "content-type", "value": "text/html; charset=utf-8", "redacted": false}
+          ],
+          "body_ref": null
+        },
+        "evidence_refs": []
+      },
+      {
+        "request_id": "request:6",
+        "account_id": "account:member_b",
+        "role_id": "role:member",
+        "session_ref": "session:c84f2a61e07d4b93",
+        "page_id": null,
+        "action_id": null,
+        "method": "GET",
+        "url": "http://localhost:8080/items",
+        "observed_at": "2026-10-06T02:59:30.000000Z",
+        "parameters": [
+          {"name": "sid", "location": "cookie", "value": null, "is_sensitive": true}
+        ],
+        "headers": [
+          {"name": "accept", "value": "text/html", "redacted": false},
+          {"name": "cookie", "value": "[REDACTED]", "redacted": true}
+        ],
+        "body_ref": null,
+        "response": {
+          "status_code": 200,
+          "content_type": "text/html; charset=utf-8",
+          "headers": [
+            {"name": "content-type", "value": "text/html; charset=utf-8", "redacted": false}
+          ],
+          "body_ref": null
+        },
+        "evidence_refs": []
+      },
+      {
+        "request_id": "request:7",
+        "account_id": "account:member_b",
+        "role_id": "role:member",
+        "session_ref": "session:c84f2a61e07d4b93",
+        "page_id": "page:3",
+        "action_id": null,
+        "method": "GET",
+        "url": "http://localhost:8080/api/items?page=1",
+        "observed_at": "2026-10-06T02:59:30.350000Z",
+        "parameters": [
+          {"name": "page", "location": "query", "value": "1", "is_sensitive": false},
+          {"name": "sid", "location": "cookie", "value": null, "is_sensitive": true}
+        ],
+        "headers": [
+          {"name": "accept", "value": "application/json", "redacted": false},
+          {"name": "cookie", "value": "[REDACTED]", "redacted": true}
+        ],
+        "body_ref": null,
+        "response": {
+          "status_code": 200,
+          "content_type": "application/json",
+          "headers": [
+            {"name": "content-type", "value": "application/json", "redacted": false}
+          ],
+          "body_ref": {"evidence_id": "evidence:response:request:7", "kind": "response", "path": "evidence/collector/response/request-7.json", "sha256": "288ec596e09de045550922e1d1934be936e1c62888122bf084e98e2655deeb23", "redacted": true}
+        },
+        "evidence_refs": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": "0.1.0",
+  "kind": "response",
+  "evidence_id": "evidence:response:request:7",
+  "request_id": "request:7",
+  "shape": {
+    "items": [
+      {
+        "id": "int",
+        "owner_id": "int",
+        "categoryId": "str",
+        "name": "str",
+        "price": "int"
+      }
+    ],
+    "next_cursor": "null"
+  },
+  "identifiers": [
+    {"pointer": "/items/0/id", "value": 11},
+    {"pointer": "/items/0/owner_id", "value": 3},
+    {"pointer": "/items/0/categoryId", "value": "0b6f2c1e-8d4a-4c3e-9f1a-2d5e7c8b9a01"}
+  ],
+  "identifiers_truncated": false
+}

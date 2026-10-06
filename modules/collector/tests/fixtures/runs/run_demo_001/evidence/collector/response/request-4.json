@@ -1,0 +1,24 @@
+{
+  "schema_version": "0.1.0",
+  "kind": "response",
+  "evidence_id": "evidence:response:request:4",
+  "request_id": "request:4",
+  "shape": {
+    "items": [
+      {
+        "id": "int",
+        "owner_id": "int",
+        "name": "str",
+        "price": "int"
+      }
+    ],
+    "next_cursor": "null|str"
+  },
+  "identifiers": [
+    {"pointer": "/items/0/id", "value": 7},
+    {"pointer": "/items/0/owner_id", "value": 2},
+    {"pointer": "/items/1/id", "value": 9},
+    {"pointer": "/items/1/owner_id", "value": 2}
+  ],
+  "identifiers_truncated": false
+}

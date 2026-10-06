@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from crawler.response_shape import MAX_SHAPE_DEPTH, MAX_SHAPE_KEYS, TRUNCATED_KEY, describe_json_shape
+from modules.collector.core.response_shape import MAX_SHAPE_DEPTH, MAX_SHAPE_KEYS, TRUNCATED_KEY, describe_json_shape
 
 SAMPLE_UUID = "550e8400-e29b-41d4-a716-446655440000"
 SAMPLE_EMAIL = "alice@example.com"

@@ -10,11 +10,11 @@ import pytest
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 from pydantic import ValidationError
 
-from crawler.auth import open_role_context
-from crawler.capture import FILE_PART_VALUE, RequestCapture, select_stale_requests, start_capture
-from crawler.config import GUEST_ROLE, CrawlerConfig, load_config
-from crawler.schemas import CapturedRequest
-from crawler.tests.helpers import make_counting_handler, run_server
+from modules.collector.core.auth import open_role_context
+from modules.collector.core.capture import FILE_PART_VALUE, RequestCapture, select_stale_requests, start_capture
+from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
+from modules.collector.core.models import CapturedRequest
+from modules.collector.tests.helpers import make_counting_handler, run_server
 
 ROLE = "user"
 # 민감 키 목록에 걸리지 않는 이름이라, 설정의 비밀번호 필드명으로만 마스킹되는지 확인할 수 있다.
@@ -107,7 +107,7 @@ FORM_HTML = f"""<html><body><form method="post" action="/submit">
 JSON_FETCH_SCRIPT = f"""() => fetch("/api/profile", {{
   method: "POST",
   headers: {{"Content-Type": "application/json"}},
-  body: JSON.stringify({{password: "{JSON_PASSWORD}", nickname: "bob", nested: {{api_token: "{NESTED_TOKEN}"}}}}),
+  body: JSON.stringify({{password: "{JSON_PASSWORD}", nickname: "bob", count: 3, nested: {{api_token: "{NESTED_TOKEN}"}}}}),
 }}).then(response => response.status)"""
 
 
@@ -378,7 +378,9 @@ def test_json_body_sensitive_keys_masked(session: CaptureSession, site_url: str)
 
     assert record.body_params["password"] == [MASK]
     assert record.body_params["nickname"] == ["bob"]
-    assert NESTED_TOKEN not in record.body_params["nested"][0]
+    # JSON 값은 타입 그대로 남는다. 숫자 3이 문자열 "3"이 되면 안 된다.
+    assert record.body_params["count"] == [3]
+    assert record.body_params["nested"] == [{"api_token": MASK}]
 
 
 def test_configured_account_password_masked_under_any_key(session: CaptureSession, site_url: str) -> None:
