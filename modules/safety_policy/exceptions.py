@@ -15,3 +15,7 @@ class PathValidationError(SafetyPolicyError):
 
 class StorageError(SafetyPolicyError):
     """Raised when an artifact cannot be published safely."""
+
+
+class SourceArtifactFailedError(ContractValidationError):
+    """Raised when the scenario generator published a failed artifact."""

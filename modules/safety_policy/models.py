@@ -3,11 +3,59 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, TypeAlias
 
 JsonValue: TypeAlias = (
     None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 )
+
+
+@dataclass(frozen=True)
+class ErrorItem:
+    code: str
+    message: str
+    item_ref: str | None
+    retryable: bool
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> ErrorItem:
+        return cls(
+            code=value["code"],
+            message=value["message"],
+            item_ref=value["item_ref"],
+            retryable=value["retryable"],
+        )
+
+
+@dataclass(frozen=True)
+class EvaluationRequest:
+    input_path: Path
+    input_relative_path: str
+    expected_sha256: str
+    output_path: Path
+    output_relative_path: str
+    run_id: str
+    iteration: int
+    mode: str
+
+
+@dataclass(frozen=True)
+class SourceArtifact:
+    artifact_id: str
+    artifact_type: str
+    relative_path: str
+    sha256: str
+    iteration: int
+    status: str
+
+
+@dataclass(frozen=True)
+class EvaluationInput:
+    request: EvaluationRequest
+    source: SourceArtifact
+    scenarios: ScenarioData
+    source_errors: tuple[ErrorItem, ...]
 
 
 @dataclass(frozen=True)
