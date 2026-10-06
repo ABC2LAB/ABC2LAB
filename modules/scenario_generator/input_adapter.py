@@ -12,16 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
-from jsonschema.exceptions import ValidationError
 
 from modules.scenario_generator.utils.hashing import compute_sha256_of_bytes
 from modules.scenario_generator.utils.json_io import InvalidJsonError, parse_json_strict
+from modules.scenario_generator.utils.schema_errors import summarize_schema_errors
 
 SUPPORTED_SCHEMA_VERSION = "0.1.0"
 INPUT_SCHEMA_DIR = Path(__file__).resolve().parent / "schemas" / "input"
 SUPPORTED_INPUT_TYPES = ("crawl_result", "vulnerability_candidates")
-# 오류 메시지가 길어지지 않게 앞쪽 몇 건만 보여 준다.
-MAX_REPORTED_SCHEMA_ERRORS = 5
 
 
 class InputErrorCode(StrEnum):
@@ -30,9 +28,11 @@ class InputErrorCode(StrEnum):
     JSON_INVALID = "INPUT_JSON_INVALID"
     VERSION_UNSUPPORTED = "INPUT_VERSION_UNSUPPORTED"
     SCHEMA_INVALID = "INPUT_SCHEMA_INVALID"
+    DUPLICATE_ID = "INPUT_DUPLICATE_ID"
     RUN_MISMATCH = "INPUT_RUN_MISMATCH"
     HASH_MISMATCH = "INPUT_HASH_MISMATCH"
     UPSTREAM_FAILED = "INPUT_UPSTREAM_FAILED"
+    UPSTREAM_PARTIAL = "INPUT_UPSTREAM_PARTIAL"
 
 
 class InputError(Exception):
@@ -81,27 +81,6 @@ def _find_relative_path(path: Path, run_root: Path) -> tuple[Path, str]:
     return resolved_path, resolved_path.relative_to(resolved_root).as_posix()
 
 
-def _format_json_path(parts: Any) -> str:
-    formatted = "$"
-    for part in parts:
-        formatted += f"[{part}]" if isinstance(part, int) else f".{part}"
-    return formatted
-
-
-def _summarize_schema_errors(validator: Draft202012Validator, document: Any) -> str:
-    errors: list[ValidationError] = sorted(
-        validator.iter_errors(document), key=lambda error: [str(part) for part in error.absolute_path]
-    )
-    # jsonschema 기본 메시지는 입력 값을 그대로 담으므로, 위치와 어긴 규칙 이름만 쓴다.
-    reported = [
-        f"{_format_json_path(error.absolute_path)} ({error.validator})"
-        for error in errors[:MAX_REPORTED_SCHEMA_ERRORS]
-    ]
-    remaining = len(errors) - len(reported)
-    suffix = f" 외 {remaining}건" if remaining > 0 else ""
-    return ", ".join(reported) + suffix
-
-
 def load_input_artifact(source: InputSource, run_root: Path, run_id: str) -> LoadedArtifact:
     if source.artifact_type not in SUPPORTED_INPUT_TYPES:
         raise ValueError(f"지원하지 않는 입력 종류: {source.artifact_type}")
@@ -134,7 +113,7 @@ def load_input_artifact(source: InputSource, run_root: Path, run_id: str) -> Loa
     validator = _get_validator(source.artifact_type)
     if not validator.is_valid(document):
         raise InputError(
-            InputErrorCode.SCHEMA_INVALID, f"{label}: {_summarize_schema_errors(validator, document)}"
+            InputErrorCode.SCHEMA_INVALID, f"{label}: {summarize_schema_errors(validator, document)}"
         )
 
     if document["run_id"] != run_id:
