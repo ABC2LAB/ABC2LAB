@@ -17,6 +17,8 @@ from modules.knowledge_graph.exceptions import (
 )
 from modules.knowledge_graph.models import (
     ControlError,
+    GraphEdge,
+    GraphNode,
     GraphSource,
     IngestControlResponse,
     IngestRequest,
@@ -24,10 +26,14 @@ from modules.knowledge_graph.models import (
     QueryDefinition,
     QueryRequest,
     SemanticGraph,
+    VerificationControlResponse,
+    VerificationRequest,
+    VerificationSource,
+    VerificationUpdate,
 )
 from modules.knowledge_graph.repositories import GraphRepository
-from modules.knowledge_graph.utils.hashing import calculate_sha256
 from modules.knowledge_graph.utils.atomic_writer import write_json_atomically
+from modules.knowledge_graph.utils.hashing import calculate_sha256
 from modules.knowledge_graph.utils.validation import (
     load_and_validate_artifact,
     validate_graph_query_semantics,
@@ -58,6 +64,13 @@ class PreparedQuery:
     graph_id: str
     expected_graph_revision: int | None
     queries: tuple[QueryDefinition, ...]
+
+
+@dataclass(frozen=True)
+class PreparedVerification:
+    request: VerificationRequest
+    update: VerificationUpdate
+    errors: tuple[ControlError, ...]
 
 
 def prepare_ingest(input_path: Path) -> tuple[dict[str, Any], SemanticGraph]:
@@ -426,8 +439,62 @@ def prepare_verification(input_path: Path) -> dict[str, Any]:
         input_path,
         SCHEMA_DIRECTORY / "input" / "verification_results.schema.json",
     )
+    if artifact["status"] == "failed":
+        raise InputArtifactFailedError("verification_results 상태가 failed임")
     validate_verification_results_semantics(artifact)
     return artifact
+
+
+def prepare_verification_operation(
+    request: VerificationRequest,
+) -> PreparedVerification:
+    actual_sha256 = calculate_sha256(request.input_path)
+    if actual_sha256 != request.expected_sha256:
+        raise InputHashMismatchError("verification_results SHA-256이 일치하지 않음")
+    artifact = prepare_verification(request.input_path)
+    _validate_verification_context(artifact, request)
+    data = artifact["data"]
+    graph_updates = data["graph_updates"]
+    source = VerificationSource(
+        artifact_id=artifact["artifact_id"],
+        sha256=actual_sha256,
+        iteration=artifact["iteration"],
+        status=artifact["status"],
+    )
+    update = VerificationUpdate(
+        source=source,
+        source_graph_revision=data["source_graph_revision"],
+        verification_ids=tuple(graph_updates["source_verification_ids"]),
+        nodes=tuple(GraphNode.from_mapping(item) for item in graph_updates["nodes"]),
+        relationships=tuple(
+            GraphEdge.from_mapping(item) for item in graph_updates["relationships"]
+        ),
+    )
+    return PreparedVerification(
+        request=request,
+        update=update,
+        errors=tuple(ControlError.from_mapping(item) for item in artifact["errors"]),
+    )
+
+
+def execute_verification(
+    prepared: PreparedVerification,
+    repository: GraphRepository,
+) -> VerificationControlResponse:
+    state = repository.apply_verification(
+        prepared.request.graph_id,
+        prepared.request.run_id,
+        prepared.update,
+    )
+    return VerificationControlResponse(
+        status=prepared.update.source.status,
+        graph_id=state.graph_id,
+        previous_graph_revision=state.previous_graph_revision,
+        graph_revision=state.graph_revision,
+        applied_verification_ids=state.applied_verification_ids,
+        is_applied=state.is_applied,
+        errors=prepared.errors,
+    )
 
 
 def _validate_ingest_context(
@@ -452,6 +519,20 @@ def _validate_query_context(
         raise ContractValidationError("graph_query iteration이 context와 다름")
     if artifact["mode"] != request.mode:
         raise ContractValidationError("graph_query mode가 context와 다름")
+
+
+def _validate_verification_context(
+    artifact: dict[str, Any],
+    request: VerificationRequest,
+) -> None:
+    if artifact["run_id"] != request.run_id:
+        raise ContractValidationError("verification_results run_id가 context와 다름")
+    if artifact["iteration"] != request.iteration:
+        raise ContractValidationError(
+            "verification_results iteration이 context와 다름"
+        )
+    if artifact["mode"] != request.mode:
+        raise ContractValidationError("verification_results mode가 context와 다름")
 
 
 def _create_graph_id() -> str:

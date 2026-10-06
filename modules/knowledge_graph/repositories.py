@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from modules.knowledge_graph.models import GraphSource, GraphState, SemanticGraph
+from modules.knowledge_graph.models import (
+    GraphSource,
+    GraphState,
+    SemanticGraph,
+    VerificationState,
+    VerificationUpdate,
+)
 
 
 class GraphRepository(Protocol):
@@ -35,6 +41,6 @@ class GraphRepository(Protocol):
         self,
         graph_id: str,
         run_id: str,
-        artifact: dict[str, Any],
-    ) -> int:
-        """Apply verified graph updates and return the resulting revision."""
+        update: VerificationUpdate,
+    ) -> VerificationState:
+        """Apply each verified update once and return the graph state."""

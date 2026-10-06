@@ -274,3 +274,62 @@ class QueryControlResponse:
             "graph_revision": self.graph_revision,
             "errors": [error.to_mapping() for error in self.errors],
         }
+
+
+@dataclass(frozen=True)
+class VerificationRequest:
+    input_path: Path
+    expected_sha256: str
+    graph_id: str
+    run_id: str
+    iteration: int
+    mode: str
+
+
+@dataclass(frozen=True)
+class VerificationSource:
+    artifact_id: str
+    sha256: str
+    iteration: int
+    status: str
+
+
+@dataclass(frozen=True)
+class VerificationUpdate:
+    source: VerificationSource
+    source_graph_revision: int
+    verification_ids: tuple[str, ...]
+    nodes: tuple[GraphNode, ...]
+    relationships: tuple[GraphEdge, ...]
+
+
+@dataclass(frozen=True)
+class VerificationState:
+    graph_id: str
+    previous_graph_revision: int
+    graph_revision: int
+    applied_verification_ids: tuple[str, ...]
+    is_applied: bool
+
+
+@dataclass(frozen=True)
+class VerificationControlResponse:
+    status: str
+    graph_id: str | None
+    previous_graph_revision: int | None
+    graph_revision: int | None
+    applied_verification_ids: tuple[str, ...]
+    is_applied: bool
+    errors: tuple[ControlError, ...]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "operation": "apply_verification",
+            "status": self.status,
+            "graph_id": self.graph_id,
+            "previous_graph_revision": self.previous_graph_revision,
+            "graph_revision": self.graph_revision,
+            "applied_verification_ids": list(self.applied_verification_ids),
+            "is_applied": self.is_applied,
+            "errors": [error.to_mapping() for error in self.errors],
+        }

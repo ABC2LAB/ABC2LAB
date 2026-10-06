@@ -14,12 +14,22 @@ from modules.knowledge_graph.exceptions import (
     ContractValidationError,
     GraphAlreadyExistsError,
     GraphNotFoundError,
+    GraphRevisionMismatchError,
     GraphStorageVerificationError,
+    GraphUpdateConflictError,
+    GraphUpdateReferenceError,
     QueryResultValidationError,
     RepositoryError,
     SourceArtifactConflictError,
+    VerificationConflictError,
 )
-from modules.knowledge_graph.models import GraphSource, GraphState, SemanticGraph
+from modules.knowledge_graph.models import (
+    GraphSource,
+    GraphState,
+    SemanticGraph,
+    VerificationState,
+    VerificationUpdate,
+)
 from modules.knowledge_graph.query_results import graph_to_snapshot
 from modules.knowledge_graph.settings import Neo4jSettings
 from modules.knowledge_graph.storage import (
@@ -209,6 +219,43 @@ class Neo4jGraphRepository:
         except (DriverError, Neo4jError) as error:
             raise RepositoryError("Neo4j 읽기 질의 실패") from error
 
+    def apply_verification(
+        self,
+        graph_id: str,
+        run_id: str,
+        update: VerificationUpdate,
+    ) -> VerificationState:
+        if not graph_id or not run_id:
+            raise ContractValidationError("graph_id와 run_id는 비어 있을 수 없음")
+        if len(update.verification_ids) != len(set(update.verification_ids)):
+            raise ContractValidationError("verification_id가 중복됨")
+        invalid_types = {
+            edge.relation_type
+            for edge in update.relationships
+            if edge.relation_type not in ALLOWED_RELATIONSHIP_TYPES
+        }
+        if invalid_types:
+            raise ContractValidationError("허용되지 않은 verification relationship type")
+        self.initialize_schema()
+        try:
+            with self._driver.session(database=self._settings.database) as session:
+                return session.execute_write(
+                    self._apply_verification_transaction,
+                    graph_id,
+                    run_id,
+                    update,
+                )
+        except (
+            GraphNotFoundError,
+            GraphRevisionMismatchError,
+            GraphUpdateConflictError,
+            GraphUpdateReferenceError,
+            VerificationConflictError,
+        ):
+            raise
+        except (DriverError, Neo4jError) as error:
+            raise RepositoryError("Neo4j 검증 결과 반영 실패") from error
+
     def get_counts(self, graph_id: str, run_id: str) -> GraphCounts:
         try:
             with self._driver.session(database=self._settings.database) as session:
@@ -370,6 +417,247 @@ class Neo4jGraphRepository:
             "basis": record["basis"],
             "evidence_refs": _decode_list(record["evidence_refs_json"]),
         }
+
+    @classmethod
+    def _apply_verification_transaction(
+        cls,
+        transaction: ManagedTransaction,
+        graph_id: str,
+        run_id: str,
+        update: VerificationUpdate,
+    ) -> VerificationState:
+        graph_record = transaction.run(
+            "MATCH (graph:ABC2Graph {graph_id: $graph_id, run_id: $run_id}) "
+            "SET graph.revision = graph.revision "
+            "RETURN graph.revision AS revision",
+            graph_id=graph_id,
+            run_id=run_id,
+        ).single()
+        if graph_record is None:
+            raise GraphNotFoundError("요청한 run 범위에 graph_id가 존재하지 않음")
+        current_revision = int(graph_record["revision"])
+
+        applied_records = list(
+            transaction.run(
+                "MATCH (verification:ABC2AppliedVerification {"
+                "graph_id: $graph_id, run_id: $run_id}) "
+                "WHERE verification.verification_id IN $verification_ids "
+                "RETURN verification.verification_id AS verification_id, "
+                "verification.source_artifact_id AS source_artifact_id, "
+                "verification.source_sha256 AS source_sha256",
+                graph_id=graph_id,
+                run_id=run_id,
+                verification_ids=list(update.verification_ids),
+            )
+        )
+        if applied_records:
+            if len(applied_records) != len(update.verification_ids):
+                raise VerificationConflictError(
+                    "일부 verification_id만 이미 반영되어 있음"
+                )
+            if any(
+                record["source_artifact_id"] != update.source.artifact_id
+                or record["source_sha256"] != update.source.sha256
+                for record in applied_records
+            ):
+                raise VerificationConflictError(
+                    "verification_id가 다른 산출물에서 재사용됨"
+                )
+            return VerificationState(
+                graph_id=graph_id,
+                previous_graph_revision=current_revision,
+                graph_revision=current_revision,
+                applied_verification_ids=update.verification_ids,
+                is_applied=False,
+            )
+
+        if not update.verification_ids:
+            return VerificationState(
+                graph_id=graph_id,
+                previous_graph_revision=current_revision,
+                graph_revision=current_revision,
+                applied_verification_ids=(),
+                is_applied=False,
+            )
+        if current_revision != update.source_graph_revision:
+            raise GraphRevisionMismatchError("verification의 기준 revision이 오래됨")
+
+        cls._validate_update_identities(transaction, graph_id, run_id, update)
+        cls._upsert_verified_nodes(transaction, graph_id, run_id, update)
+        cls._upsert_verified_relationships(transaction, graph_id, run_id, update)
+        next_revision = current_revision + 1
+        transaction.run(
+            "UNWIND $verification_ids AS verification_id "
+            "CREATE (:ABC2AppliedVerification {"
+            "graph_id: $graph_id, run_id: $run_id, "
+            "verification_id: verification_id, "
+            "source_artifact_id: $source_artifact_id, "
+            "source_sha256: $source_sha256, "
+            "source_iteration: $source_iteration, "
+            "source_status: $source_status, "
+            "source_graph_revision: $source_graph_revision, "
+            "applied_revision: $applied_revision})",
+            graph_id=graph_id,
+            run_id=run_id,
+            verification_ids=list(update.verification_ids),
+            source_artifact_id=update.source.artifact_id,
+            source_sha256=update.source.sha256,
+            source_iteration=update.source.iteration,
+            source_status=update.source.status,
+            source_graph_revision=update.source_graph_revision,
+            applied_revision=next_revision,
+        ).consume()
+        revision_record = transaction.run(
+            "MATCH (graph:ABC2Graph {graph_id: $graph_id, run_id: $run_id}) "
+            "WHERE graph.revision = $current_revision "
+            "SET graph.revision = $next_revision "
+            "RETURN graph.revision AS revision",
+            graph_id=graph_id,
+            run_id=run_id,
+            current_revision=current_revision,
+            next_revision=next_revision,
+        ).single()
+        if revision_record is None:
+            raise GraphRevisionMismatchError("검증 반영 중 graph revision이 변경됨")
+        return VerificationState(
+            graph_id=graph_id,
+            previous_graph_revision=current_revision,
+            graph_revision=int(revision_record["revision"]),
+            applied_verification_ids=update.verification_ids,
+            is_applied=True,
+        )
+
+    @classmethod
+    def _validate_update_identities(
+        cls,
+        transaction: ManagedTransaction,
+        graph_id: str,
+        run_id: str,
+        update: VerificationUpdate,
+    ) -> None:
+        node_records = [serialize_node(node) for node in update.nodes]
+        conflicting_nodes = list(
+            transaction.run(
+                "UNWIND $records AS record "
+                "MATCH (node:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
+                "node_id: record.node_id}) "
+                "WHERE node.node_type <> record.node_type "
+                "RETURN node.node_id AS node_id",
+                graph_id=graph_id,
+                run_id=run_id,
+                records=node_records,
+            )
+        )
+        if conflicting_nodes:
+            raise GraphUpdateConflictError(
+                "기존 node_id가 다른 node_type으로 갱신됨"
+            )
+
+        endpoint_ids = {
+            endpoint_id
+            for edge in update.relationships
+            for endpoint_id in (edge.source_id, edge.target_id)
+        }
+        stored_node_ids = {
+            record["node_id"]
+            for record in transaction.run(
+                "MATCH (node:ABC2Entity {graph_id: $graph_id, run_id: $run_id}) "
+                "WHERE node.node_id IN $node_ids "
+                "RETURN node.node_id AS node_id",
+                graph_id=graph_id,
+                run_id=run_id,
+                node_ids=list(endpoint_ids),
+            )
+        }
+        update_node_ids = {node.node_id for node in update.nodes}
+        if not endpoint_ids.issubset(stored_node_ids | update_node_ids):
+            raise GraphUpdateReferenceError(
+                "검증 관계가 존재하지 않는 node_id를 참조함"
+            )
+
+        edge_by_id = {edge.relationship_id: edge for edge in update.relationships}
+        stored_edges = list(
+            transaction.run(
+                "MATCH (source:ABC2Entity {graph_id: $graph_id, run_id: $run_id})"
+                "-[edge]->(target:ABC2Entity {graph_id: $graph_id, run_id: $run_id}) "
+                "WHERE edge.relationship_id IN $relationship_ids "
+                "RETURN edge.relationship_id AS relationship_id, "
+                "source.node_id AS source_id, target.node_id AS target_id, "
+                "type(edge) AS relation_type",
+                graph_id=graph_id,
+                run_id=run_id,
+                relationship_ids=list(edge_by_id),
+            )
+        )
+        seen_ids: set[str] = set()
+        for record in stored_edges:
+            relationship_id = record["relationship_id"]
+            edge = edge_by_id[relationship_id]
+            if relationship_id in seen_ids or (
+                record["source_id"] != edge.source_id
+                or record["target_id"] != edge.target_id
+                or record["relation_type"] != edge.relation_type
+            ):
+                raise GraphUpdateConflictError(
+                    "기존 relationship_id의 연결 정보가 갱신 입력과 다름"
+                )
+            seen_ids.add(relationship_id)
+
+    @staticmethod
+    def _upsert_verified_nodes(
+        transaction: ManagedTransaction,
+        graph_id: str,
+        run_id: str,
+        update: VerificationUpdate,
+    ) -> None:
+        transaction.run(
+            "UNWIND $records AS record "
+            "MERGE (node:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
+            "node_id: record.node_id}) "
+            "SET node.node_type = record.node_type, "
+            "node.properties_json = record.properties_json, "
+            "node.basis = record.basis, "
+            "node.evidence_refs_json = record.evidence_refs_json",
+            graph_id=graph_id,
+            run_id=run_id,
+            records=[serialize_node(node) for node in update.nodes],
+        ).consume()
+
+    @staticmethod
+    def _upsert_verified_relationships(
+        transaction: ManagedTransaction,
+        graph_id: str,
+        run_id: str,
+        update: VerificationUpdate,
+    ) -> None:
+        records_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for edge in update.relationships:
+            records_by_type[edge.relation_type].append(serialize_edge(edge))
+        for relationship_type, records in records_by_type.items():
+            query = (
+                "UNWIND $records AS record "
+                "MATCH (source:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
+                "node_id: record.source_id}) "
+                "MATCH (target:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
+                "node_id: record.target_id}) "
+                f"MERGE (source)-[stored:{relationship_type} {{"
+                "graph_id: $graph_id, run_id: $run_id, "
+                "relationship_id: record.relationship_id}]->(target) "
+                "SET stored.properties_json = record.properties_json, "
+                "stored.basis = record.basis, "
+                "stored.evidence_refs_json = record.evidence_refs_json "
+                "RETURN count(stored) AS updated_count"
+            )
+            record = transaction.run(
+                query,
+                graph_id=graph_id,
+                run_id=run_id,
+                records=records,
+            ).single(strict=True)
+            if int(record["updated_count"]) != len(records):
+                raise GraphUpdateReferenceError(
+                    "검증 관계의 source 또는 target 노드가 없음"
+                )
 
     @classmethod
     def _ingest_transaction(

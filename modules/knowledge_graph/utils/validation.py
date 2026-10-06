@@ -179,16 +179,54 @@ def validate_verification_results_semantics(artifact: dict[str, Any]) -> None:
 
     nodes = graph_updates["nodes"]
     relationships = graph_updates["relationships"]
+    has_updates = bool(nodes or relationships)
+    if has_updates != bool(source_ids):
+        raise ContractValidationError(
+            "graph update와 source_verification_ids 존재 여부가 다름"
+        )
     _require_unique((item["node_id"] for item in nodes), "graph update node_id")
     _require_unique(
         (item["relationship_id"] for item in relationships),
         "graph update relationship_id",
     )
+    allowed_evidence = {
+        _evidence_identity(evidence)
+        for source_id in source_ids
+        for evidence in _verification_evidence(result_by_id[source_id])
+    }
     for item in [*nodes, *relationships]:
         if item["basis"] != "verified":
             raise ContractValidationError("graph update의 basis는 verified여야 함")
         if not item["evidence_refs"]:
             raise ContractValidationError("graph update에 EvidenceRef가 없음")
+        if any(
+            _evidence_identity(evidence) not in allowed_evidence
+            for evidence in item["evidence_refs"]
+        ):
+            raise ContractValidationError(
+                "graph update 근거가 source verification의 실행 근거와 다름"
+            )
+
+
+def _verification_evidence(result: dict[str, Any]) -> list[dict[str, Any]]:
+    evidence = list(result["evidence_refs"])
+    for step in result["steps"]:
+        evidence.extend(step["evidence_refs"])
+        if step["request_ref"] is not None:
+            evidence.append(step["request_ref"])
+        if step["response_ref"] is not None:
+            evidence.append(step["response_ref"])
+    return evidence
+
+
+def _evidence_identity(evidence: dict[str, Any]) -> tuple[str, str, str, str, bool]:
+    return (
+        evidence["evidence_id"],
+        evidence["kind"],
+        evidence["path"],
+        evidence["sha256"],
+        evidence["redacted"],
+    )
 
 
 def validate_graph_query_result_semantics(artifact: dict[str, Any]) -> None:

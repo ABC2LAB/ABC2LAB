@@ -222,6 +222,74 @@ def test_public_query_returns_all_typed_rows_with_real_neo4j(
     assert len(snapshot["workflows"]) == 1
 
 
+@pytest.mark.skipif(
+    os.getenv("KG_RUN_NEO4J_INTEGRATION") != "1",
+    reason="KG_RUN_NEO4J_INTEGRATION=1일 때만 실제 Neo4j 통합 테스트 실행",
+)
+def test_public_verification_updates_revision_once_with_real_neo4j(
+    ingest_run_root: Path,
+    query_run_root: Path,
+    verification_run_root: Path,
+) -> None:
+    run_root = ingest_run_root
+    semantic_relative = (
+        "artifacts/iteration-000/semantic_analyzer/semantic_analysis.json"
+    )
+    settings = Neo4jSettings.from_environment()
+    graph_id: str | None = None
+
+    try:
+        ingest_response = _run_public_ingest(run_root, semantic_relative)
+        assert isinstance(ingest_response["graph_id"], str)
+        graph_id = ingest_response["graph_id"]
+        initial_query = _run_public_query(run_root, graph_id, iteration=0)
+        _add_verified_node_update(run_root)
+        applied = _run_public_verification(run_root, graph_id)
+        repeated = _run_public_verification(run_root, graph_id)
+        updated_query = _run_public_query(run_root, graph_id, iteration=1)
+    finally:
+        if graph_id is not None:
+            with GraphDatabase.driver(
+                settings.uri,
+                auth=(settings.username, settings.password),
+            ) as driver:
+                driver.execute_query(
+                    "MATCH (item {graph_id: $graph_id, run_id: $run_id}) "
+                    "DETACH DELETE item",
+                    graph_id=graph_id,
+                    run_id="run_demo_001",
+                    database_=settings.database,
+                )
+
+    assert initial_query["data"]["graph_revision"] == 1
+    assert applied["status"] == "completed"
+    assert applied["previous_graph_revision"] == 1
+    assert applied["graph_revision"] == 2
+    assert applied["is_applied"] is True
+    assert repeated["graph_revision"] == 2
+    assert repeated["is_applied"] is False
+    assert updated_query["data"]["graph_revision"] == 2
+    snapshot_result = next(
+        item
+        for item in updated_query["data"]["results"]
+        if item["query_key"] == "structure_snapshot"
+    )
+    relationships = snapshot_result["rows"][0]["relationships"]
+    verified = next(
+        item
+        for item in relationships
+        if item["relationship_id"] == "relationship_verified_access_001"
+    )
+    assert verified["basis"] == "verified"
+    assert verified["relation_type"] == "VERIFIED_ACCESS"
+    verified_node = next(
+        item
+        for item in snapshot_result["rows"][0]["nodes"]
+        if item["node_id"] == "resource_verified_001"
+    )
+    assert verified_node["basis"] == "verified"
+
+
 def _run_public_ingest(run_root: Path, relative_path: str) -> dict[str, object]:
     input_path = run_root / relative_path
     return run(
@@ -239,6 +307,105 @@ def _run_public_ingest(run_root: Path, relative_path: str) -> dict[str, object]:
             "mode": "development",
             "run_root": run_root,
         },
+    )
+
+
+def _run_public_query(
+    run_root: Path,
+    graph_id: str,
+    iteration: int,
+) -> dict[str, object]:
+    source_path = run_root / (
+        "artifacts/iteration-000/access_analyzer/graph_query.json"
+    )
+    artifact = json.loads(source_path.read_text(encoding="utf-8"))
+    artifact["artifact_id"] = f"graph_query_integration_{iteration}"
+    artifact["iteration"] = iteration
+    artifact["data"]["graph_id"] = graph_id
+    artifact["data"]["expected_graph_revision"] = iteration + 1
+    relative_path = (
+        f"artifacts/iteration-{iteration:03d}/access_analyzer/graph_query.json"
+    )
+    input_path = run_root / relative_path
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path.write_text(json.dumps(artifact, ensure_ascii=False), encoding="utf-8")
+    response = run(
+        operation="query",
+        input_paths={
+            "graph_query": {
+                "path": relative_path,
+                "sha256": calculate_sha256(input_path),
+            }
+        },
+        output_dir=f"artifacts/iteration-{iteration:03d}/knowledge_graph",
+        context={
+            "run_id": "run_demo_001",
+            "iteration": iteration,
+            "mode": "development",
+            "run_root": run_root,
+        },
+    )
+    output_path = run_root / str(response["output_path"])
+    return json.loads(output_path.read_text(encoding="utf-8"))
+
+
+def _run_public_verification(
+    run_root: Path,
+    graph_id: str,
+) -> dict[str, object]:
+    relative_path = (
+        "artifacts/iteration-000/verifier/verification_results.json"
+    )
+    input_path = run_root / relative_path
+    return run(
+        operation="apply_verification",
+        input_paths={
+            "verification_results": {
+                "path": relative_path,
+                "sha256": calculate_sha256(input_path),
+            }
+        },
+        output_dir="artifacts/iteration-000/knowledge_graph",
+        context={
+            "run_id": "run_demo_001",
+            "iteration": 0,
+            "mode": "development",
+            "run_root": run_root,
+            "graph_id": graph_id,
+        },
+    )
+
+
+def _add_verified_node_update(run_root: Path) -> None:
+    input_path = run_root / (
+        "artifacts/iteration-000/verifier/verification_results.json"
+    )
+    artifact = json.loads(input_path.read_text(encoding="utf-8"))
+    evidence_refs = artifact["data"]["results"][0]["evidence_refs"]
+    graph_updates = artifact["data"]["graph_updates"]
+    graph_updates["nodes"].append(
+        {
+            "node_id": "resource_verified_001",
+            "node_type": "Resource",
+            "properties": {"resource_type": "verified_resource"},
+            "basis": "verified",
+            "evidence_refs": evidence_refs,
+        }
+    )
+    graph_updates["relationships"].append(
+        {
+            "relationship_id": "relationship_verified_denial_001",
+            "source_id": "account_user",
+            "target_id": "resource_verified_001",
+            "relation_type": "VERIFIED_DENIAL",
+            "properties": {"action": "read_verified_resource"},
+            "basis": "verified",
+            "evidence_refs": evidence_refs,
+        }
+    )
+    input_path.write_text(
+        json.dumps(artifact, ensure_ascii=False),
+        encoding="utf-8",
     )
 
 
