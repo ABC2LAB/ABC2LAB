@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from modules.collector.core.auth import open_role_context
 from modules.collector.core.capture import FILE_PART_VALUE, RequestCapture, select_stale_requests, start_capture
 from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
-from modules.collector.core.schemas import CapturedRequest
+from modules.collector.core.models import CapturedRequest
 from modules.collector.tests.helpers import make_counting_handler, run_server
 
 ROLE = "user"

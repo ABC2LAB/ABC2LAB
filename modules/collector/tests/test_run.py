@@ -18,7 +18,7 @@ from modules.collector.core import run
 from modules.collector.core.capture import RequestCapture
 from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
 from modules.collector.core.run import RoleCrawl, RunInfo, assign_evidence_ids, main, make_run_id, run_crawl, save_result
-from modules.collector.core.schemas import SCHEMA_VERSION, CapturedRequest, CrawlResult, DiscoveredPage
+from modules.collector.core.models import SCHEMA_VERSION, CapturedRequest, CrawlResult, DiscoveredPage
 from modules.collector.tests.helpers import run_server
 
 LOGIN_PATH = "/signin"

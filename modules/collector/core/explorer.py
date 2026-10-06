@@ -27,7 +27,7 @@ from playwright.sync_api import Error as PlaywrightError
 from modules.collector.core.capture import RequestCapture
 from modules.collector.core.config import CrawlerConfig, is_request_allowed
 from modules.collector.core.normalize import normalize_path
-from modules.collector.core.schemas import DiscoveredPage, FormField, PageAction, PageLink
+from modules.collector.core.models import DiscoveredPage, FormField, PageAction, PageLink
 
 logger = logging.getLogger(__name__)
 

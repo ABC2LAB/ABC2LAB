@@ -31,7 +31,7 @@ from modules.collector.core.auth import SECRET_MASK
 from modules.collector.core.config import CrawlerConfig, is_request_allowed
 from modules.collector.core.normalize import normalize_path
 from modules.collector.core.response_shape import describe_json_shape
-from modules.collector.core.schemas import CapturedRequest, ShapeNode
+from modules.collector.core.models import CapturedRequest, ShapeNode
 from modules.collector.core.server_clock import ServerClockSample
 
 logger = logging.getLogger(__name__)

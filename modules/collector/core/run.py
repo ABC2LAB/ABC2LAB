@@ -23,7 +23,7 @@ from modules.collector.core.auth import SECRET_MASK, open_role_context
 from modules.collector.core.capture import RequestCapture, list_secret_variants, start_capture
 from modules.collector.core.config import ConfigError, CrawlerConfig, load_config_from_file
 from modules.collector.core.explorer import crawl
-from modules.collector.core.schemas import (
+from modules.collector.core.models import (
     SCHEMA_VERSION,
     CapturedRequest,
     CrawlResult,

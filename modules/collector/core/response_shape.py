@@ -9,7 +9,7 @@ import logging
 import re
 
 from modules.collector.core.normalize import ID_PLACEHOLDER, ID_SEGMENT_PATTERNS
-from modules.collector.core.schemas import ShapeNode
+from modules.collector.core.models import ShapeNode
 
 logger = logging.getLogger(__name__)
 

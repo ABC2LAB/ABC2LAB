@@ -15,7 +15,7 @@ from modules.collector.core.capture import start_capture
 from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
 from modules.collector.core import explorer
 from modules.collector.core.explorer import crawl
-from modules.collector.core.schemas import CapturedRequest, DiscoveredPage, FormField, PageAction, PageLink
+from modules.collector.core.models import CapturedRequest, DiscoveredPage, FormField, PageAction, PageLink
 from modules.collector.tests.helpers import make_counting_handler, run_server
 
 DEFAULT_MAX_DEPTH = "2"
