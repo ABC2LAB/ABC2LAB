@@ -10,7 +10,7 @@
 
 **지금 상태**
 - `entrypoint.py`가 아래 계약대로 `crawl_result.json`을 공개한다.
-- 근거 파일(응답·DOM)은 아직 만들지 않는다. 그래서 `body_ref=null`, `evidence_refs=[]`다. 근거는 다음 PR에서 붙인다.
+- 근거 파일도 같이 쓴다. JSON 응답은 응답 근거(shape + 식별자), 링크·폼·버튼이 있는 페이지는 DOM 근거.
 - 계정은 역할당 하나(`account:<역할>`)다. 복수 계정은 그 다음 PR에서 붙인다.
 - 이 문서와 Schema는 소비자 합의용 기준본이다.
 
@@ -20,8 +20,10 @@
 | `entrypoint.py` | 공개 창구 `run()`과 CLI |
 | `service.py` | 역할별 탐색과 시계 역행 집계 |
 | `core/` | 기존 탐색 core: 로그인·탐색·캡처·마스킹 |
+| `core/identifiers.py` | 응답 JSON에서 식별자 추출(capture 안에서 호출, 본문 원문은 capture 밖으로 안 나감) |
 | `utils/export.py` | 내부 결과를 계약 형식으로 바꾼다 |
 | `utils/envelope.py` | 공통 envelope·ErrorItem |
+| `utils/evidence.py` | 응답·DOM 근거 파일 작성 |
 | `utils/storage.py` | 경로 검증·원자적 공개 |
 | `utils/validation.py` | 자기 출력 검증 |
 
@@ -66,7 +68,7 @@
 1. 실행 값을 검증한다.
 2. 이미 공개된 파일이 있으면 탐색 전에 거절한다.
 3. 탐색한다.
-4. 계약 형식으로 바꾼다.
+4. 계약 형식으로 바꾸면서 근거 파일을 먼저 원자적으로 쓴다. 같은 이름이 있으면 덮어쓰지 않고 `EVIDENCE_WRITE_FAILED`.
 5. 자기 출력을 검증한다(`utils/validation.py`, 계정 비밀번호 노출 포함). 통과하지 못하면 데이터 없이 `failed`로 공개한다.
 6. 원자적으로 공개한다: 임시 파일 → fsync → `os.link`. 같은 경로에 파일이 있으면 덮어쓰지 않는다.
 
@@ -79,6 +81,7 @@
 | `SERVER_CLOCK_REGRESSION` | 대상 서버 시계 역행 | failed | true |
 | `OPERATION_UNSUPPORTED` / `INPUT_UNEXPECTED` | `collect`가 아님 / 입력 경로가 있음 | failed | false |
 | `OUTPUT_CONTRACT_INVALID` | 자기 출력 검증 실패. 메시지는 검증 문제 위치 | failed | false |
+| `EVIDENCE_WRITE_FAILED` | 근거 파일을 쓰지 못함. 같은 run에 같은 이름이 있으면 새 run_id로 다시 돌린다 | failed | false |
 | `CONTEXT_INVALID` / `OUTPUT_PATH_INVALID` / `ARTIFACT_EXISTS` / `OUTPUT_WRITE_FAILED` | 실행 값·출력 위치 문제 | 파일 없음(종료 코드 3) | false |
 
 ## 입력
@@ -159,7 +162,7 @@ ID는 불투명 문자열로 다룬다. 소비자는 형식을 파싱하지 말�
 | `ObservedRequest.response.body_ref` | `response` | JSON 응답만 응답 근거를 가리킨다. HTML·그 밖의 응답은 `null` |
 | `ObservedRequest.body_ref` | `request` | `null`. 요청 값은 `parameters`에 있다 |
 | `ObservedRequest.evidence_refs` | `request`, `response` | `[]` |
-| `Page.evidence_refs` | `dom`, `screenshot` | 그 페이지의 DOM 근거 하나. 추출하지 못한 페이지는 `[]` |
+| `Page.evidence_refs` | `dom`, `screenshot` | 그 페이지의 DOM 근거 하나. 링크·폼·버튼이 없거나 추출하지 못한 페이지는 `[]` |
 | `Action.evidence_refs` | `dom` | 행동이 일어난 페이지의 DOM 근거 하나 |
 
 **그 밖**
@@ -203,10 +206,10 @@ ID는 불투명 문자열로 다룬다. 소비자는 형식을 파싱하지 말�
 - 값이 0 이상의 정수, 숫자로만 된 문자열, UUID 문자열 중 하나(경로 id 판정과 같은 기준). 응답의 원래 JSON 타입을 그대로 둔다(`"42"`는 문자열로).
 
 **`identifiers` 예외와 상한**
-- 민감 키 규칙이 먼저 걸러낸다. `session_id`·`token_id` 같은 키는 남기지 않는다.
+- 민감 키 규칙이 먼저 걸러낸다. `session_id`·`token_id` 같은 키는 남기지 않고, 민감 키 아래(`{"session": {"id": 5}}`)도 보지 않는다.
 - 계정 비밀번호와 같은 값은 지운다.
 - `pointer`는 RFC 6901 JSON Pointer다(`~` → `~0`, `/` → `~1`).
-- 개수 상한을 넘으면 앞쪽만 남기고 `identifiers_truncated=true`로 둔다.
+- 상한: 깊이는 shape와 같은 6, 개수는 1000. 넘으면 그때까지 찾은 것만 남기고 `identifiers_truncated=true`로 둔다.
 
 그 밖의 값(이름·이메일·주소·전화·금액·문자열)과 HTML 응답 본문은 남기지 않는다.
 
@@ -214,6 +217,10 @@ ID는 불투명 문자열로 다룬다. 소비자는 형식을 파싱하지 말�
 1. 문자열 id: slug·username처럼 숫자·UUID가 아닌 id.
 2. id 꼴이 아닌 키 이름: `owner`, `userNo`처럼 `id`·`*_id`·`*Id`가 아닌 키.
 3. 객체 키 자리의 id: `{"17": {...}}`처럼 id가 키로 오는 응답. shape에서는 `{id}`로 바뀐다.
+
+**서버 렌더링 HTML 앱**: JSON identifiers가 적다.
+- 대신 DOM 근거 링크의 `url`(가린 값)에 경로 id가 남는다. 그 페이지를 연 문서 요청의 `account_id`와 묶으면 "이 계정 화면에 보인 자원"을 관찰할 수 있다.
+- 링크로 드러나지 않는 id(폼 hidden 값, 본문 텍스트)는 남지 않는다. 고도화 대상이다.
 
 ### DOM 요약 근거 (`kind=dom`)
 
@@ -262,6 +269,8 @@ ID는 불투명 문자열로 다룬다. 소비자는 형식을 파싱하지 말�
 | `logs/collector/` | 실행 로그 |
 
 `EvidenceRef.path`는 run_root 기준 상대 경로이고 `evidence/collector/` 아래만 허용한다. `..`·절대 경로·역슬래시·run_root 밖을 가리키는 symlink는 거절한다. 폴더 이름 `<run_id>`는 문서의 `run_id`와 같다.
+
+근거 폴더는 회차가 아니라 run 단위다. 같은 run에서 collector를 다시 돌리면 근거 파일 이름이 겹쳐 `EVIDENCE_WRITE_FAILED`가 된다. 수집은 새 run_id로 다시 돌린다.
 
 ## 검증
 
