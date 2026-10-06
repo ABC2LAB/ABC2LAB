@@ -19,7 +19,7 @@
 | `verifier` | verify | `verification_results.json` | 최민준 |
 | `reporter` | report · evaluate | `diagnosis_report.json` · `evaluation_results.json` | 이동찬 |
 
-`crawler/`는 `modules/collector/`로 옮기기 전의 기존 크롤러이고, `target-app/`은 테스트용 쇼핑몰입니다.
+기존 크롤러는 `modules/collector/core/`로 옮겼고(명세 형식 `crawl_result.json` 출력은 작업 중), `target-app/`은 테스트용 쇼핑몰입니다.
 
 ## 표준 개발 환경
 
@@ -56,7 +56,7 @@ uv pip check --python .venv/bin/python
 
 마지막 줄이 `3.12.13`과 이 레포의 `.venv/bin/python`을 출력하면 됩니다.
 
-크롤러용 브라우저를 처음 한 번 설치합니다.
+collector용 브라우저를 처음 한 번 설치합니다.
 
 ```bash
 .venv/bin/python -m playwright install chromium
@@ -92,12 +92,13 @@ uv pip sync --python .venv/bin/python --require-hashes requirements.lock.txt
 항상 레포 루트에서 실행합니다. 모듈 폴더 안에서 실행하면 import가 깨집니다.
 
 ```bash
-.venv/bin/python -m pytest            # 전체
-.venv/bin/python -m pytest crawler/   # 모듈 하나
-.venv/bin/python -m crawler.run       # 크롤러
+.venv/bin/python -m pytest                       # 전체
+.venv/bin/python -m pytest modules/collector/    # 모듈 하나
+.venv/bin/python -m modules.collector.core.run   # collector (명세 형식 entrypoint 전까지는 옛 v1.0 출력)
 ```
 
-`uv run pytest`도 같은 `.venv`를 그대로 씁니다. 각 모듈의 테스트는 `<모듈>/tests/`에 둡니다.
+`uv run pytest`도 같은 `.venv`를 그대로 씁니다. 각 모듈의 테스트는 `modules/<module_id>/tests/`에 둡니다.
+`modules/`에는 `__init__.py`를 두지 않습니다. import는 `modules.<module_id>.…` 절대 경로로 쓰고, pytest는 `pytest.ini` 설정으로 같은 이름을 씁니다.
 
 ## 의존성 변경
 
@@ -134,3 +135,6 @@ docker compose up -d --build
 | 날짜 | 검증 커밋 | OS | Python | uv | 결과 |
 |---|---|---|---|---|---|
 | 2026-10-06 | `cc1541c` (feature/minjun-setup) | Ubuntu 24.04.1 (WSL2) x86_64 | 3.12.13 | 0.12.23 | 잠금 19개 `--require-hashes` 설치 · `uv pip check` 통과 · 초기 패키지 import 성공 · pytest 205 passed |
+| 2026-10-06 | `bc80025` (main 기준 커밋) | 위와 같음 | 3.12.13 | 0.12.23 | `cc1541c`와 README.md 외 동일(`git diff --stat`)이라 위 결과를 그대로 적용 |
+
+main·dev 브랜치 보호 적용(2026-10-06): PR 필수 · 승인 1개 · 승인 뒤 커밋을 올리면 승인 해제 · force push·삭제 금지.
