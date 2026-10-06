@@ -19,7 +19,7 @@
 | `verifier` | verify | `verification_results.json` | 최민준 |
 | `reporter` | report · evaluate | `diagnosis_report.json` · `evaluation_results.json` | 이동찬 |
 
-collector는 `modules/collector/`에서 명세 형식 `crawl_result.json`을 공개합니다(근거 파일·복수 계정은 작업 중). `target-app/`은 테스트용 쇼핑몰입니다.
+collector는 `modules/collector/`에서 명세 형식 `crawl_result.json`과 근거 파일(응답·DOM)을 공개합니다(복수 계정은 작업 중). `target-app/`은 테스트용 쇼핑몰입니다.
 
 ## 표준 개발 환경
 

@@ -2,7 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from modules.collector.utils.storage import ArtifactExistsError, OutputPathError, prepare_output_dir, publish_file
+from modules.collector.utils.storage import (
+    ArtifactExistsError,
+    OutputPathError,
+    prepare_evidence_dir,
+    prepare_output_dir,
+    publish_file,
+    serialize_json,
+)
 
 RUN_ID = "run_storage"
 FILE_NAME = "crawl_result.json"
@@ -77,3 +84,24 @@ def test_publish_refuses_existing_file(tmp_path: Path) -> None:
 
     assert (tmp_path / FILE_NAME).read_bytes() == original
     assert [child.name for child in tmp_path.iterdir()] == [FILE_NAME]
+
+
+def test_evidence_dir_created_under_run_root(run_root: Path) -> None:
+    directory = prepare_evidence_dir(run_root, "response")
+
+    assert directory == (run_root / "evidence" / "collector" / "response").resolve()
+    assert directory.is_dir()
+
+
+@pytest.mark.parametrize("kind", ["../response", "response/../../other"])
+def test_evidence_kind_with_parent_part_rejected(run_root: Path, kind: str) -> None:
+    with pytest.raises(OutputPathError):
+        prepare_evidence_dir(run_root, kind)
+
+    assert not (run_root / "evidence").exists()
+
+
+def test_serialize_json_rejects_nan_and_ends_with_newline() -> None:
+    assert serialize_json({"a": "가"}) == '{\n  "a": "가"\n}\n'.encode()
+    with pytest.raises(ValueError):
+        serialize_json({"duration_ms": float("nan")})

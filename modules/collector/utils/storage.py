@@ -5,15 +5,19 @@
 os.replace는 기존 파일을 조용히 덮어쓰므로 쓰지 않는다.
 """
 
+import json
 import os
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 # 경로 규칙은 검증기와 같은 상수를 쓴다(공개하는 쪽과 검사하는 쪽이 어긋나지 않게).
-from modules.collector.utils.validation import ARTIFACTS_DIR_NAME, ITERATION_DIR_FORMAT, PRODUCER
+from modules.collector.utils.validation import ARTIFACTS_DIR_NAME, EVIDENCE_ROOT, ITERATION_DIR_FORMAT, PRODUCER
 
 PARENT_PART = ".."
 TEMP_SUFFIX = ".tmp"
+JSON_INDENT = 2
 
 
 class StorageError(RuntimeError):
@@ -40,6 +44,24 @@ def prepare_output_dir(run_root: Path, iteration: int, output_dir: Path) -> Path
     if expected.resolve() != expected:
         raise OutputPathError("출력 폴더가 symlink로 run_root 밖을 가리킴")
     return expected
+
+
+def prepare_evidence_dir(run_root: Path, kind: str) -> Path:
+    """run_root/evidence/collector/<kind>를 만든다. 중간에 바깥을 가리키는 symlink가 있으면 만들기 전에 거절한다."""
+    if PARENT_PART in run_root.parts or PARENT_PART in Path(kind).parts:
+        raise OutputPathError("경로에 ..를 쓸 수 없음")
+    expected = run_root.resolve() / EVIDENCE_ROOT / kind
+    if expected.resolve() != expected:
+        raise OutputPathError("근거 폴더가 symlink로 run_root 밖을 가리킴")
+    expected.mkdir(parents=True, exist_ok=True)
+    if expected.resolve() != expected:
+        raise OutputPathError("근거 폴더가 symlink로 run_root 밖을 가리킴")
+    return expected
+
+
+def serialize_json(document: Mapping[str, Any]) -> bytes:
+    """공개 파일의 바이트. NaN·Infinity는 계약 위반이라 직렬화 단계에서 막는다."""
+    return (json.dumps(document, ensure_ascii=False, indent=JSON_INDENT, allow_nan=False) + "\n").encode("utf-8")
 
 
 def publish_file(directory: Path, file_name: str, raw: bytes) -> Path:
