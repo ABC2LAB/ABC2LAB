@@ -11,16 +11,28 @@
 
 ## 현재 구현 범위
 
-계약 기반 단계가 구현되어 있다.
+계약 기반과 Neo4j 저장 계층이 구현되어 있다.
 
 - 입력 Schema: semantic analysis, graph query, verification results
 - 출력 Schema: graph query result
 - JSON·Schema·교차 ID 검증
 - 신뢰 경로 검증
 - SHA-256 계산과 원자적 JSON 저장
-- Neo4j 저장소 protocol
+- 환경변수 기반 Neo4j 연결 설정
+- 그래프 메타데이터·노드·관계·workflow 트랜잭션 적재
+- Neo4j 제약조건과 run_id·graph_id 격리
+- 중첩 JSON 직렬화·복원
 
-Neo4j adapter와 공개 operation 실행은 후속 단계에서 구현한다.
+`entrypoint.run`과 query·verification operation은 후속 단계에서 구현한다.
+
+## Neo4j 설정
+
+- `NEO4J_URI`
+- `NEO4J_USERNAME`
+- `NEO4J_PASSWORD`
+- `NEO4J_DATABASE`
+
+실제 비밀번호는 `.env`에만 보관한다.
 
 ## 테스트
 
@@ -28,6 +40,13 @@ Neo4j adapter와 공개 operation 실행은 후속 단계에서 구현한다.
 
 ```bash
 .venv/bin/python -m pytest modules/knowledge_graph/
+```
+
+실제 Neo4j 통합 테스트는 Neo4j가 실행 중일 때 명시적으로 활성화한다.
+
+```bash
+KG_RUN_NEO4J_INTEGRATION=1 .venv/bin/python -m pytest \
+  modules/knowledge_graph/tests/test_neo4j_integration.py
 ```
 
 실행 결과물과 인증 정보는 커밋하지 않는다.
