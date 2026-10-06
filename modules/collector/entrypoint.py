@@ -38,11 +38,14 @@ from modules.collector.utils.envelope import (
     build_envelope,
     make_error_item,
 )
+from modules.collector.utils.evidence import EvidenceWriter
 from modules.collector.utils.storage import (
     ArtifactExistsError,
     OutputPathError,
+    StorageError,
     prepare_output_dir,
     publish_file,
+    serialize_json,
 )
 from modules.collector.utils.validation import (
     ARTIFACT_FILE_NAME,
@@ -64,7 +67,6 @@ DEFAULT_RUNS_DIR = Path("runs")
 RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 RUN_ID_TIME_FORMAT = "%Y%m%d-%H%M%S"
 RUN_ID_RANDOM_BYTES = 2
-JSON_INDENT = 2
 MILLISECONDS_PER_SECOND = 1000
 # 자기 출력 검증에 실패했을 때 errors로 옮길 문제 수 상한. 나머지는 개수만 알린다.
 MAX_CONTRACT_ISSUES = 20
@@ -160,7 +162,12 @@ def _collect(run_context: RunContext, started: float) -> tuple[WorkResult, tuple
         message = f"대상 서버 시계 역행 {outcome.clock_regressions}회 감지: 결과를 쓰지 말고 다시 돌려야 함"
         clock_error = make_error_item(ErrorCode.SERVER_CLOCK_REGRESSION, message, is_retryable=True)
         return WorkResult(Status.FAILED, [clock_error, *account_errors], None, _elapsed_ms(started)), known_secrets
-    data = export.build_data(config, outcome)
+    try:
+        data = export.build_data(config, outcome, EvidenceWriter(run_context.run_root, known_secrets))
+    except (StorageError, OSError) as error:
+        # 같은 run에 근거 파일이 이미 있거나(재실행·다른 회차) 쓸 수 없다. 새 run_id로 다시 돌려야 한다.
+        message = f"근거 파일을 쓰지 못함: {type(error).__name__} {error}"
+        return _make_failed(started, ErrorCode.EVIDENCE_WRITE_FAILED, message, is_retryable=False), known_secrets
     if not account_errors:
         return WorkResult(Status.COMPLETED, [], data, _elapsed_ms(started)), known_secrets
     if export.has_observations(data):
@@ -174,13 +181,13 @@ def _publish(
     """자기 출력 검증을 통과한 바이트만 공개한다. 통과 못 하면 데이터 없이 failed로 공개한다."""
     known_secrets = tuple(known_secrets)
     document = build_envelope(run_context, work)
-    raw = _serialize(document)
+    raw = serialize_json(document)
     issues = validate_crawl_result_bytes(raw, run_context.run_root, known_secrets)
     if issues:
         logger.error("자기 출력 검증 실패 %d건: 데이터 없이 failed로 공개", len(issues))
         failed_work = WorkResult(Status.FAILED, _describe_issues(issues), None, work.duration_ms)
         document = build_envelope(run_context, failed_work)
-        raw = _serialize(document)
+        raw = serialize_json(document)
         if validate_crawl_result_bytes(raw, run_context.run_root, known_secrets):
             return _make_unwritten_result(ErrorCode.OUTPUT_CONTRACT_INVALID, "failed 결과도 계약 검증을 통과하지 못함")
     try:
@@ -225,11 +232,6 @@ def _make_unwritten_result(code: ErrorCode, message: str) -> dict[str, Any]:
         "sha256": None,
         "errors": [error],
     }
-
-
-def _serialize(document: Mapping[str, Any]) -> bytes:
-    # NaN·Infinity는 계약 위반이라 직렬화 단계에서 막는다.
-    return (json.dumps(document, ensure_ascii=False, indent=JSON_INDENT, allow_nan=False) + "\n").encode("utf-8")
 
 
 def _elapsed_ms(started: float) -> int:

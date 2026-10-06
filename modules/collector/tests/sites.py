@@ -25,6 +25,9 @@ ADMIN_PASSWORD = "admin-pw-do-not-store"
 SESSION_COOKIE = "sid"
 SESSION_VALUE = "alice-session"
 MINE_API_BODY = '{"items": [{"id": 7, "owner_id": 2, "email": "alice@example.com"}]}'
+# /mine의 POST 폼에 미리 채워 둔 값. 상태 변경 폼이라 실행하지 않고, DOM 근거에도 값은 남으면 안 된다.
+PREFILLED_VALUE = "prefilled-input-value"
+MINE_DELETE_PATH = "/mine/delete"
 HTML_TYPE = "text/html; charset=utf-8"
 JSON_TYPE = "application/json"
 
@@ -34,6 +37,10 @@ HOME_HTML = f"""<html><head><title>Home</title></head><body>
 </body></html>"""
 MINE_HTML = f"""<html><head><title>Mine</title></head><body>
 <script>fetch("{MINE_API_PATH}?{MINE_API_QUERY}");</script>
+<form method="post" action="{MINE_DELETE_PATH}">
+<input type="hidden" name="csrf_token" value="{PREFILLED_VALUE}"><input name="note" value="{PREFILLED_VALUE}">
+<button>Delete</button>
+</form>
 </body></html>"""
 LOGIN_HTML = f"""<html><head><title>Sign in</title></head><body>
 <form method="post" action="{LOGIN_PATH}">

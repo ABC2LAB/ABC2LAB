@@ -2,7 +2,8 @@
 
 공개 계약(schemas/output/crawl_result.schema.json·README)과 내부 모델의 대응은 이 파일에서만 맞춘다.
 - 지금은 역할당 계정 하나(account:<role>)다.
-- 근거 파일은 아직 만들지 않는다(body_ref=null, evidence_refs=[]).
+- 근거 파일은 EvidenceWriter가 쓴다. JSON 응답은 응답 근거(response.body_ref), 링크·폼·버튼이 있는 페이지는
+  DOM 근거(Page·그 페이지 Action의 evidence_refs). 요청 근거는 만들지 않는다(body_ref=null, evidence_refs=[]).
 - ID는 실행 전체에서 1부터 붙인다. 요청은 역할 안에서 나간 순서대로 정렬한 뒤 번호를 매긴다.
 """
 
@@ -28,6 +29,7 @@ from modules.collector.core.models import CapturedRequest, DiscoveredPage
 from modules.collector.core.normalize import ID_SEGMENT_PATTERNS, PATH_SEPARATOR
 from modules.collector.service import CollectOutcome, RoleCrawl
 from modules.collector.utils.envelope import ErrorCode, format_utc, make_error_item
+from modules.collector.utils.evidence import EvidenceWriter
 
 ROLE_ID_FORMAT = "role:{}"
 ACCOUNT_ID_FORMAT = "account:{}"
@@ -58,8 +60,9 @@ def account_id_of(role: str) -> str:
     return ACCOUNT_ID_FORMAT.format(role)
 
 
-def build_data(config: CrawlerConfig, outcome: CollectOutcome) -> dict[str, Any]:
-    builder = _DataBuilder()
+def build_data(config: CrawlerConfig, outcome: CollectOutcome, evidence_writer: EvidenceWriter) -> dict[str, Any]:
+    """근거 파일을 먼저 쓰고 그 참조를 담은 data를 돌려준다. 근거를 못 쓰면 storage 예외·OSError가 그대로 난다."""
+    builder = _DataBuilder(evidence_writer)
     for role_crawl in outcome.role_crawls:
         builder.add_role(role_crawl)
     return {
@@ -98,6 +101,7 @@ class _RoleLinks:
 
 @dataclass
 class _DataBuilder:
+    evidence_writer: EvidenceWriter
     accounts: list[dict[str, Any]] = field(default_factory=list)
     pages: list[dict[str, Any]] = field(default_factory=list)
     actions: list[dict[str, Any]] = field(default_factory=list)
@@ -122,20 +126,36 @@ class _DataBuilder:
         page_id = PAGE_ID_FORMAT.format(len(self.pages) + 1)
         # 리다이렉트로 이미 본 페이지에 다시 오면 같은 URL이 또 생긴다. 뒤의 것은 추출을 건너뛴 페이지라 처음 것에 잇는다.
         links.page_id_by_url.setdefault(page.url, page_id)
-        self.pages.append({"page_id": page_id, "url": page.url, "title": page.title, "evidence_refs": []})
-        for link in page.links:
-            self._add_action(page_id, link.action_id, NAVIGATE_KIND, link.text, links)
-        for action in page.actions:
-            self._add_action(page_id, action.action_id, ACTION_KIND_BY_ELEMENT[action.kind], action.label, links)
+        page_record: dict[str, Any] = {"page_id": page_id, "url": page.url, "title": page.title, "evidence_refs": []}
+        self.pages.append(page_record)
+        # (페이지 안 순번, 전역 행동 레코드)
+        page_actions = [
+            (link.action_id, self._add_action(page_id, link.action_id, NAVIGATE_KIND, link.text, links))
+            for link in page.links
+        ]
+        page_actions += [
+            (
+                action.action_id,
+                self._add_action(page_id, action.action_id, ACTION_KIND_BY_ELEMENT[action.kind], action.label, links),
+            )
+            for action in page.actions
+        ]
+        action_id_by_local = {local_id: record["action_id"] for local_id, record in page_actions}
+        dom_ref = self.evidence_writer.write_dom(page_id, page, action_id_by_local)
+        if dom_ref is not None:
+            # 페이지와 그 페이지의 행동이 모두 같은 DOM 근거 파일 하나를 가리킨다.
+            page_record["evidence_refs"] = [dict(dom_ref)]
+            for _, action_record in page_actions:
+                action_record["evidence_refs"] = [dict(dom_ref)]
 
     def _add_action(
         self, page_id: str, local_action_id: str, kind: str, label: str | None, links: _RoleLinks
-    ) -> None:
+    ) -> dict[str, Any]:
         action_id = ACTION_ID_FORMAT.format(len(self.actions) + 1)
         links.action_id_by_key[(page_id, local_action_id)] = action_id
-        self.actions.append(
-            {"action_id": action_id, "page_id": page_id, "kind": kind, "label": label, "evidence_refs": []}
-        )
+        action_record = {"action_id": action_id, "page_id": page_id, "kind": kind, "label": label, "evidence_refs": []}
+        self.actions.append(action_record)
+        return action_record
 
     def _build_request(
         self, record: CapturedRequest, account: Mapping[str, Any], links: _RoleLinks
@@ -144,8 +164,9 @@ class _DataBuilder:
         action_id = None
         if page_id is not None and record.source_action not in NON_USER_ACTIONS:
             action_id = links.action_id_by_key.get((page_id, record.source_action))
+        request_id = REQUEST_ID_FORMAT.format(len(self.requests) + 1)
         return {
-            "request_id": REQUEST_ID_FORMAT.format(len(self.requests) + 1),
+            "request_id": request_id,
             "account_id": account["account_id"],
             "role_id": account["role_id"],
             "session_ref": account["session_ref"],
@@ -161,7 +182,7 @@ class _DataBuilder:
                 "status_code": record.status,
                 "content_type": record.response_headers.get(CONTENT_TYPE_HEADER),
                 "headers": build_headers(record.response_headers),
-                "body_ref": None,
+                "body_ref": self.evidence_writer.write_response(request_id, record),
             },
             "evidence_refs": [],
         }

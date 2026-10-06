@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from modules.collector.core.auth import open_role_context
 from modules.collector.core.capture import FILE_PART_VALUE, RequestCapture, select_stale_requests, start_capture
 from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
-from modules.collector.core.models import CapturedRequest
+from modules.collector.core.models import CapturedRequest, ResponseIdentifier
 from modules.collector.tests.helpers import make_counting_handler, run_server
 
 ROLE = "user"
@@ -74,15 +74,22 @@ document.getElementById("spa").addEventListener("click", () => {{
   setTimeout(() => history.pushState({{}}, "", "/spa-next"), {PUSH_STATE_DELAY_MS});
 }});
 </script></body></html>"""
-NESTED_JSON_VALUES = ("carol@example.com", "carol-private-note", "3141.59265", "918273645")
+# 식별자가 아닌 값. 어디에도 남으면 안 된다. id 꼴 값은 식별자로 남는다(10/6 결정).
+NESTED_JSON_VALUES = ("carol@example.com", "carol-private-note", "3141.59265", "55443322")
 NESTED_JSON_BODY = (
-    '{"user": {"id": 918273645, "email": "carol@example.com", "roles": ["admin"]},'
+    '{"user": {"id": 918273645, "session_id": 55443322, "email": "carol@example.com", "roles": ["admin"]},'
     ' "orders": [{"id": 1, "total": 3141.59265}, {"id": 2, "note": "carol-private-note"}]}'
 )
 NESTED_JSON_SHAPE = {
-    "user": {"id": "int", "email": "str", "roles": ["str"]},
+    "user": {"id": "int", "session_id": "int", "email": "str", "roles": ["str"]},
     "orders": [{"id": "int", "total": "float", "note": "str"}],
 }
+# session_id는 민감 키라 식별자로 남지 않는다.
+NESTED_JSON_IDENTIFIERS = [
+    ResponseIdentifier(pointer="/user/id", value=918273645),
+    ResponseIdentifier(pointer="/orders/0/id", value=1),
+    ResponseIdentifier(pointer="/orders/1/id", value=2),
+]
 WAIT_TIMEOUT_S = 5
 POLL_INTERVAL_MS = 50
 SETTLE_MS = 200
@@ -459,7 +466,10 @@ def test_fetch_json_response_recorded_as_shape(session: CaptureSession, site_url
     nested = fetch_path(session, site_url, NESTED_JSON_PATH)
 
     assert orders.response_shape == {"id": "int"}
+    assert orders.response_identifiers == [ResponseIdentifier(pointer="/id", value=42)]
     assert nested.response_shape == NESTED_JSON_SHAPE
+    assert nested.response_identifiers == NESTED_JSON_IDENTIFIERS
+    assert nested.is_response_identifiers_truncated is False
 
 
 def test_json_suffix_content_type_recorded(session: CaptureSession, site_url: str) -> None:
@@ -477,7 +487,9 @@ def test_document_json_recorded_but_html_is_null(session: CaptureSession, site_u
 
     assert json_document.resource_type == "document"
     assert json_document.response_shape == NESTED_JSON_SHAPE
+    assert json_document.response_identifiers == NESTED_JSON_IDENTIFIERS
     assert html_document.response_shape is None
+    assert html_document.response_identifiers is None
 
 
 @pytest.mark.parametrize("path", [PLAIN_TEXT_PATH, BROKEN_JSON_PATH])
@@ -486,6 +498,7 @@ def test_non_json_or_broken_json_is_null(session: CaptureSession, site_url: str,
 
     assert record.status == 200
     assert record.response_shape is None
+    assert record.response_identifiers is None
 
 
 def test_redirect_response_is_null(session: CaptureSession, site_url: str) -> None:
