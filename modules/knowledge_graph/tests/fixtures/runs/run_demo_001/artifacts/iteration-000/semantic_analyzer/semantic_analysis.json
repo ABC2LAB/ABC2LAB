@@ -1,0 +1,60 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "semantic_analysis",
+  "artifact_id": "semantic_demo_001",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "semantic_analyzer",
+  "mode": "development",
+  "created_at": "2026-10-06T00:00:00Z",
+  "status": "completed",
+  "input_refs": [],
+  "errors": [],
+  "runtime_metrics": null,
+  "data": {
+    "normalized_requests": [
+      {
+        "request_id": "request_001",
+        "endpoint_id": "endpoint_orders",
+        "method": "GET",
+        "path_template": "/api/orders/{order_id}",
+        "account_id": "account_user",
+        "role_id": "role_user",
+        "action_meaning": "read_order",
+        "resource_ids": ["resource_order_001"],
+        "parameters": [
+          {
+            "parameter_id": "parameter_order_id",
+            "name": "order_id",
+            "location": "path",
+            "value_type": "string",
+            "is_sensitive": false
+          }
+        ],
+        "basis": "observed",
+        "evidence_refs": []
+      }
+    ],
+    "nodes": [
+      {"node_id": "account_user", "node_type": "User", "properties": {}, "basis": "observed", "evidence_refs": []},
+      {"node_id": "role_user", "node_type": "Role", "properties": {"name": "user"}, "basis": "observed", "evidence_refs": []},
+      {"node_id": "endpoint_orders", "node_type": "Endpoint", "properties": {"method": "GET", "path_template": "/api/orders/{order_id}"}, "basis": "observed", "evidence_refs": []},
+      {"node_id": "resource_order_001", "node_type": "Resource", "properties": {"resource_type": "order"}, "basis": "inferred", "evidence_refs": []}
+    ],
+    "relationships": [
+      {"relationship_id": "relationship_owns_001", "source_id": "account_user", "target_id": "resource_order_001", "relation_type": "OWNS", "properties": {}, "basis": "inferred", "evidence_refs": []}
+    ],
+    "workflows": [
+      {
+        "workflow_id": "workflow_order_read",
+        "name": "order read",
+        "role_ids": ["role_user"],
+        "steps": [{"step_id": "step_read", "order": 0, "action": "read_order", "request_ids": ["request_001"]}],
+        "dependencies": [],
+        "basis": "inferred",
+        "evidence_refs": []
+      }
+    ],
+    "model_info": null
+  }
+}

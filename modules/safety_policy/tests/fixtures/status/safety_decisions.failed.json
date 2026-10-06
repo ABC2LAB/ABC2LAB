@@ -1,0 +1,22 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "safety_decisions",
+  "artifact_id": "safety_decisions_failed_001",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "safety_policy",
+  "mode": "development",
+  "created_at": "2026-10-06T00:00:01Z",
+  "status": "failed",
+  "input_refs": [],
+  "errors": [
+    {
+      "code": "POLICY_EVALUATION_FAILED",
+      "message": "사용 가능한 Policy 판정이 없음",
+      "item_ref": null,
+      "retryable": false
+    }
+  ],
+  "runtime_metrics": null,
+  "data": null
+}
