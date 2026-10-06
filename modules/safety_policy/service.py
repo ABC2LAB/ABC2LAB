@@ -3,6 +3,7 @@
 from modules.safety_policy.contracts import load_test_scenarios
 from modules.safety_policy.exceptions import (
     ContractValidationError,
+    InputHashMismatchError,
     SourceArtifactFailedError,
 )
 from modules.safety_policy.models import (
@@ -17,7 +18,7 @@ from modules.safety_policy.utils.hashing import calculate_sha256
 def prepare_evaluation(request: EvaluationRequest) -> EvaluationInput:
     actual_sha256 = calculate_sha256(request.input_path)
     if actual_sha256 != request.expected_sha256:
-        raise ContractValidationError("test_scenarios SHA-256이 실제 파일과 다름")
+        raise InputHashMismatchError("test_scenarios SHA-256이 실제 파일과 다름")
 
     artifact, scenarios = load_test_scenarios(request.input_path)
     _validate_execution_context(artifact, request)

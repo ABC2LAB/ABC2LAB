@@ -1,0 +1,47 @@
+{
+  "schema_version": "0.1.0",
+  "policy_id": "abc2lab-fixture-policy",
+  "policy_version": "0.1.0",
+  "allowed_targets": [
+    {
+      "origin": "http://127.0.0.1:8001",
+      "path_prefixes": ["/api/orders"]
+    }
+  ],
+  "test_accounts": [
+    {
+      "account_id": "account_user_001",
+      "role_ids": ["role_user"],
+      "requires_session": true
+    },
+    {
+      "account_id": "account_user_002",
+      "role_ids": ["role_user"],
+      "requires_session": true
+    }
+  ],
+  "limits": {
+    "max_requests": 4,
+    "max_duration_ms": 10000
+  },
+  "request_rules": [
+    {
+      "rule_id": "orders.read",
+      "origin": "http://127.0.0.1:8001",
+      "path_prefix": "/api/orders",
+      "methods": ["GET"],
+      "state_change": "none",
+      "data_impact": "read_only",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "orders.update",
+      "origin": "http://127.0.0.1:8001",
+      "path_prefix": "/api/orders/2001/status",
+      "methods": ["POST"],
+      "state_change": "require_approval",
+      "data_impact": "require_approval",
+      "service_impact": "low"
+    }
+  ]
+}

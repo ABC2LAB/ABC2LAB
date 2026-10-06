@@ -21,6 +21,9 @@ def test_parse_evaluate_request_resolves_contract_paths(
         / "artifacts/iteration-000/scenario_generator/test_scenarios.json"
     )
     assert request.input_relative_path.endswith("test_scenarios.json")
+    assert request.policy_config_path == (
+        evaluate_run_root / "private/safety_policy/policy.json"
+    )
     assert request.output_path == (
         evaluate_run_root
         / "artifacts/iteration-000/safety_policy/safety_decisions.json"
@@ -113,6 +116,26 @@ def test_parse_evaluate_request_rejects_invalid_sha256(
         parse_evaluate_request(input_paths, output_dir, context)
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"path": "private/other/policy.json"},
+        {"path": "../policy.json"},
+        {"sha256": "invalid"},
+        {"unexpected": True},
+    ],
+)
+def test_parse_evaluate_request_rejects_invalid_policy_descriptor(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    change: dict[str, Any],
+) -> None:
+    input_paths, output_dir, context = copy.deepcopy(evaluate_arguments)
+    context["policy_config"].update(change)
+
+    with pytest.raises(SafetyPolicyError):
+        parse_evaluate_request(input_paths, output_dir, context)
+
+
 def test_parse_evaluate_request_rejects_missing_input_file(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
@@ -122,6 +145,33 @@ def test_parse_evaluate_request_rejects_missing_input_file(
     input_path.unlink()
 
     with pytest.raises(SafetyPolicyError, match="입력 파일이 존재하지 않음"):
+        parse_evaluate_request(input_paths, output_dir, context)
+
+
+def test_parse_evaluate_request_rejects_missing_policy_file(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    policy_path = evaluate_run_root / context["policy_config"]["path"]
+    policy_path.unlink()
+
+    with pytest.raises(SafetyPolicyError, match="입력 파일이 존재하지 않음"):
+        parse_evaluate_request(input_paths, output_dir, context)
+
+
+def test_parse_evaluate_request_rejects_policy_symlink_escape(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    policy_path = evaluate_run_root / context["policy_config"]["path"]
+    outside_path = evaluate_run_root.parent / "outside-policy.json"
+    outside_path.write_text("{}", encoding="utf-8")
+    policy_path.unlink()
+    policy_path.symlink_to(outside_path)
+
+    with pytest.raises(SafetyPolicyError, match="신뢰 경로를 벗어난"):
         parse_evaluate_request(input_paths, output_dir, context)
 
 

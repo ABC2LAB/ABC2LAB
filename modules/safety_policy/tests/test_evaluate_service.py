@@ -114,6 +114,8 @@ def _input_path(run_root: Path) -> Path:
 
 
 def _request_for(run_root: Path, input_path: Path) -> EvaluationRequest:
+    policy_relative_path = "private/safety_policy/policy.json"
+    policy_path = run_root / policy_relative_path
     return parse_evaluate_request(
         input_paths={
             "test_scenarios": {
@@ -130,6 +132,10 @@ def _request_for(run_root: Path, input_path: Path) -> EvaluationRequest:
             "iteration": 0,
             "mode": "development",
             "run_root": run_root,
+            "policy_config": {
+                "path": policy_relative_path,
+                "sha256": calculate_sha256(policy_path),
+            },
         },
     )
 

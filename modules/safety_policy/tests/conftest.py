@@ -27,13 +27,27 @@ def completed_output_path(fixture_root: Path) -> Path:
 
 
 @pytest.fixture
-def evaluate_run_root(tmp_path: Path, completed_input_path: Path) -> Path:
+def completed_policy_config_path(fixture_root: Path) -> Path:
+    return fixture_root / (
+        "runs/run_demo_001/private/safety_policy/policy.json"
+    )
+
+
+@pytest.fixture
+def evaluate_run_root(
+    tmp_path: Path,
+    completed_input_path: Path,
+    completed_policy_config_path: Path,
+) -> Path:
     run_root = tmp_path / "run_demo_001"
     input_path = run_root / (
         "artifacts/iteration-000/scenario_generator/test_scenarios.json"
     )
     input_path.parent.mkdir(parents=True)
     copyfile(completed_input_path, input_path)
+    policy_path = run_root / "private/safety_policy/policy.json"
+    policy_path.parent.mkdir(parents=True)
+    copyfile(completed_policy_config_path, policy_path)
     return run_root
 
 
@@ -47,6 +61,8 @@ def evaluate_arguments(
         "artifacts/iteration-000/scenario_generator/test_scenarios.json"
     )
     input_path = evaluate_run_root / relative_path
+    policy_relative_path = "private/safety_policy/policy.json"
+    policy_path = evaluate_run_root / policy_relative_path
     return (
         {
             "test_scenarios": {
@@ -60,5 +76,9 @@ def evaluate_arguments(
             "iteration": 0,
             "mode": "development",
             "run_root": evaluate_run_root,
+            "policy_config": {
+                "path": policy_relative_path,
+                "sha256": calculate_sha256(policy_path),
+            },
         },
     )

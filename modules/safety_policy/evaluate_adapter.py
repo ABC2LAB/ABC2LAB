@@ -15,8 +15,11 @@ from modules.safety_policy.utils.paths import (
 )
 
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-CONTEXT_KEYS = frozenset({"run_id", "iteration", "mode", "run_root"})
+CONTEXT_KEYS = frozenset(
+    {"run_id", "iteration", "mode", "run_root", "policy_config"}
+)
 INPUT_DESCRIPTOR_KEYS = frozenset({"path", "sha256"})
+POLICY_CONFIG_RELATIVE_PATH = "private/safety_policy/policy.json"
 
 
 def parse_evaluate_request(
@@ -55,12 +58,29 @@ def parse_evaluate_request(
     )
     if relative_path != expected_relative_path:
         raise ContractValidationError("test_scenarios 입력 경로가 실행 규약과 다름")
-    expected_sha256 = _require_string(
-        descriptor["sha256"],
-        "input_paths.test_scenarios.sha256",
+    expected_sha256 = _require_sha256(
+        descriptor["sha256"], "input_paths.test_scenarios.sha256"
     )
-    if SHA256_PATTERN.fullmatch(expected_sha256) is None:
-        raise ContractValidationError("test_scenarios SHA-256 형식이 올바르지 않음")
+
+    policy_descriptor = _require_mapping(
+        context_values["policy_config"],
+        "context.policy_config",
+    )
+    _require_exact_keys(
+        policy_descriptor,
+        INPUT_DESCRIPTOR_KEYS,
+        "context.policy_config",
+    )
+    policy_relative_path = _require_string(
+        policy_descriptor["path"],
+        "context.policy_config.path",
+    )
+    if policy_relative_path != POLICY_CONFIG_RELATIVE_PATH:
+        raise ContractValidationError("Policy 설정 경로가 실행 규약과 다름")
+    policy_expected_sha256 = _require_sha256(
+        policy_descriptor["sha256"],
+        "context.policy_config.sha256",
+    )
 
     output_relative_dir = f"artifacts/iteration-{iteration:03d}/safety_policy"
     resolved_output_dir = _resolve_output_directory(
@@ -73,6 +93,11 @@ def parse_evaluate_request(
         input_path=require_existing_file(run_root, relative_path),
         input_relative_path=relative_path,
         expected_sha256=expected_sha256,
+        policy_config_path=require_existing_file(
+            run_root,
+            policy_relative_path,
+        ),
+        policy_config_expected_sha256=policy_expected_sha256,
         output_path=resolved_output_dir / "safety_decisions.json",
         output_relative_path=output_relative_path,
         run_id=run_id,
@@ -106,6 +131,13 @@ def _require_iteration(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ContractValidationError("context.iteration은 0 이상의 정수여야 함")
     return value
+
+
+def _require_sha256(value: Any, label: str) -> str:
+    digest = _require_string(value, label)
+    if SHA256_PATTERN.fullmatch(digest) is None:
+        raise ContractValidationError(f"{label} SHA-256 형식이 올바르지 않음")
+    return digest
 
 
 def _require_run_root(value: Any, run_id: str) -> Path:
