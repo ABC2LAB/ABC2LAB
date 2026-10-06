@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from modules.safety_policy.exceptions import ContractValidationError
@@ -15,11 +15,18 @@ from modules.safety_policy.utils.paths import (
 )
 
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-CONTEXT_KEYS = frozenset(
+CONTEXT_REQUIRED_KEYS = frozenset(
     {"run_id", "iteration", "mode", "run_root", "policy_config"}
 )
+CONTEXT_OPTIONAL_KEYS = frozenset({"approval_record"})
 INPUT_DESCRIPTOR_KEYS = frozenset({"path", "sha256"})
 POLICY_CONFIG_RELATIVE_PATH = "private/safety_policy/policy.json"
+APPROVAL_RECORD_DIRECTORY = PurePosixPath(
+    "private/safety_policy/approvals"
+)
+APPROVAL_RECORD_NAME_PATTERN = re.compile(
+    r"^approval_[A-Za-z0-9][A-Za-z0-9_-]*\.json$"
+)
 
 
 def parse_evaluate_request(
@@ -30,7 +37,7 @@ def parse_evaluate_request(
     input_values = _require_mapping(input_paths, "input_paths")
     context_values = _require_mapping(context, "context")
     _require_exact_keys(input_values, {"test_scenarios"}, "input_paths")
-    _require_exact_keys(context_values, CONTEXT_KEYS, "context")
+    _require_context_keys(context_values)
 
     run_id = _require_string(context_values["run_id"], "context.run_id")
     iteration = _require_iteration(context_values["iteration"])
@@ -81,6 +88,10 @@ def parse_evaluate_request(
         policy_descriptor["sha256"],
         "context.policy_config.sha256",
     )
+    approval_path, approval_expected_sha256 = _parse_approval_descriptor(
+        context_values.get("approval_record"),
+        run_root,
+    )
 
     output_relative_dir = f"artifacts/iteration-{iteration:03d}/safety_policy"
     resolved_output_dir = _resolve_output_directory(
@@ -98,12 +109,50 @@ def parse_evaluate_request(
             policy_relative_path,
         ),
         policy_config_expected_sha256=policy_expected_sha256,
+        approval_record_path=approval_path,
+        approval_record_expected_sha256=approval_expected_sha256,
         output_path=resolved_output_dir / "safety_decisions.json",
         output_relative_path=output_relative_path,
         run_id=run_id,
         iteration=iteration,
         mode=mode,
     )
+
+
+def _require_context_keys(value: Mapping[str, Any]) -> None:
+    keys = set(value)
+    allowed_keys = CONTEXT_REQUIRED_KEYS | CONTEXT_OPTIONAL_KEYS
+    if not CONTEXT_REQUIRED_KEYS.issubset(keys) or not keys.issubset(allowed_keys):
+        raise ContractValidationError("context 필드 구성이 올바르지 않음")
+
+
+def _parse_approval_descriptor(
+    value: Any,
+    run_root: Path,
+) -> tuple[Path | None, str | None]:
+    if value is None:
+        return None, None
+    descriptor = _require_mapping(value, "context.approval_record")
+    _require_exact_keys(
+        descriptor,
+        INPUT_DESCRIPTOR_KEYS,
+        "context.approval_record",
+    )
+    relative_path = _require_string(
+        descriptor["path"],
+        "context.approval_record.path",
+    )
+    parsed_path = PurePosixPath(relative_path)
+    if (
+        parsed_path.parent != APPROVAL_RECORD_DIRECTORY
+        or APPROVAL_RECORD_NAME_PATTERN.fullmatch(parsed_path.name) is None
+    ):
+        raise ContractValidationError("승인 기록 경로가 실행 규약과 다름")
+    expected_sha256 = _require_sha256(
+        descriptor["sha256"],
+        "context.approval_record.sha256",
+    )
+    return require_existing_file(run_root, relative_path), expected_sha256
 
 
 def _require_mapping(value: Any, label: str) -> Mapping[str, Any]:

@@ -34,10 +34,19 @@ def completed_policy_config_path(fixture_root: Path) -> Path:
 
 
 @pytest.fixture
+def completed_approval_record_path(fixture_root: Path) -> Path:
+    return fixture_root / (
+        "runs/run_demo_001/private/safety_policy/approvals/"
+        "approval_demo_001.json"
+    )
+
+
+@pytest.fixture
 def evaluate_run_root(
     tmp_path: Path,
     completed_input_path: Path,
     completed_policy_config_path: Path,
+    completed_approval_record_path: Path,
 ) -> Path:
     run_root = tmp_path / "run_demo_001"
     input_path = run_root / (
@@ -48,6 +57,11 @@ def evaluate_run_root(
     policy_path = run_root / "private/safety_policy/policy.json"
     policy_path.parent.mkdir(parents=True)
     copyfile(completed_policy_config_path, policy_path)
+    approval_path = run_root / (
+        "private/safety_policy/approvals/approval_demo_001.json"
+    )
+    approval_path.parent.mkdir(parents=True)
+    copyfile(completed_approval_record_path, approval_path)
     return run_root
 
 

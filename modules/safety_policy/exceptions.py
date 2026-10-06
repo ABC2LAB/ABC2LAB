@@ -35,3 +35,11 @@ class InputHashMismatchError(ContractValidationError):
 
 class PolicyConfigHashMismatchError(PolicyConfigurationError):
     """Raised when the policy configuration differs from its supplied digest."""
+
+
+class ApprovalRecordError(SafetyPolicyError):
+    """Raised when a supplied approval record cannot authorize evaluation."""
+
+
+class ApprovalRecordHashMismatchError(ApprovalRecordError):
+    """Raised when an approval record differs from its supplied digest."""

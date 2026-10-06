@@ -129,6 +129,40 @@ Policy 설정은 `schemas/input/policy_config.schema.json`으로 검증하며 �
 `safety_decisions.json`의 v0.1 출력 Schema는 변경하지 않는다. Policy 설정 해시는
 실행 입력에서만 검증하며 출력에는 기존 `policy_id`·`policy_version`을 기록한다.
 
+## 5단계 승인 기록 재평가
+
+승인 기록은 선택 입력이다. 기록이 없거나 `context.approval_record=null`이면 기존
+사전 평가 결과를 그대로 발행한다. 기록이 있으면 내용 자체를 `context`에 넣지
+않고 `private/safety_policy/approvals/` 아래 파일의 상대 경로와 SHA-256만 전달한다.
+
+```python
+context["approval_record"] = {
+    "path": "private/safety_policy/approvals/approval_<id>.json",
+    "sha256": "<64자리 소문자 SHA-256>",
+}
+```
+
+승인 기록은 `schemas/input/approval_record.schema.json`으로 검증하고 다음 값에
+정확히 묶는다.
+
+- `run_id`, `iteration`
+- `test_scenarios.json`의 정확한 바이트 SHA-256
+- `policy_id`, `policy_version`
+- 승인 대상 `scenario_id` 목록
+- 승인자 식별자와 승인·만료 시각
+
+승인으로 바꿀 수 있는 항목은 명시적인 `require_approval`뿐이다. `block`과
+`unknown`은 승인 기록이 있어도 허용하지 않으며, 이미 허용된 시나리오에 승인을
+붙이는 것도 거절한다. 검증된 승인으로 모든 assessment가 `pass`가 된 경우에만
+새 `allow`를 발행하고 기존 출력 필드 `approval_ref`에 `approval_id`를 기록한다.
+상태 변경 승인이 포함된 경우 verifier가 강제할 `limits.allow_state_change`도
+`true`로 설정한다.
+
+승인 파일이 평가 중 바뀌면 결과를 공개하지 않는다. 승인 기록 생성과 사용자
+진위 확인은 향후 runner·UI 통합에서 이 입력 계약에 맞춰 연결하며, 현재 모듈은
+미리 만들어진 독립 fixture로 재평가 경계를 검증한다. `safety_decisions.json`
+출력 Schema는 5단계에서도 변경하지 않는다.
+
 ### CLI
 
 ```bash
@@ -137,6 +171,17 @@ Policy 설정은 `schemas/input/policy_config.schema.json`으로 검증하며 �
   --run-id run_demo_001 \
   --iteration 0 \
   --mode development
+```
+
+승인 기록을 적용할 때는 전용 경로를 선택 인자로 전달한다.
+
+```bash
+.venv/bin/python -m modules.safety_policy.entrypoint evaluate \
+  --run-root runs/run_demo_001 \
+  --run-id run_demo_001 \
+  --iteration 0 \
+  --mode development \
+  --approval-record private/safety_policy/approvals/approval_demo_001.json
 ```
 
 CLI도 같은 고정 입력·설정·출력 경로를 사용하며 파일 해시를 계산한 뒤 공개

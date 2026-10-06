@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "approval_record.schema.json",
+  "title": "safety policy user approval record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "approval_id",
+    "run_id",
+    "iteration",
+    "scenarios_sha256",
+    "policy_id",
+    "policy_version",
+    "approved_scenario_ids",
+    "approved_by",
+    "approved_at",
+    "expires_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "status": {"const": "approved"},
+    "approval_id": {
+      "type": "string",
+      "pattern": "^approval_[A-Za-z0-9][A-Za-z0-9_-]*$"
+    },
+    "run_id": {"$ref": "#/$defs/nonEmptyString"},
+    "iteration": {"type": "integer", "minimum": 0},
+    "scenarios_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "policy_id": {"$ref": "#/$defs/nonEmptyString"},
+    "policy_version": {"$ref": "#/$defs/nonEmptyString"},
+    "approved_scenario_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/nonEmptyString"}
+    },
+    "approved_by": {"$ref": "#/$defs/nonEmptyString"},
+    "approved_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1}
+  }
+}

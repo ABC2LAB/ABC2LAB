@@ -8,9 +8,13 @@ from dataclasses import dataclass
 from ipaddress import IPv6Address
 from urllib.parse import SplitResult, unquote_to_bytes, urlsplit
 
-from modules.safety_policy.exceptions import PolicyConfigurationError
+from modules.safety_policy.exceptions import (
+    ApprovalRecordError,
+    PolicyConfigurationError,
+)
 from modules.safety_policy.models import (
     AllowedTarget,
+    ApprovalRecord,
     EvaluationInput,
     PolicyAssessmentItem,
     PolicyConfiguration,
@@ -58,10 +62,23 @@ class _RequestEvaluation:
 def evaluate_policy(
     evaluation_input: EvaluationInput,
     configuration: PolicyConfiguration,
+    approval_record: ApprovalRecord | None = None,
 ) -> SafetyDecisionsData:
     policy = _validate_policy_configuration(configuration)
+    approval_id_by_scenario = (
+        {
+            scenario_id: approval_record.approval_id
+            for scenario_id in approval_record.approved_scenario_ids
+        }
+        if approval_record is not None
+        else {}
+    )
     decisions = tuple(
-        _evaluate_scenario(scenario, policy)
+        _evaluate_scenario(
+            scenario,
+            policy,
+            approval_id_by_scenario.get(scenario.scenario_id),
+        )
         for scenario in evaluation_input.scenarios.scenarios
     )
     return SafetyDecisionsData(
@@ -75,6 +92,7 @@ def evaluate_policy(
 def _evaluate_scenario(
     scenario: Scenario,
     policy: PolicyConfiguration,
+    approval_id: str | None,
 ) -> SafetyDecision:
     requests = tuple(_evaluate_request(step, policy) for step in scenario.steps)
     assessment = SafetyAssessment(
@@ -85,6 +103,10 @@ def _evaluate_scenario(
         data_impact=_assess_impact(requests, "data_impact"),
         service_impact=_assess_impact(requests, "service_impact"),
     )
+    approved_state_change = False
+    if approval_id is not None:
+        approved_state_change = assessment.state_change.status == "require_approval"
+        assessment = _apply_approval(assessment, approval_id)
     decision = _choose_decision(assessment)
     is_allowed = decision == "allow"
     return SafetyDecision(
@@ -92,7 +114,7 @@ def _evaluate_scenario(
         scenario_id=scenario.scenario_id,
         decision=decision,
         reason_codes=_reason_codes(assessment),
-        reason=_decision_reason(decision),
+        reason=_decision_reason(decision, approval_id if is_allowed else None),
         assessment=assessment,
         effective_origins=(
             _unique_origins(requests) if is_allowed else ()
@@ -100,8 +122,47 @@ def _evaluate_scenario(
         effective_account_ids=(
             _unique_account_ids(scenario) if is_allowed else ()
         ),
-        limits=_effective_limits(requests, policy, is_allowed),
-        approval_ref=None,
+        limits=_effective_limits(
+            requests,
+            policy,
+            is_allowed,
+            approved_state_change,
+        ),
+        approval_ref=approval_id if is_allowed else None,
+    )
+
+
+def _apply_approval(
+    assessment: SafetyAssessment,
+    approval_id: str,
+) -> SafetyAssessment:
+    statuses = assessment.statuses()
+    if "block" in statuses:
+        raise ApprovalRecordError("차단된 시나리오는 승인으로 허용할 수 없음")
+    if "unknown" in statuses:
+        raise ApprovalRecordError("영향이 불명확한 시나리오는 승인으로 허용할 수 없음")
+    if "require_approval" not in statuses:
+        raise ApprovalRecordError("승인이 필요하지 않은 시나리오가 승인 기록에 포함됨")
+    return SafetyAssessment(
+        target_scope=_approve_item(assessment.target_scope, approval_id),
+        test_accounts=_approve_item(assessment.test_accounts, approval_id),
+        request_budget=_approve_item(assessment.request_budget, approval_id),
+        state_change=_approve_item(assessment.state_change, approval_id),
+        data_impact=_approve_item(assessment.data_impact, approval_id),
+        service_impact=_approve_item(assessment.service_impact, approval_id),
+    )
+
+
+def _approve_item(
+    item: PolicyAssessmentItem,
+    approval_id: str,
+) -> PolicyAssessmentItem:
+    if item.status != "require_approval":
+        return item
+    return PolicyAssessmentItem(
+        status="pass",
+        rule_id=item.rule_id,
+        reason=f"검증된 사용자 승인 기록({approval_id})으로 허용됨",
     )
 
 
@@ -261,8 +322,10 @@ def _reason_codes(assessment: SafetyAssessment) -> tuple[str, ...]:
     return codes or ("ALL_ASSESSMENTS_PASSED",)
 
 
-def _decision_reason(decision: str) -> str:
+def _decision_reason(decision: str, approval_id: str | None = None) -> str:
     if decision == "allow":
+        if approval_id is not None:
+            return "검증된 사용자 승인과 실행 제한 안에서 검증을 수행할 수 있음"
         return "정의된 실행 범위와 제한 안에서 검증을 수행할 수 있음"
     if decision == "block":
         return "Policy 안전 평가에서 차단 항목이 확인됨"
@@ -273,10 +336,11 @@ def _effective_limits(
     requests: tuple[_RequestEvaluation, ...],
     policy: PolicyConfiguration,
     is_allowed: bool,
+    approved_state_change: bool = False,
 ) -> PolicyLimits:
     if not is_allowed:
         return PolicyLimits(0, 0, False)
-    allows_state_change = any(
+    allows_state_change = approved_state_change or any(
         request.rule is not None and request.rule.state_change == "allow"
         for request in requests
     )

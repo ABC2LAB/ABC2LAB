@@ -6,6 +6,7 @@ import pytest
 
 from modules.safety_policy.evaluate_adapter import parse_evaluate_request
 from modules.safety_policy.exceptions import ContractValidationError, SafetyPolicyError
+from modules.safety_policy.utils.hashing import calculate_sha256
 
 
 def test_parse_evaluate_request_resolves_contract_paths(
@@ -32,6 +33,41 @@ def test_parse_evaluate_request_resolves_contract_paths(
     assert request.run_id == "run_demo_001"
     assert request.iteration == 0
     assert request.mode == "development"
+    assert request.approval_record_path is None
+    assert request.approval_record_expected_sha256 is None
+
+
+def test_parse_evaluate_request_accepts_approval_descriptor(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    relative_path = (
+        "private/safety_policy/approvals/approval_demo_001.json"
+    )
+    approval_path = evaluate_run_root / relative_path
+    context["approval_record"] = {
+        "path": relative_path,
+        "sha256": calculate_sha256(approval_path),
+    }
+
+    request = parse_evaluate_request(input_paths, output_dir, context)
+
+    assert request.approval_record_path == approval_path
+    assert request.approval_record_expected_sha256 == calculate_sha256(
+        approval_path
+    )
+
+
+def test_parse_evaluate_request_accepts_explicitly_absent_approval(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    context["approval_record"] = None
+
+    request = parse_evaluate_request(input_paths, output_dir, context)
+
+    assert request.approval_record_path is None
 
 
 def test_parse_evaluate_request_accepts_exact_absolute_output_directory(
@@ -131,6 +167,36 @@ def test_parse_evaluate_request_rejects_invalid_policy_descriptor(
 ) -> None:
     input_paths, output_dir, context = copy.deepcopy(evaluate_arguments)
     context["policy_config"].update(change)
+
+    with pytest.raises(SafetyPolicyError):
+        parse_evaluate_request(input_paths, output_dir, context)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"path": "private/safety_policy/approval_demo_001.json"},
+        {"path": "private/safety_policy/approvals/not_approval.json"},
+        {"path": "../approval_demo_001.json"},
+        {"sha256": "invalid"},
+        {"unexpected": True},
+    ],
+)
+def test_parse_evaluate_request_rejects_invalid_approval_descriptor(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    change: dict[str, Any],
+) -> None:
+    input_paths, output_dir, context = copy.deepcopy(evaluate_arguments)
+    relative_path = (
+        "private/safety_policy/approvals/approval_demo_001.json"
+    )
+    context["run_root"] = evaluate_run_root
+    context["approval_record"] = {
+        "path": relative_path,
+        "sha256": calculate_sha256(evaluate_run_root / relative_path),
+    }
+    context["approval_record"].update(change)
 
     with pytest.raises(SafetyPolicyError):
         parse_evaluate_request(input_paths, output_dir, context)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, TypeAlias
 
@@ -43,6 +44,8 @@ class EvaluationRequest:
     expected_sha256: str
     policy_config_path: Path
     policy_config_expected_sha256: str
+    approval_record_path: Path | None
+    approval_record_expected_sha256: str | None
     output_path: Path
     output_relative_path: str
     run_id: str
@@ -150,6 +153,20 @@ class PolicyConfiguration:
                 for item in value["request_rules"]
             ),
         )
+
+
+@dataclass(frozen=True)
+class ApprovalRecord:
+    approval_id: str
+    run_id: str
+    iteration: int
+    scenarios_sha256: str
+    policy_id: str
+    policy_version: str
+    approved_scenario_ids: tuple[str, ...]
+    approved_by: str
+    approved_at: datetime
+    expires_at: datetime
 
 
 @dataclass(frozen=True)

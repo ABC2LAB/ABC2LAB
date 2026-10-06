@@ -11,12 +11,16 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+from modules.safety_policy.approval_adapter import load_approval_record
 from modules.safety_policy.config_adapter import load_policy_configuration
 from modules.safety_policy.evaluate_adapter import (
+    APPROVAL_RECORD_DIRECTORY,
     POLICY_CONFIG_RELATIVE_PATH,
     parse_evaluate_request,
 )
 from modules.safety_policy.exceptions import (
+    ApprovalRecordError,
+    ApprovalRecordHashMismatchError,
     ContractValidationError,
     InputHashMismatchError,
     OutputArtifactExistsError,
@@ -72,7 +76,12 @@ def _run_evaluate(request: EvaluationRequest) -> EvaluationControlResponse:
         return _input_failure_response(error)
     try:
         configuration = load_policy_configuration(request)
-        data = evaluate_policy(prepared, configuration)
+        approval_record = load_approval_record(
+            request,
+            prepared,
+            configuration,
+        )
+        data = evaluate_policy(prepared, configuration, approval_record)
         artifact = build_evaluation_artifact(prepared, data, started_at)
     except Exception as error:
         return _handle_evaluation_failure(prepared, error, started_at)
@@ -91,6 +100,14 @@ def _handle_evaluation_failure(
     elif isinstance(error, PolicyConfigurationError):
         code = "CONFIG_INVALID"
         message = "Policy 설정이 누락됐거나 올바르지 않음"
+        is_retryable = False
+    elif isinstance(error, ApprovalRecordHashMismatchError):
+        code = "APPROVAL_HASH_MISMATCH"
+        message = "승인 기록 파일 해시가 전달값과 다름"
+        is_retryable = False
+    elif isinstance(error, ApprovalRecordError):
+        code = "APPROVAL_INVALID"
+        message = "승인 기록이 현재 계획을 허용할 수 없음"
         is_retryable = False
     elif isinstance(error, OSError):
         code = "CONFIG_UNAVAILABLE"
@@ -208,8 +225,24 @@ def _run_cli(arguments: argparse.Namespace) -> dict[str, Any]:
         policy_path = require_existing_file(run_root, POLICY_CONFIG_RELATIVE_PATH)
         scenario_sha256 = calculate_sha256(scenario_path)
         policy_sha256 = calculate_sha256(policy_path)
+        approval_descriptor = _load_cli_approval_descriptor(
+            run_root,
+            arguments.approval_record,
+        )
     except (PathValidationError, OSError) as error:
         return _input_failure_response(error).to_mapping()
+    context: dict[str, Any] = {
+        "run_id": arguments.run_id,
+        "iteration": arguments.iteration,
+        "mode": arguments.mode,
+        "run_root": run_root,
+        "policy_config": {
+            "path": POLICY_CONFIG_RELATIVE_PATH,
+            "sha256": policy_sha256,
+        },
+    }
+    if approval_descriptor is not None:
+        context["approval_record"] = approval_descriptor
     return run(
         operation=arguments.operation,
         input_paths={
@@ -219,17 +252,24 @@ def _run_cli(arguments: argparse.Namespace) -> dict[str, Any]:
             }
         },
         output_dir=output_dir,
-        context={
-            "run_id": arguments.run_id,
-            "iteration": arguments.iteration,
-            "mode": arguments.mode,
-            "run_root": run_root,
-            "policy_config": {
-                "path": POLICY_CONFIG_RELATIVE_PATH,
-                "sha256": policy_sha256,
-            },
-        },
+        context=context,
     )
+
+
+def _load_cli_approval_descriptor(
+    run_root: Path,
+    relative_path: str | None,
+) -> dict[str, str] | None:
+    if relative_path is None:
+        return None
+    approval_path = require_existing_file(run_root, relative_path)
+    expected_parent = run_root / APPROVAL_RECORD_DIRECTORY.as_posix()
+    if approval_path.parent != expected_parent.resolve(strict=True):
+        raise PathValidationError("승인 기록이 승인 전용 경로에 있지 않음")
+    return {
+        "path": relative_path,
+        "sha256": calculate_sha256(approval_path),
+    }
 
 
 def _build_argument_parser() -> argparse.ArgumentParser:
@@ -244,6 +284,12 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         required=True,
     )
     parser.add_argument("--output-dir")
+    parser.add_argument(
+        "--approval-record",
+        help=(
+            "run_root 기준 private/safety_policy/approvals/ 아래 승인 기록 경로"
+        ),
+    )
     return parser
 
 

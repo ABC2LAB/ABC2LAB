@@ -1,12 +1,17 @@
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Callable
 
 import pytest
 
 from modules.safety_policy.evaluate_adapter import parse_evaluate_request
-from modules.safety_policy.exceptions import PolicyConfigurationError
+from modules.safety_policy.exceptions import (
+    ApprovalRecordError,
+    PolicyConfigurationError,
+)
 from modules.safety_policy.models import (
     AllowedTarget,
+    ApprovalRecord,
     EvaluationInput,
     PolicyConfiguration,
     RequestPolicyRule,
@@ -89,6 +94,87 @@ def test_evaluate_policy_returns_one_decision_per_scenario(
     assert update_decision.effective_origins == ()
     assert update_decision.effective_account_ids == ()
     assert update_decision.limits.max_requests == 0
+
+
+def test_verified_approval_allows_only_selected_scenario(
+    evaluation_input: EvaluationInput,
+    policy_configuration: PolicyConfiguration,
+) -> None:
+    approval = _approval_record(
+        evaluation_input,
+        policy_configuration,
+        "scenario_update_order_001",
+    )
+
+    result = evaluate_policy(
+        evaluation_input,
+        policy_configuration,
+        approval,
+    )
+
+    decisions = {item.scenario_id: item for item in result.decisions}
+    read_decision = decisions["scenario_read_order_001"]
+    update_decision = decisions["scenario_update_order_001"]
+    assert read_decision.decision == "allow"
+    assert read_decision.approval_ref is None
+    assert update_decision.decision == "allow"
+    assert update_decision.approval_ref == "approval_test_001"
+    assert update_decision.assessment.statuses() == ("pass",) * 6
+    assert update_decision.limits.allow_state_change is True
+
+
+def test_approval_cannot_override_unknown_impact(
+    evaluation_input: EvaluationInput,
+    policy_configuration: PolicyConfiguration,
+) -> None:
+    read_input = _select_scenario(evaluation_input, "scenario_read_order_001")
+    policy = replace(policy_configuration, request_rules=())
+    approval = _approval_record(
+        read_input,
+        policy,
+        "scenario_read_order_001",
+    )
+
+    with pytest.raises(ApprovalRecordError, match="불명확"):
+        evaluate_policy(read_input, policy, approval)
+
+
+def test_approval_cannot_override_blocked_scenario(
+    evaluation_input: EvaluationInput,
+    policy_configuration: PolicyConfiguration,
+) -> None:
+    update_input = _select_scenario(
+        evaluation_input,
+        "scenario_update_order_001",
+    )
+    blocked_rule = replace(
+        policy_configuration.request_rules[1],
+        service_impact="block",
+    )
+    policy = replace(policy_configuration, request_rules=(blocked_rule,))
+    approval = _approval_record(
+        update_input,
+        policy,
+        "scenario_update_order_001",
+    )
+
+    with pytest.raises(ApprovalRecordError, match="차단"):
+        evaluate_policy(update_input, policy, approval)
+
+
+def test_approval_cannot_be_attached_to_already_allowed_scenario(
+    evaluation_input: EvaluationInput,
+    policy_configuration: PolicyConfiguration,
+) -> None:
+    read_input = _select_scenario(evaluation_input, "scenario_read_order_001")
+    approval = _approval_record(
+        read_input,
+        policy_configuration,
+        "scenario_read_order_001",
+    )
+
+    with pytest.raises(ApprovalRecordError, match="필요하지 않은"):
+        evaluate_policy(read_input, policy_configuration, approval)
 
 
 def test_get_without_explicit_request_rule_is_not_allowed(
@@ -422,4 +508,23 @@ def _find_scenario(
         scenario
         for scenario in evaluation_input.scenarios.scenarios
         if scenario.scenario_id == scenario_id
+    )
+
+
+def _approval_record(
+    evaluation_input: EvaluationInput,
+    policy: PolicyConfiguration,
+    scenario_id: str,
+) -> ApprovalRecord:
+    return ApprovalRecord(
+        approval_id="approval_test_001",
+        run_id=evaluation_input.request.run_id,
+        iteration=evaluation_input.request.iteration,
+        scenarios_sha256=evaluation_input.source.sha256,
+        policy_id=policy.policy_id,
+        policy_version=policy.policy_version,
+        approved_scenario_ids=(scenario_id,),
+        approved_by="operator_test_001",
+        approved_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        expires_at=datetime(2099, 1, 1, tzinfo=timezone.utc),
     )

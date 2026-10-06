@@ -36,6 +36,37 @@ def test_run_evaluate_writes_valid_completed_artifact(
     )
 
 
+def test_run_evaluate_reissues_allow_after_verified_approval(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    approval_relative = (
+        "private/safety_policy/approvals/approval_demo_001.json"
+    )
+    approval_path = evaluate_run_root / approval_relative
+    context["approval_record"] = {
+        "path": approval_relative,
+        "sha256": calculate_sha256(approval_path),
+    }
+
+    response = entrypoint.run("evaluate", input_paths, output_dir, context)
+
+    artifact = load_json(_output_path(evaluate_run_root))
+    decisions = {
+        item["scenario_id"]: item for item in artifact["data"]["decisions"]
+    }
+    approved = decisions["scenario_update_order_001"]
+    assert response["status"] == "completed"
+    assert approved["decision"] == "allow"
+    assert approved["approval_ref"] == "approval_demo_001"
+    assert approved["limits"]["allow_state_change"] is True
+    assert all(
+        item["status"] == "pass"
+        for item in approved["assessment"].values()
+    )
+
+
 def test_run_evaluate_preserves_partial_source_errors(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
@@ -139,6 +170,50 @@ def test_run_evaluate_publishes_failed_artifact_for_policy_hash_mismatch(
     assert artifact["errors"][0]["code"] == "CONFIG_HASH_MISMATCH"
 
 
+def test_run_evaluate_publishes_failed_artifact_for_approval_hash_mismatch(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    context["approval_record"] = {
+        "path": "private/safety_policy/approvals/approval_demo_001.json",
+        "sha256": "0" * 64,
+    }
+
+    response = entrypoint.run("evaluate", input_paths, output_dir, context)
+
+    artifact = load_json(_output_path(evaluate_run_root))
+    assert response["status"] == "failed"
+    assert artifact["data"] is None
+    assert artifact["errors"][0]["code"] == "APPROVAL_HASH_MISMATCH"
+
+
+def test_run_evaluate_rejects_approval_for_unknown_impact(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    policy_path = _policy_path(evaluate_run_root)
+    policy = load_json(policy_path)
+    policy["request_rules"] = []
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    context["policy_config"]["sha256"] = calculate_sha256(policy_path)
+    approval_path = _approval_path(evaluate_run_root)
+    approval = load_json(approval_path)
+    approval["approved_scenario_ids"] = ["scenario_read_order_001"]
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+    context["approval_record"] = {
+        "path": "private/safety_policy/approvals/approval_demo_001.json",
+        "sha256": calculate_sha256(approval_path),
+    }
+
+    response = entrypoint.run("evaluate", input_paths, output_dir, context)
+
+    artifact = load_json(_output_path(evaluate_run_root))
+    assert response["status"] == "failed"
+    assert artifact["errors"][0]["code"] == "APPROVAL_INVALID"
+
+
 def test_run_evaluate_never_overwrites_completed_artifact(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
@@ -211,6 +286,38 @@ def test_cli_runs_evaluate_with_contract_paths(
     assert _output_path(evaluate_run_root).exists()
 
 
+def test_cli_accepts_private_approval_record(
+    evaluate_run_root: Path,
+    capsys: Any,
+) -> None:
+    exit_code = entrypoint.main(
+        [
+            "evaluate",
+            "--run-root",
+            str(evaluate_run_root),
+            "--run-id",
+            "run_demo_001",
+            "--iteration",
+            "0",
+            "--mode",
+            "development",
+            "--approval-record",
+            "private/safety_policy/approvals/approval_demo_001.json",
+        ]
+    )
+
+    response = json.loads(capsys.readouterr().out)
+    artifact = load_json(_output_path(evaluate_run_root))
+    approved = next(
+        item
+        for item in artifact["data"]["decisions"]
+        if item["scenario_id"] == "scenario_update_order_001"
+    )
+    assert exit_code == 0
+    assert response["status"] == "completed"
+    assert approved["approval_ref"] == "approval_demo_001"
+
+
 def _input_path(run_root: Path) -> Path:
     return run_root / (
         "artifacts/iteration-000/scenario_generator/test_scenarios.json"
@@ -219,6 +326,12 @@ def _input_path(run_root: Path) -> Path:
 
 def _policy_path(run_root: Path) -> Path:
     return run_root / "private/safety_policy/policy.json"
+
+
+def _approval_path(run_root: Path) -> Path:
+    return run_root / (
+        "private/safety_policy/approvals/approval_demo_001.json"
+    )
 
 
 def _output_path(run_root: Path) -> Path:

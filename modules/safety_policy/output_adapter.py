@@ -113,6 +113,13 @@ def _validate_source_integrity(
         policy_sha256 = calculate_sha256(request.policy_config_path)
         if policy_sha256 != request.policy_config_expected_sha256:
             raise ContractValidationError("평가 중 Policy 설정 파일이 변경됨")
+    if (
+        request.approval_record_path is not None
+        and "APPROVAL_HASH_MISMATCH" not in error_codes
+    ):
+        approval_sha256 = calculate_sha256(request.approval_record_path)
+        if approval_sha256 != request.approval_record_expected_sha256:
+            raise ContractValidationError("평가 중 승인 기록 파일이 변경됨")
 
 
 def _artifact(
