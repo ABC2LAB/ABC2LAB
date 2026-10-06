@@ -5,13 +5,24 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, JsonValue, StrictInt, StrictStr
 
 # JSON 응답의 키 구조+타입. 잎은 "int", "int|null" 같은 타입 이름이고 값은 담지 않는다.
 # type 문으로 선언해야 pydantic이 중첩된 곳까지 재귀로 검증한다.
 type ShapeNode = str | dict[str, ShapeNode] | list[ShapeNode]
 # 바디 파라미터. 폼·multipart 값은 문자열, JSON 바디는 최상위 키마다 가린 뒤의 JSON 값 그대로.
 type BodyParams = dict[str, list[JsonValue]]
+
+
+
+class ResponseIdentifier(BaseModel):
+    """응답 JSON의 식별자 하나. 위치(RFC 6901 JSON Pointer)와 원래 JSON 타입의 값."""
+
+    model_config = ConfigDict(frozen=True)
+
+    pointer: str
+    # 0 이상 정수, 숫자로만 된 문자열, UUID 문자열. Strict라 "42"가 42로 바뀌지 않는다.
+    value: StrictInt | StrictStr
 
 
 class CapturedRequest(BaseModel):
@@ -38,6 +49,10 @@ class CapturedRequest(BaseModel):
     response_headers: dict[str, str]
     # content-type이 JSON인 응답만. HTML·JSON 아닌 응답·읽기 실패는 null
     response_shape: ShapeNode | None
+    # response_shape와 같은 응답에서 뽑은 식별자. response_shape가 null이면 null
+    response_identifiers: list[ResponseIdentifier] | None
+    # 깊이·개수 상한 때문에 식별자를 다 보지 못했으면 true
+    is_response_identifiers_truncated: bool
     source_page: str | None
     source_action: str | None
     captured_at: datetime

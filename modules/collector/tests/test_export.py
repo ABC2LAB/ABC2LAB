@@ -80,6 +80,8 @@ def make_record(role: str, url: str, offset_s: float = 0, **overrides: Any) -> C
         "request_headers": {},
         "response_headers": {},
         "response_shape": None,
+        "response_identifiers": None,
+        "is_response_identifiers_truncated": False,
         "source_page": None,
         "source_action": None,
         "captured_at": BASE_TIME + timedelta(seconds=offset_s),
