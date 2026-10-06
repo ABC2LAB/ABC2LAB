@@ -1,0 +1,33 @@
+{
+  "schema_version": "0.1.0",
+  "kind": "dom",
+  "evidence_id": "evidence:dom:page:2",
+  "page_id": "page:2",
+  "actions": {
+    "action:2": {
+      "element": "link",
+      "text": "Item 7",
+      "url": "http://localhost:8080/items/7",
+      "endpoint": "/items/{id}",
+      "is_state_changing": false,
+      "outcome": "enqueued"
+    },
+    "action:3": {
+      "element": "form",
+      "method": "POST",
+      "target_url": "http://localhost:8080/items/7/delete",
+      "fields": [
+        {"name": "csrf_token", "type": "hidden"},
+        {"name": "reason", "type": "textarea"}
+      ],
+      "is_state_changing": true,
+      "outcome": "not_executed_state_changing"
+    },
+    "action:4": {
+      "element": "button",
+      "label": "Refresh",
+      "is_state_changing": false,
+      "outcome": "executed"
+    }
+  }
+}
