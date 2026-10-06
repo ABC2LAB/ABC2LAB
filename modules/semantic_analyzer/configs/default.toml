@@ -1,0 +1,9 @@
+# semantic_analyzer 실행 설정. 실제 비밀값은 .env로 받고 커밋하지 않는다.
+# 이번 PR은 fake LLM 기본이라 provider 설정은 자리만 둔다.
+
+[llm]
+# provider = "fake" | "ollama" | "openai"  (이번 PR은 fake 고정)
+provider = "fake"
+# model_id = ""          # 다음 PR에서 실제 provider 붙일 때 사용
+# prompt_version = "fake-v1"
+# temperature = 0.0
