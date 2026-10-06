@@ -5,7 +5,12 @@ from typing import Any
 
 import pytest
 
-from modules.knowledge_graph.exceptions import GraphAlreadyExistsError
+from modules.knowledge_graph.exceptions import (
+    GraphAlreadyExistsError,
+    GraphStorageVerificationError,
+    SourceArtifactConflictError,
+)
+from modules.knowledge_graph.models import GraphSource
 from modules.knowledge_graph.neo4j_repository import (
     SCHEMA_QUERIES,
     Neo4jGraphRepository,
@@ -29,16 +34,46 @@ class FakeResult:
 
 
 class FakeTransaction:
-    def __init__(self, existing_revision: int | None = None) -> None:
-        self.existing_revision = existing_revision
+    def __init__(
+        self,
+        existing_source: dict[str, Any] | None = None,
+        has_graph_collision: bool = False,
+        counts: dict[str, int] | None = None,
+    ) -> None:
+        self.existing_source = existing_source
+        self.has_graph_collision = has_graph_collision
+        self.counts = counts or {
+            "nodes": 4,
+            "relationships": 1,
+            "workflows": 1,
+            "workflow_steps": 1,
+            "workflow_dependencies": 0,
+        }
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def run(self, query: str, **parameters: Any) -> FakeResult:
         self.calls.append((query, parameters))
+        if "source_artifact_id: $source_artifact_id" in query:
+            return FakeResult(self.existing_source)
         if "RETURN graph.graph_id AS graph_id" in query:
-            if self.existing_revision is None:
+            if not self.has_graph_collision:
                 return FakeResult()
             return FakeResult({"graph_id": "existing_graph"})
+        count_key_by_label = {
+            "ABC2Entity": "nodes",
+            "ABC2Workflow ": "workflows",
+            "ABC2WorkflowStep": "workflow_steps",
+            "ABC2WorkflowDependency": "workflow_dependencies",
+        }
+        if "RETURN count(item) AS count" in query:
+            key = next(
+                count_key
+                for label, count_key in count_key_by_label.items()
+                if f"item:{label}" in query
+            )
+            return FakeResult({"count": self.counts[key]})
+        if "RETURN count(edge) AS count" in query:
+            return FakeResult({"count": self.counts["relationships"]})
         return FakeResult()
 
 
@@ -87,14 +122,20 @@ def test_ingest_writes_scoped_graph_records(fixture_root: Path) -> None:
     driver = FakeDriver(transaction)
     repository = Neo4jGraphRepository(_settings(), driver=driver)  # type: ignore[arg-type]
 
-    revision = repository.ingest("graph_demo_001", "run_demo_001", graph)
+    state = repository.ingest(
+        "graph_demo_001",
+        "run_demo_001",
+        graph,
+        _source(),
+    )
 
-    assert revision == 1
+    assert state.graph_id == "graph_demo_001"
+    assert state.graph_revision == 1
+    assert state.is_created is True
     assert len(driver.schema_queries) == len(SCHEMA_QUERIES)
     assert set(driver.database_names) == {"neo4j"}
-    assert len(transaction.calls) == 7
-    for _, parameters in transaction.calls[1:]:
-        assert parameters["graph_id"] == "graph_demo_001"
+    assert len(transaction.calls) == 13
+    for _, parameters in transaction.calls:
         assert parameters["run_id"] == "run_demo_001"
 
     node_call = next(
@@ -108,17 +149,88 @@ def test_ingest_writes_scoped_graph_records(fixture_root: Path) -> None:
     assert len(node_call[1]["records"]) == 4
     assert len(relationship_call[1]["records"]) == 1
     assert "run_id: $run_id" in relationship_call[0]
+    metadata_call = next(
+        call for call in transaction.calls if "CREATE (:ABC2Graph" in call[0]
+    )
+    assert metadata_call[1]["source_artifact_id"] == "semantic_demo_001"
+    assert metadata_call[1]["source_sha256"] == "a" * 64
 
 
-def test_ingest_rejects_existing_graph(fixture_root: Path) -> None:
+def test_ingest_reuses_identical_source_artifact(fixture_root: Path) -> None:
     _, graph = prepare_ingest(
         fixture_root / "semantic_analyzer" / "semantic_analysis.json"
     )
-    driver = FakeDriver(FakeTransaction(existing_revision=1))
+    driver = FakeDriver(
+        FakeTransaction(
+            existing_source={
+                "graph_id": "graph_existing",
+                "revision": 3,
+                "source_sha256": "a" * 64,
+            }
+        )
+    )
     repository = Neo4jGraphRepository(_settings(), driver=driver)  # type: ignore[arg-type]
 
+    state = repository.ingest("graph_new", "run_demo_001", graph, _source())
+
+    assert state.graph_id == "graph_existing"
+    assert state.graph_revision == 3
+    assert state.is_created is False
+
+
+def test_ingest_rejects_source_hash_conflict(fixture_root: Path) -> None:
+    _, graph = prepare_ingest(
+        fixture_root / "semantic_analyzer" / "semantic_analysis.json"
+    )
+    transaction = FakeTransaction(
+        existing_source={
+            "graph_id": "graph_existing",
+            "revision": 1,
+            "source_sha256": "b" * 64,
+        }
+    )
+    repository = Neo4jGraphRepository(  # type: ignore[arg-type]
+        _settings(),
+        driver=FakeDriver(transaction),
+    )
+
+    with pytest.raises(SourceArtifactConflictError):
+        repository.ingest("graph_new", "run_demo_001", graph, _source())
+
+
+def test_ingest_rejects_generated_graph_collision(fixture_root: Path) -> None:
+    _, graph = prepare_ingest(
+        fixture_root / "semantic_analyzer" / "semantic_analysis.json"
+    )
+    repository = Neo4jGraphRepository(  # type: ignore[arg-type]
+        _settings(),
+        driver=FakeDriver(FakeTransaction(has_graph_collision=True)),
+    )
+
     with pytest.raises(GraphAlreadyExistsError):
-        repository.ingest("graph_demo_001", "run_demo_001", graph)
+        repository.ingest("graph_existing", "run_demo_001", graph, _source())
+
+
+def test_ingest_rolls_back_when_counts_differ(fixture_root: Path) -> None:
+    _, graph = prepare_ingest(
+        fixture_root / "semantic_analyzer" / "semantic_analysis.json"
+    )
+    transaction = FakeTransaction(
+        counts={
+            "nodes": 3,
+            "relationships": 1,
+            "workflows": 1,
+            "workflow_steps": 1,
+            "workflow_dependencies": 0,
+        }
+    )
+    repository = Neo4jGraphRepository(  # type: ignore[arg-type]
+        _settings(),
+        driver=FakeDriver(transaction),
+    )
+
+    with pytest.raises(GraphStorageVerificationError):
+        repository.ingest("graph_demo_001", "run_demo_001", graph, _source())
 
 
 def test_repository_context_closes_driver() -> None:
@@ -136,4 +248,13 @@ def _settings() -> Neo4jSettings:
         username="neo4j",
         password="test-password",
         database="neo4j",
+    )
+
+
+def _source() -> GraphSource:
+    return GraphSource(
+        artifact_id="semantic_demo_001",
+        sha256="a" * 64,
+        iteration=0,
+        status="completed",
     )

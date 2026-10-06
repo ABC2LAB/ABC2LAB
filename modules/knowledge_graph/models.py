@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -155,3 +156,71 @@ class SemanticGraph:
             ),
             workflows=tuple(Workflow.from_mapping(item) for item in data["workflows"]),
         )
+
+
+@dataclass(frozen=True)
+class IngestRequest:
+    input_path: Path
+    expected_sha256: str
+    run_id: str
+    iteration: int
+    mode: str
+
+
+@dataclass(frozen=True)
+class GraphSource:
+    artifact_id: str
+    sha256: str
+    iteration: int
+    status: str
+
+
+@dataclass(frozen=True)
+class GraphState:
+    graph_id: str
+    graph_revision: int
+    is_created: bool
+
+
+@dataclass(frozen=True)
+class ControlError:
+    code: str
+    message: str
+    item_ref: str | None
+    retryable: bool
+
+    @classmethod
+    def from_mapping(cls, value: dict[str, Any]) -> "ControlError":
+        return cls(
+            code=value["code"],
+            message=value["message"],
+            item_ref=value["item_ref"],
+            retryable=value["retryable"],
+        )
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "item_ref": self.item_ref,
+            "retryable": self.retryable,
+        }
+
+
+@dataclass(frozen=True)
+class IngestControlResponse:
+    status: str
+    graph_id: str | None
+    graph_revision: int | None
+    is_ready: bool
+    errors: tuple[ControlError, ...]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "operation": "ingest",
+            "status": self.status,
+            "graph_id": self.graph_id,
+            "graph_revision": self.graph_revision,
+            "is_ready": self.is_ready,
+            "errors": [error.to_mapping() for error in self.errors],
+        }

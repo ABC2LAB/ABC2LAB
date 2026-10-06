@@ -23,3 +23,19 @@ class GraphAlreadyExistsError(RepositoryError):
 
 class GraphNotFoundError(RepositoryError):
     """Raised when a requested graph does not exist in the run scope."""
+
+
+class InputArtifactFailedError(ContractValidationError):
+    """Raised when an upstream artifact has failed without usable data."""
+
+
+class InputHashMismatchError(ContractValidationError):
+    """Raised when the supplied artifact digest differs from its bytes."""
+
+
+class SourceArtifactConflictError(RepositoryError):
+    """Raised when one immutable artifact ID is reused with different bytes."""
+
+
+class GraphStorageVerificationError(RepositoryError):
+    """Raised when transaction-visible graph counts differ from the input."""

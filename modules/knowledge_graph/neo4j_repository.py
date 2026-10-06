@@ -14,9 +14,11 @@ from modules.knowledge_graph.exceptions import (
     ContractValidationError,
     GraphAlreadyExistsError,
     GraphNotFoundError,
+    GraphStorageVerificationError,
     RepositoryError,
+    SourceArtifactConflictError,
 )
-from modules.knowledge_graph.models import SemanticGraph
+from modules.knowledge_graph.models import GraphSource, GraphState, SemanticGraph
 from modules.knowledge_graph.settings import Neo4jSettings
 from modules.knowledge_graph.storage import (
     deserialize_edge,
@@ -48,6 +50,9 @@ ALLOWED_RELATIONSHIP_TYPES = frozenset(
 SCHEMA_QUERIES = (
     "CREATE CONSTRAINT abc2_graph_identity IF NOT EXISTS "
     "FOR (graph:ABC2Graph) REQUIRE (graph.run_id, graph.graph_id) IS UNIQUE",
+    "CREATE CONSTRAINT abc2_graph_source_identity IF NOT EXISTS "
+    "FOR (graph:ABC2Graph) "
+    "REQUIRE (graph.run_id, graph.source_artifact_id) IS UNIQUE",
     "CREATE CONSTRAINT abc2_entity_identity IF NOT EXISTS "
     "FOR (entity:ABC2Entity) "
     "REQUIRE (entity.run_id, entity.graph_id, entity.node_id) IS UNIQUE",
@@ -109,7 +114,13 @@ class Neo4jGraphRepository:
         except (DriverError, Neo4jError) as error:
             raise RepositoryError("Neo4j 제약조건 생성 실패") from error
 
-    def ingest(self, graph_id: str, run_id: str, graph: SemanticGraph) -> int:
+    def ingest(
+        self,
+        graph_id: str,
+        run_id: str,
+        graph: SemanticGraph,
+        source: GraphSource,
+    ) -> GraphState:
         if not graph_id or not run_id:
             raise ContractValidationError("graph_id와 run_id는 비어 있을 수 없음")
         self._validate_relationship_types(graph)
@@ -121,8 +132,13 @@ class Neo4jGraphRepository:
                     graph_id,
                     run_id,
                     graph,
+                    source,
                 )
-        except GraphAlreadyExistsError:
+        except (
+            GraphAlreadyExistsError,
+            GraphStorageVerificationError,
+            SourceArtifactConflictError,
+        ):
             raise
         except (DriverError, Neo4jError) as error:
             raise RepositoryError("Neo4j 그래프 적재 실패") from error
@@ -181,25 +197,55 @@ class Neo4jGraphRepository:
         graph_id: str,
         run_id: str,
         graph: SemanticGraph,
-    ) -> int:
-        existing = transaction.run(
+        source: GraphSource,
+    ) -> GraphState:
+        existing_source = transaction.run(
+            "MATCH (graph:ABC2Graph {"
+            "run_id: $run_id, source_artifact_id: $source_artifact_id}) "
+            "RETURN graph.graph_id AS graph_id, graph.revision AS revision, "
+            "graph.source_sha256 AS source_sha256",
+            run_id=run_id,
+            source_artifact_id=source.artifact_id,
+        ).single()
+        if existing_source is not None:
+            if existing_source["source_sha256"] != source.sha256:
+                raise SourceArtifactConflictError(
+                    "같은 semantic artifact_id가 다른 SHA-256으로 재사용됨"
+                )
+            cls._verify_graph_counts(transaction, existing_source["graph_id"], run_id, graph)
+            return GraphState(
+                graph_id=existing_source["graph_id"],
+                graph_revision=int(existing_source["revision"]),
+                is_created=False,
+            )
+
+        existing_graph = transaction.run(
             "MATCH (graph:ABC2Graph {graph_id: $graph_id, run_id: $run_id}) "
             "RETURN graph.graph_id AS graph_id",
             graph_id=graph_id,
             run_id=run_id,
         ).single()
-        if existing is not None:
+        if existing_graph is not None:
             raise GraphAlreadyExistsError("같은 run_id와 graph_id의 그래프가 이미 존재함")
 
         transaction.run(
-            "CREATE (:ABC2Graph {graph_id: $graph_id, run_id: $run_id, revision: 1})",
+            "CREATE (:ABC2Graph {"
+            "graph_id: $graph_id, run_id: $run_id, revision: 1, "
+            "source_artifact_id: $source_artifact_id, "
+            "source_sha256: $source_sha256, source_iteration: $source_iteration, "
+            "source_status: $source_status})",
             graph_id=graph_id,
             run_id=run_id,
+            source_artifact_id=source.artifact_id,
+            source_sha256=source.sha256,
+            source_iteration=source.iteration,
+            source_status=source.status,
         ).consume()
         cls._create_nodes(transaction, graph_id, run_id, graph)
         cls._create_relationships(transaction, graph_id, run_id, graph)
         cls._create_workflows(transaction, graph_id, run_id, graph)
-        return 1
+        cls._verify_graph_counts(transaction, graph_id, run_id, graph)
+        return GraphState(graph_id=graph_id, graph_revision=1, is_created=True)
 
     @staticmethod
     def _create_nodes(
@@ -423,6 +469,27 @@ class Neo4jGraphRepository:
             workflow_steps=counts["workflow_steps"],
             workflow_dependencies=counts["workflow_dependencies"],
         )
+
+    @classmethod
+    def _verify_graph_counts(
+        cls,
+        transaction: ManagedTransaction,
+        graph_id: str,
+        run_id: str,
+        graph: SemanticGraph,
+    ) -> None:
+        actual = cls._count_transaction(transaction, graph_id, run_id)
+        expected = GraphCounts(
+            nodes=len(graph.nodes),
+            relationships=len(graph.relationships),
+            workflows=len(graph.workflows),
+            workflow_steps=sum(len(item.steps) for item in graph.workflows),
+            workflow_dependencies=sum(
+                len(item.dependencies) for item in graph.workflows
+            ),
+        )
+        if actual != expected:
+            raise GraphStorageVerificationError("Neo4j 적재 건수가 입력과 다름")
 
 
 def _record_values(records: Iterable[Any]) -> list[dict[str, Any]]:

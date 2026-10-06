@@ -11,7 +11,7 @@
 
 ## 현재 구현 범위
 
-계약 기반과 Neo4j 저장 계층이 구현되어 있다.
+계약 기반, Neo4j 저장 계층, 공개 ingest 연산이 구현되어 있다.
 
 - 입력 Schema: semantic analysis, graph query, verification results
 - 출력 Schema: graph query result
@@ -22,8 +22,62 @@
 - 그래프 메타데이터·노드·관계·workflow 트랜잭션 적재
 - Neo4j 제약조건과 run_id·graph_id 격리
 - 중첩 JSON 직렬화·복원
+- semantic artifact ID·SHA-256 기반 멱등 적재
+- 적재 트랜잭션 내부 건수 검증
+- `entrypoint.run("ingest", ...)`과 CLI
 
-`entrypoint.run`과 query·verification operation은 후속 단계에서 구현한다.
+query·apply_verification operation은 후속 단계에서 구현한다.
+
+## ingest 공개 호출
+
+```python
+from modules.knowledge_graph.entrypoint import run
+
+response = run(
+    operation="ingest",
+    input_paths={
+        "semantic_analysis": {
+            "path": (
+                "artifacts/iteration-000/semantic_analyzer/"
+                "semantic_analysis.json"
+            ),
+            "sha256": "<64자리 SHA-256>",
+        }
+    },
+    output_dir="artifacts/iteration-000/knowledge_graph",
+    context={
+        "run_id": "run_example",
+        "iteration": 0,
+        "mode": "diagnosis",
+        "run_root": "/trusted/runs/run_example",
+    },
+)
+```
+
+제어 응답 필드는 다음과 같다.
+
+- `operation`: `ingest`
+- `status`: `completed`, `partial`, `failed`
+- `graph_id`: 실패 시 null
+- `graph_revision`: 최초 적재는 1, 실패 시 null
+- `is_ready`: query 가능 여부
+- `errors`: 공통 ErrorItem 형식
+
+동일한 `run_id`, semantic artifact ID, SHA-256 재호출은 기존 graph 상태를
+반환한다. 동일 artifact ID를 다른 SHA-256으로 다시 사용하면 실패한다.
+
+CLI:
+
+```bash
+.venv/bin/python -m modules.knowledge_graph.entrypoint ingest \
+  --input-path artifacts/iteration-000/semantic_analyzer/semantic_analysis.json \
+  --input-sha256 '<64자리 SHA-256>' \
+  --output-dir artifacts/iteration-000/knowledge_graph \
+  --run-root /trusted/runs/run_example \
+  --run-id run_example \
+  --iteration 0 \
+  --mode diagnosis
+```
 
 ## Neo4j 설정
 

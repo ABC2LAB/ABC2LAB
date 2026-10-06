@@ -4,14 +4,20 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from modules.knowledge_graph.models import SemanticGraph
+from modules.knowledge_graph.models import GraphSource, GraphState, SemanticGraph
 
 
 class GraphRepository(Protocol):
     """Interface implemented by the Neo4j adapter in the next stage."""
 
-    def ingest(self, graph_id: str, run_id: str, graph: SemanticGraph) -> int:
-        """Persist a semantic graph and return the resulting revision."""
+    def ingest(
+        self,
+        graph_id: str,
+        run_id: str,
+        graph: SemanticGraph,
+        source: GraphSource,
+    ) -> GraphState:
+        """Persist or reuse a graph for one immutable semantic artifact."""
 
     def query(
         self,
