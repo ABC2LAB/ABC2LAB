@@ -1,0 +1,25 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "test_scenarios",
+  "artifact_id": "test_scenarios_partial_001",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "scenario_generator",
+  "mode": "development",
+  "created_at": "2026-10-06T00:00:00Z",
+  "status": "partial",
+  "input_refs": [],
+  "errors": [
+    {
+      "code": "SCENARIO_GENERATION_PARTIAL",
+      "message": "일부 후보의 시나리오를 생성하지 못함",
+      "item_ref": "candidate_missing_001",
+      "retryable": false
+    }
+  ],
+  "runtime_metrics": null,
+  "data": {
+    "scenarios": [],
+    "model_info": null
+  }
+}
