@@ -1,7 +1,6 @@
-"""크롤러 출력 모델. common/schemas.py가 팀에서 확정되기 전까지 임시로 여기 둔다.
+"""탐색 core의 내부 모델. 공개 계약(crawl_result.json)은 utils/export.py가 이 모델에서 만든다.
 
-draft와 다른 점(role·method를 str로, resource_type·헤더·response_shape 추가, 파라미터 값을 list로)은
-확정 회의에서 맞추고 확정되면 common/으로 옮긴다.
+여기 필드를 바꿔도 공개 계약은 export adapter와 schemas/output/에서 따로 지킨다.
 """
 
 from datetime import datetime
@@ -110,50 +109,3 @@ class DiscoveredPage(BaseModel):
     links: list[PageLink]
     actions: list[PageAction]
 
-
-# crawl_result.json 형식 버전. analyzer와 합의한 "메이저.마이너" 형식이다.
-SCHEMA_VERSION = "1.0"
-
-
-class PageRecord(DiscoveredPage):
-    """저장용 페이지. KG가 근거로 다는 evidence ID와 부모 페이지 id가 붙는다."""
-
-    # "page:N", 실행 전체에서 고유
-    id: str
-    # 같은 역할에서 source_page URL과 일치하는 페이지 id. 시작 페이지나 못 찾으면 null
-    source_page_id: str | None
-
-
-class RequestRecord(CapturedRequest):
-    """저장용 요청. 어느 페이지에서 나갔는지 source_page_id로 잇는다."""
-
-    # "request:N", 실행 전체에서 고유
-    id: str
-    source_page_id: str | None
-
-
-class RoleResult(BaseModel):
-    """역할 하나의 탐색 결과. 실패했으면 error에 이유가 남고 그때까지 모인 요청만 들어 있다."""
-
-    model_config = ConfigDict(frozen=True)
-
-    # "role:{이름}"
-    id: str
-    role: str
-    error: str | None
-    pages: list[PageRecord]
-    requests: list[RequestRecord]
-
-
-class CrawlResult(BaseModel):
-    """data/crawl_result.json 최상위. analyzer는 run_id를 crawl_run_id로 참조한다."""
-
-    model_config = ConfigDict(frozen=True)
-
-    schema_version: str
-    run_id: str
-    target_base_url: str
-    started_at: datetime
-    finished_at: datetime
-    # 설정의 역할 순서(guest 먼저)
-    roles: list[RoleResult]
