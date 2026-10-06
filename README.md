@@ -135,3 +135,6 @@ docker compose up -d --build
 | 날짜 | 검증 커밋 | OS | Python | uv | 결과 |
 |---|---|---|---|---|---|
 | 2026-10-06 | `cc1541c` (feature/minjun-setup) | Ubuntu 24.04.1 (WSL2) x86_64 | 3.12.13 | 0.12.23 | 잠금 19개 `--require-hashes` 설치 · `uv pip check` 통과 · 초기 패키지 import 성공 · pytest 205 passed |
+| 2026-10-06 | `bc80025` (main 기준 커밋) | 위와 같음 | 3.12.13 | 0.12.23 | `cc1541c`와 README.md 외 동일(`git diff --stat`)이라 위 결과를 그대로 적용 |
+
+main·dev 브랜치 보호 적용(2026-10-06): PR 필수 · 승인 1개 · 승인 뒤 커밋을 올리면 승인 해제 · force push·삭제 금지.
