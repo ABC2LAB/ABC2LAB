@@ -1,0 +1,9 @@
+{
+  "schema_version": "0.1.0",
+  "supported_query_keys": [
+    "resource_ownership",
+    "role_resource_access",
+    "workflow_dependencies",
+    "structure_snapshot"
+  ]
+}

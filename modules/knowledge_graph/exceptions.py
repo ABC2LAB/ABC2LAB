@@ -1,0 +1,49 @@
+"""Knowledge graph contract exceptions."""
+
+
+class KnowledgeGraphError(Exception):
+    """Base exception for knowledge graph failures."""
+
+
+class ContractValidationError(KnowledgeGraphError):
+    """Raised when an artifact violates its public contract."""
+
+
+class PathValidationError(KnowledgeGraphError):
+    """Raised when a supplied path escapes its trusted root."""
+
+
+class RepositoryError(KnowledgeGraphError):
+    """Raised when Neo4j cannot complete a repository operation."""
+
+
+class GraphAlreadyExistsError(RepositoryError):
+    """Raised when an ingest attempts to replace an existing graph."""
+
+
+class GraphNotFoundError(RepositoryError):
+    """Raised when a requested graph does not exist in the run scope."""
+
+
+class InputArtifactFailedError(ContractValidationError):
+    """Raised when an upstream artifact has failed without usable data."""
+
+
+class InputHashMismatchError(ContractValidationError):
+    """Raised when the supplied artifact digest differs from its bytes."""
+
+
+class SourceArtifactConflictError(RepositoryError):
+    """Raised when one immutable artifact ID is reused with different bytes."""
+
+
+class GraphStorageVerificationError(RepositoryError):
+    """Raised when transaction-visible graph counts differ from the input."""
+
+
+class OutputArtifactExistsError(KnowledgeGraphError):
+    """Raised when an immutable output artifact path already exists."""
+
+
+class QueryResultValidationError(KnowledgeGraphError):
+    """Raised when stored graph data cannot satisfy a query row contract."""
