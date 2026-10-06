@@ -20,6 +20,7 @@ import pytest
 
 from modules.collector import entrypoint, service
 from modules.collector.core.config import GUEST_ROLE
+from modules.collector.core.models import CapturedRequest
 from modules.collector.entrypoint import CONFIG_PATH_ENV, DEFAULT_CONFIG_PATH, make_run_id, resolve_config_path, run
 from modules.collector.service import BrowserLaunchError, CollectOutcome, RoleCrawl
 from modules.collector.tests.helpers import run_server
@@ -29,6 +30,7 @@ from modules.collector.tests.sites import (
     CLOCK_STEP_AFTER,
     MINE_API_PATH,
     MINE_PATH,
+    PREFILLED_VALUE,
     QUERY_TOKEN,
     SESSION_VALUE,
     USER_LOGIN_ID,
@@ -48,7 +50,15 @@ RUN_ID_PATTERN = re.compile(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{4}")
 RUN_ID_SAMPLES = 20
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CLI_TIMEOUT_S = 120
-SECRETS_IN_SITE = (USER_PASSWORD, ADMIN_PASSWORD, SESSION_VALUE, QUERY_TOKEN, USER_LOGIN_ID, ADMIN_LOGIN_ID)
+SECRETS_IN_SITE = (
+    USER_PASSWORD,
+    ADMIN_PASSWORD,
+    SESSION_VALUE,
+    QUERY_TOKEN,
+    USER_LOGIN_ID,
+    ADMIN_LOGIN_ID,
+    PREFILLED_VALUE,
+)
 BASE_TIME = datetime(2026, 10, 1, 5, 12, 3, tzinfo=UTC)
 RESULT_KEYS = {"status", "artifact_path", "artifact_id", "sha256", "errors"}
 
@@ -197,13 +207,52 @@ def test_api_request_linked_and_parameters_mapped(partial_run: FinishedRun) -> N
     assert parameters[("sid", "cookie")]["is_sensitive"] is True
     assert headers["cookie"] == {"name": "cookie", "value": "[REDACTED]", "redacted": True}
     assert api_request["response"]["content_type"] == "application/json"
-    assert api_request["response"]["body_ref"] is None
 
 
 def test_output_has_no_secrets(partial_run: FinishedRun) -> None:
-    text = partial_run.raw.decode("utf-8")
+    evidence_files = sorted((partial_run.call.run_root / "evidence").rglob("*.json"))
+    texts = [partial_run.raw.decode("utf-8"), *(path.read_text(encoding="utf-8") for path in evidence_files)]
 
-    assert [secret for secret in SECRETS_IN_SITE if secret in text] == []
+    assert evidence_files
+    assert [secret for secret in SECRETS_IN_SITE for text in texts if secret in text] == []
+
+
+def _read_evidence(run_root: Path, ref: dict[str, Any]) -> dict[str, Any]:
+    raw = (run_root / ref["path"]).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == ref["sha256"]
+    return json.loads(raw)
+
+
+def test_json_response_points_to_response_evidence(partial_run: FinishedRun) -> None:
+    requests = partial_run.document["data"]["requests"]
+    api_request = next(request for request in requests if MINE_API_PATH in request["url"])
+    html_requests = [
+        request for request in requests if (request["response"]["content_type"] or "").startswith("text/html")
+    ]
+
+    evidence = _read_evidence(partial_run.call.run_root, api_request["response"]["body_ref"])
+
+    assert (evidence["request_id"], evidence["identifiers_truncated"]) == (api_request["request_id"], False)
+    # email은 식별자가 아니라 남지 않는다.
+    assert evidence["identifiers"] == [
+        {"pointer": "/items/0/id", "value": 7},
+        {"pointer": "/items/0/owner_id", "value": 2},
+    ]
+    assert html_requests and all(request["response"]["body_ref"] is None for request in html_requests)
+
+
+def test_page_and_actions_point_to_dom_evidence(partial_run: FinishedRun) -> None:
+    data = partial_run.document["data"]
+    mine_page = next(page for page in data["pages"] if page["url"].endswith(MINE_PATH))
+    mine_actions = [action for action in data["actions"] if action["page_id"] == mine_page["page_id"]]
+
+    dom = _read_evidence(partial_run.call.run_root, mine_page["evidence_refs"][0])
+
+    assert [action["evidence_refs"] for action in mine_actions] == [mine_page["evidence_refs"]] * len(mine_actions)
+    assert set(dom["actions"]) == {action["action_id"] for action in mine_actions}
+    form = next(item for item in dom["actions"].values() if item["element"] == "form")
+    assert form["fields"] == [{"name": "csrf_token", "type": "hidden"}, {"name": "note", "type": "text"}]
+    assert (form["is_state_changing"], form["outcome"]) == (True, "not_executed_state_changing")
 
 
 def test_clock_regression_published_as_failed_without_data(tmp_path: Path) -> None:
@@ -340,12 +389,54 @@ def test_missing_context_key_rejected(tmp_path: Path, monkeypatch: pytest.Monkey
     assert error_codes(result) == ["CONTEXT_INVALID"]
 
 
+def test_evidence_conflict_published_as_failed(
+    site_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """같은 run에 근거 파일이 이미 있으면 덮어쓰지 않고, 데이터 없이 failed로 남긴다."""
+    json_record = CapturedRequest.model_validate(
+        {
+            "role": GUEST_ROLE,
+            "method": "GET",
+            "resource_type": "fetch",
+            "url": f"{site_url}/api/items",
+            "endpoint": "/api/items",
+            "status": 200,
+            "query_params": {},
+            "body_params": {},
+            "resource_ids": [],
+            "request_headers": {},
+            "response_headers": {"content-type": "application/json"},
+            "response_shape": {"id": "int"},
+            "response_identifiers": [{"pointer": "/id", "value": 1}],
+            "is_response_identifiers_truncated": False,
+            "source_page": None,
+            "source_action": "start",
+            "captured_at": BASE_TIME,
+        }
+    )
+    monkeypatch.setattr(
+        service, "collect", lambda config: fake_outcome(RoleCrawl(GUEST_ROLE, (), (json_record,), None, None))
+    )
+    call = make_call(tmp_path, "run_evidence_conflict", {"CRAWLER_TARGET_URL": f"{site_url}/"})
+    existing = call.run_root / "evidence" / "collector" / "response" / "request-1.json"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"earlier evidence\n")
+
+    result = call.run()
+
+    assert (result["status"], error_codes(result)) == ("failed", ["EVIDENCE_WRITE_FAILED"])
+    assert call.load()["data"] is None
+    assert existing.read_bytes() == b"earlier evidence\n"
+
+
 def test_contract_violation_not_published_as_completed(
     site_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     real_build_data = export.build_data
     monkeypatch.setattr(service, "collect", lambda config: fake_outcome(RoleCrawl(GUEST_ROLE, (), (), None, None)))
-    monkeypatch.setattr(export, "build_data", lambda config, outcome: real_build_data(config, outcome) | {"extra": 1})
+    monkeypatch.setattr(
+        export, "build_data", lambda config, outcome, writer: real_build_data(config, outcome, writer) | {"extra": 1}
+    )
     call = make_call(tmp_path, "run_contract", {"CRAWLER_TARGET_URL": f"{site_url}/"})
 
     result = call.run()
