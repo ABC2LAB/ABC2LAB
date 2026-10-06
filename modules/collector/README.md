@@ -9,14 +9,83 @@
 | 명세 | `docs/spec/m1-collector.md`, `docs/spec/02-common-contract.md` |
 
 **지금 상태**
-- 기존 크롤러는 `core/`로 옮겨 그대로 돈다(`.venv/bin/python -m modules.collector.core.run`). 출력은 아직 옛 v1.0 형식이다.
-- 아래 계약은 export adapter·entrypoint(다음 PR)부터 실제 출력에 적용된다.
+- `entrypoint.py`가 아래 계약대로 `crawl_result.json`을 공개한다.
+- 근거 파일(응답·DOM)은 아직 만들지 않는다. 그래서 `body_ref=null`, `evidence_refs=[]`다. 근거는 다음 PR에서 붙인다.
+- 계정은 역할당 하나(`account:<역할>`)다. 복수 계정은 그 다음 PR에서 붙인다.
 - 이 문서와 Schema는 소비자 합의용 기준본이다.
+
+**구조**
+| 경로 | 내용 |
+|---|---|
+| `entrypoint.py` | 공개 창구 `run()`과 CLI |
+| `service.py` | 역할별 탐색과 시계 역행 집계 |
+| `core/` | 기존 탐색 core: 로그인·탐색·캡처·마스킹 |
+| `utils/export.py` | 내부 결과를 계약 형식으로 바꾼다 |
+| `utils/envelope.py` | 공통 envelope·ErrorItem |
+| `utils/storage.py` | 경로 검증·원자적 공개 |
+| `utils/validation.py` | 자기 출력 검증 |
+
+## 실행
+
+레포 루트에서 실행한다.
+
+```bash
+.venv/bin/python -m modules.collector.entrypoint collect --mode development
+# 선택: --run-id <ID>(없으면 시각+난수) --iteration 0 --runs-dir runs --config <설정 파일>
+```
+
+- 결과 파일: `runs/<run_id>/artifacts/iteration-<NNN>/collector/crawl_result.json`.
+- stdout에는 결과 한 줄(JSON)만 나간다. 로그와 건수 요약은 stderr로 간다.
+
+```json
+{"status": "partial", "artifact_path": ".../crawl_result.json", "artifact_id": "crawl_result-…", "sha256": "…", "errors": [ … ]}
+```
+
+**종료 코드**
+| 코드 | 뜻 |
+|---|---|
+| 0 | completed |
+| 1 | partial |
+| 2 | failed. 파일은 공개됨(data=null) |
+| 3 | 파일을 쓰지 못함. `artifact_path`·`artifact_id`·`sha256`은 null이고 이유는 `errors`에 있다 |
+
+**코드에서 부르기**: `entrypoint.run(operation, input_paths, output_dir, context)`. 반환값은 CLI stdout과 같은 객체다.
+- `operation`: `collect`만 받는다.
+- `input_paths`: 비어 있어야 한다.
+- `output_dir`: `run_root/artifacts/iteration-<NNN>/collector`와 정확히 같아야 한다. `..`이나 run_root 밖을 가리키는 symlink가 끼면 거절한다.
+- `context` 키는 명세 03의 실행 값 네 개뿐이다. 정의되지 않은 키(설정 파일 위치 포함)는 거절한다.
+
+  | 키 | 필수 | 내용 |
+  |---|---|---|
+  | `run_id` | 필수 | 영문·숫자로 시작, `._-`만 허용 |
+  | `iteration` | 필수 | 0 이상의 정수 |
+  | `mode` | 필수 | `diagnosis` 또는 `development` |
+  | `run_root` | 필수 | `runs/<run_id>`. 폴더 이름이 `run_id`와 같아야 한다 |
+
+**처리 순서**
+1. 실행 값을 검증한다.
+2. 이미 공개된 파일이 있으면 탐색 전에 거절한다.
+3. 탐색한다.
+4. 계약 형식으로 바꾼다.
+5. 자기 출력을 검증한다(`utils/validation.py`, 계정 비밀번호 노출 포함). 통과하지 못하면 데이터 없이 `failed`로 공개한다.
+6. 원자적으로 공개한다: 임시 파일 → fsync → `os.link`. 같은 경로에 파일이 있으면 덮어쓰지 않는다.
+
+**오류 코드**
+| 코드 | 언제 | 파일 | retryable |
+|---|---|---|---|
+| `ACCOUNT_CRAWL_FAILED` | 계정 하나의 로그인·탐색 실패. `item_ref`는 그 계정 ID | partial(다른 결과가 있으면) / failed | true |
+| `CONFIG_INVALID` | 설정 키가 빠졌거나 형식이 틀림 | failed | false |
+| `BROWSER_LAUNCH_FAILED` | 브라우저를 띄우지 못함 | failed | true |
+| `SERVER_CLOCK_REGRESSION` | 대상 서버 시계 역행 | failed | true |
+| `OPERATION_UNSUPPORTED` / `INPUT_UNEXPECTED` | `collect`가 아님 / 입력 경로가 있음 | failed | false |
+| `OUTPUT_CONTRACT_INVALID` | 자기 출력 검증 실패. 메시지는 검증 문제 위치 | failed | false |
+| `CONTEXT_INVALID` / `OUTPUT_PATH_INVALID` / `ARTIFACT_EXISTS` / `OUTPUT_WRITE_FAILED` | 실행 값·출력 위치 문제 | 파일 없음(종료 코드 3) | false |
 
 ## 입력
 
 **입력 JSON 없음.** `schemas/input/`도 없다. 대상 URL·역할·계정·로그인 방식은 사용자 설정으로 받는다.
-- 지금: 루트 `.env`의 `CRAWLER_*`.
+- 지금: 설정 파일의 `CRAWLER_*`. 같은 이름의 프로세스 환경변수가 있으면 그 값이 우선한다. 키 설명은 루트 `.env.example`에 있다.
+- 설정 파일 위치: CLI `--config` > 환경변수 `COLLECTOR_CONFIG_PATH` > 기본 `.env`(실행 폴더 기준). `run()`을 직접 부르면 `--config`가 없으니 환경변수나 기본값을 쓴다.
 - 복수 계정부터: `configs/collector.toml` + `.env`(아이디·비밀번호만).
 
 계정 원문·비밀번호는 어떤 출력에도 넣지 않는다.
@@ -215,6 +284,9 @@ issues = validate_crawl_result_file(artifact_path, run_root, known_secrets=[...]
 ## 테스트
 
 ```bash
-.venv/bin/python -m pytest modules/collector/                          # collector 전체
-.venv/bin/python -m pytest modules/collector/tests/test_contract.py   # 계약·fixture
+.venv/bin/python -m pytest modules/collector/                            # collector 전체
+.venv/bin/python -m pytest modules/collector/tests/test_contract.py     # 계약·fixture
+.venv/bin/python -m pytest modules/collector/tests/test_entrypoint.py   # 실행 창구(가짜 로컬 사이트)
 ```
+
+테스트는 전부 127.0.0.1의 빈 포트에 띄운 가짜 사이트(`tests/sites.py`)로 돈다. 실제 테스트 앱에는 요청하지 않는다.

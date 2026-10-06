@@ -31,7 +31,7 @@ from modules.collector.core.auth import SECRET_MASK
 from modules.collector.core.config import CrawlerConfig, is_request_allowed
 from modules.collector.core.normalize import normalize_path
 from modules.collector.core.response_shape import describe_json_shape
-from modules.collector.core.schemas import CapturedRequest, ShapeNode
+from modules.collector.core.models import BodyParams, CapturedRequest, ShapeNode
 from modules.collector.core.server_clock import ServerClockSample
 
 logger = logging.getLogger(__name__)
@@ -236,7 +236,7 @@ class RequestCapture:
         query = urlencode(masked_pairs, safe=URL_MASK_SAFE_CHARS) if pairs else parts.query
         return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
 
-    def _parse_body(self, request: Request, content_type: str) -> dict[str, list[str]]:
+    def _parse_body(self, request: Request, content_type: str) -> BodyParams:
         body = _read_body(request)
         if not body:
             return {}
@@ -251,7 +251,7 @@ class RequestCapture:
         logger.debug("바디 파라미터를 풀지 않는 형식: %s", media_type or "(없음)")
         return {}
 
-    def _parse_json_body(self, body: str) -> dict[str, list[str]]:
+    def _parse_json_body(self, body: str) -> BodyParams:
         try:
             parsed = json.loads(body)
         except json.JSONDecodeError as error:
@@ -260,8 +260,9 @@ class RequestCapture:
         if not isinstance(parsed, dict):
             logger.debug("최상위가 객체가 아닌 JSON 바디라 파라미터 없이 기록")
             return {}
+        # 값은 문자열로 바꾸지 않고 JSON 값 그대로 둔다. 숫자 1과 문자열 "1"이 갈려야 해서다.
         masked = self._mask_json(parsed)
-        return {key: [_to_param_text(value)] for key, value in masked.items()}
+        return {key: [value] for key, value in masked.items()}
 
     def _mask_json(self, value: object) -> object:
         if isinstance(value, dict):
@@ -320,11 +321,6 @@ def list_secret_variants(secrets: Iterable[str]) -> tuple[str, ...]:
     }
     # 긴 것부터 바꿔야 인코딩된 형태가 원문 치환에 쪼개지지 않는다.
     return tuple(sorted(variants, key=len, reverse=True))
-
-
-def _to_param_text(value: object) -> str:
-    # 중첩 객체·숫자는 JSON 문자열로 남겨 원래 모양을 잃지 않게 한다.
-    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
 
 
 def _read_response(request: Request) -> Response | None:
