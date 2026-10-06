@@ -1,0 +1,184 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "crawl_result",
+  "artifact_id": "crawl_result-run_demo_001-iter0",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "collector",
+  "mode": "development",
+  "created_at": "2026-10-06T00:00:00Z",
+  "status": "completed",
+  "input_refs": [],
+  "errors": [],
+  "runtime_metrics": {
+    "duration_ms": 1200,
+    "llm_calls": 0,
+    "input_tokens": null,
+    "output_tokens": null,
+    "peak_memory_mb": 64.0
+  },
+  "data": {
+    "target_url": "http://localhost:8001",
+    "roles": [
+      { "role_id": "role_guest", "name": "Guest" },
+      { "role_id": "role_user", "name": "User" },
+      { "role_id": "role_admin", "name": "Admin" }
+    ],
+    "accounts": [
+      { "account_id": "acc_alice", "role_id": "role_user", "alias": "alice", "session_ref": "sess-1" },
+      { "account_id": "acc_bob", "role_id": "role_user", "alias": "bob", "session_ref": "sess-2" },
+      { "account_id": "acc_admin", "role_id": "role_admin", "alias": "admin", "session_ref": "sess-3" }
+    ],
+    "pages": [
+      {
+        "page_id": "page_products",
+        "url": "http://localhost:8001/products",
+        "title": "상품 목록",
+        "evidence_refs": [
+          { "evidence_id": "ev_page_products", "kind": "dom", "path": "evidence/collector/page_products.html", "sha256": "0000000000000000000000000000000000000000000000000000000000000001", "redacted": true }
+        ]
+      },
+      {
+        "page_id": "page_orders",
+        "url": "http://localhost:8001/orders",
+        "title": "주문 내역",
+        "evidence_refs": [
+          { "evidence_id": "ev_page_orders", "kind": "dom", "path": "evidence/collector/page_orders.html", "sha256": "0000000000000000000000000000000000000000000000000000000000000002", "redacted": true }
+        ]
+      }
+    ],
+    "actions": [
+      {
+        "action_id": "act_add_cart",
+        "page_id": "page_products",
+        "kind": "submit",
+        "label": "장바구니 담기",
+        "evidence_refs": [
+          { "evidence_id": "ev_act_add_cart", "kind": "dom", "path": "evidence/collector/act_add_cart.html", "sha256": "0000000000000000000000000000000000000000000000000000000000000003", "redacted": true }
+        ]
+      }
+    ],
+    "requests": [
+      {
+        "request_id": "req_login_alice",
+        "account_id": "acc_alice",
+        "role_id": "role_user",
+        "session_ref": "sess-1",
+        "page_id": null,
+        "action_id": null,
+        "method": "POST",
+        "url": "http://localhost:8001/login",
+        "observed_at": "2026-10-06T00:00:01Z",
+        "parameters": [
+          { "name": "email", "location": "body", "value": "alice@test.local", "is_sensitive": false },
+          { "name": "password", "location": "body", "value": null, "is_sensitive": true }
+        ],
+        "headers": [
+          { "name": "content-type", "value": "application/x-www-form-urlencoded", "redacted": false }
+        ],
+        "body_ref": null,
+        "response": { "status_code": 303, "content_type": "text/html", "headers": [], "body_ref": null },
+        "evidence_refs": [
+          { "evidence_id": "ev_req_login_alice", "kind": "request", "path": "evidence/collector/req_login_alice.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000010", "redacted": true }
+        ]
+      },
+      {
+        "request_id": "req_products_alice",
+        "account_id": "acc_alice",
+        "role_id": "role_user",
+        "session_ref": "sess-1",
+        "page_id": "page_products",
+        "action_id": null,
+        "method": "GET",
+        "url": "http://localhost:8001/products",
+        "observed_at": "2026-10-06T00:00:02Z",
+        "parameters": [],
+        "headers": [],
+        "body_ref": null,
+        "response": { "status_code": 200, "content_type": "text/html", "headers": [], "body_ref": null },
+        "evidence_refs": [
+          { "evidence_id": "ev_req_products_alice", "kind": "request", "path": "evidence/collector/req_products_alice.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000011", "redacted": true }
+        ]
+      },
+      {
+        "request_id": "req_cart_add_alice",
+        "account_id": "acc_alice",
+        "role_id": "role_user",
+        "session_ref": "sess-1",
+        "page_id": "page_products",
+        "action_id": "act_add_cart",
+        "method": "POST",
+        "url": "http://localhost:8001/cart/add",
+        "observed_at": "2026-10-06T00:00:03Z",
+        "parameters": [
+          { "name": "product_id", "location": "body", "value": "7", "is_sensitive": false },
+          { "name": "quantity", "location": "body", "value": "1", "is_sensitive": false }
+        ],
+        "headers": [],
+        "body_ref": null,
+        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null },
+        "evidence_refs": [
+          { "evidence_id": "ev_req_cart_add_alice", "kind": "request", "path": "evidence/collector/req_cart_add_alice.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000012", "redacted": true }
+        ]
+      },
+      {
+        "request_id": "req_order_detail_alice",
+        "account_id": "acc_alice",
+        "role_id": "role_user",
+        "session_ref": "sess-1",
+        "page_id": "page_orders",
+        "action_id": null,
+        "method": "GET",
+        "url": "http://localhost:8001/orders/1",
+        "observed_at": "2026-10-06T00:00:04Z",
+        "parameters": [
+          { "name": "order_id", "location": "path", "value": "1", "is_sensitive": false }
+        ],
+        "headers": [],
+        "body_ref": null,
+        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null },
+        "evidence_refs": [
+          { "evidence_id": "ev_req_order_detail_alice", "kind": "request", "path": "evidence/collector/req_order_detail_alice.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000013", "redacted": true }
+        ]
+      },
+      {
+        "request_id": "req_order_detail_bob",
+        "account_id": "acc_bob",
+        "role_id": "role_user",
+        "session_ref": "sess-2",
+        "page_id": "page_orders",
+        "action_id": null,
+        "method": "GET",
+        "url": "http://localhost:8001/orders/2",
+        "observed_at": "2026-10-06T00:00:05Z",
+        "parameters": [
+          { "name": "order_id", "location": "path", "value": "2", "is_sensitive": false }
+        ],
+        "headers": [],
+        "body_ref": null,
+        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null },
+        "evidence_refs": [
+          { "evidence_id": "ev_req_order_detail_bob", "kind": "request", "path": "evidence/collector/req_order_detail_bob.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000014", "redacted": true }
+        ]
+      },
+      {
+        "request_id": "req_admin_users",
+        "account_id": "acc_admin",
+        "role_id": "role_admin",
+        "session_ref": "sess-3",
+        "page_id": null,
+        "action_id": null,
+        "method": "GET",
+        "url": "http://localhost:8001/admin/api/users",
+        "observed_at": "2026-10-06T00:00:06Z",
+        "parameters": [],
+        "headers": [],
+        "body_ref": null,
+        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null },
+        "evidence_refs": [
+          { "evidence_id": "ev_req_admin_users", "kind": "request", "path": "evidence/collector/req_admin_users.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000015", "redacted": true }
+        ]
+      }
+    ]
+  }
+}
