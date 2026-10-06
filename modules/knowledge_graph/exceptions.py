@@ -47,3 +47,19 @@ class OutputArtifactExistsError(KnowledgeGraphError):
 
 class QueryResultValidationError(KnowledgeGraphError):
     """Raised when stored graph data cannot satisfy a query row contract."""
+
+
+class GraphRevisionMismatchError(RepositoryError):
+    """Raised when a verification targets a stale graph revision."""
+
+
+class VerificationConflictError(RepositoryError):
+    """Raised when a verification ID is reused with different source bytes."""
+
+
+class GraphUpdateConflictError(RepositoryError):
+    """Raised when a verified update conflicts with stored graph identity."""
+
+
+class GraphUpdateReferenceError(RepositoryError):
+    """Raised when a verified relationship references a missing graph node."""

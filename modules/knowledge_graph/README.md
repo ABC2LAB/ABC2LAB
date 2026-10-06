@@ -11,7 +11,7 @@
 
 ## 현재 구현 범위
 
-계약 기반, Neo4j 저장 계층, 공개 ingest·query 연산이 구현되어 있다.
+계약 기반, Neo4j 저장 계층과 공개 연산 3개가 구현되어 있다.
 
 - 입력 Schema: semantic analysis, graph query, verification results
 - 출력 Schema: graph query result
@@ -28,9 +28,10 @@
 - 질의 전후 revision 검증과 질의별 completed/failed 처리
 - 실제 Neo4j 적재 구조 기반 snapshot 복원
 - `graph_query_result.json` 출력 검증·원자적 저장·불변 경로 보호
-- `entrypoint.run("ingest" | "query", ...)`과 CLI
-
-apply_verification operation은 후속 단계에서 구현한다.
+- 검증 실행 근거와 graph update의 EvidenceRef 대응 검증
+- verification ID별 중복·충돌 방지와 stale revision 차단
+- 검증 노드·관계 upsert와 revision 증가를 묶은 단일 트랜잭션
+- `entrypoint.run("ingest" | "query" | "apply_verification", ...)`과 CLI
 
 ## ingest 공개 호출
 
@@ -134,6 +135,71 @@ CLI:
   --run-id run_example \
   --iteration 0 \
   --mode diagnosis
+```
+
+## apply_verification 공개 호출
+
+```python
+from modules.knowledge_graph.entrypoint import run
+
+response = run(
+    operation="apply_verification",
+    input_paths={
+        "verification_results": {
+            "path": (
+                "artifacts/iteration-000/verifier/"
+                "verification_results.json"
+            ),
+            "sha256": "<64자리 SHA-256>",
+        }
+    },
+    output_dir="artifacts/iteration-000/knowledge_graph",
+    context={
+        "run_id": "run_example",
+        "iteration": 0,
+        "mode": "diagnosis",
+        "run_root": "/trusted/runs/run_example",
+        "graph_id": "graph_example",
+    },
+)
+```
+
+반영 조건은 다음과 같다.
+
+- graph update의 source verification이 `allow`, `completed`, `success|failure`
+- 갱신 노드·관계가 `basis=verified`이고 실제 실행 EvidenceRef를 사용
+- 입력 `source_graph_revision`과 현재 revision 일치
+- 노드·관계 ID가 기존 그래프 구조와 충돌하지 않음
+- 관계의 source·target 노드가 기존 그래프 또는 같은 갱신에 존재
+
+새 verification ID를 반영하면 revision을 1 증가시킨다. 동일 산출물의 동일
+verification ID를 다시 호출하면 `is_applied=false`로 현재 revision을 반환한다.
+같은 ID를 다른 산출물이 재사용하거나 일부 ID만 이미 반영된 입력은 거절한다.
+graph update가 비어 있으면 revision을 변경하지 않는다. 이 operation은 별도 JSON
+파일을 만들지 않는다.
+
+제어 응답 필드는 다음과 같다.
+
+- `operation`: `apply_verification`
+- `status`: `completed`, `partial`, `failed`
+- `graph_id`
+- `previous_graph_revision`, `graph_revision`
+- `applied_verification_ids`
+- `is_applied`
+- `errors`
+
+CLI:
+
+```bash
+.venv/bin/python -m modules.knowledge_graph.entrypoint apply_verification \
+  --input-path artifacts/iteration-000/verifier/verification_results.json \
+  --input-sha256 '<64자리 SHA-256>' \
+  --output-dir artifacts/iteration-000/knowledge_graph \
+  --run-root /trusted/runs/run_example \
+  --run-id run_example \
+  --iteration 0 \
+  --mode diagnosis \
+  --graph-id graph_example
 ```
 
 ## Neo4j 설정
