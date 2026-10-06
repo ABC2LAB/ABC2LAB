@@ -16,14 +16,28 @@ from modules.knowledge_graph.exceptions import (
     GraphStorageVerificationError,
     InputArtifactFailedError,
     InputHashMismatchError,
+    OutputArtifactExistsError,
     PathValidationError,
     RepositoryError,
     SourceArtifactConflictError,
 )
 from modules.knowledge_graph.ingest_adapter import parse_ingest_request
-from modules.knowledge_graph.models import ControlError, IngestControlResponse
+from modules.knowledge_graph.models import (
+    ControlError,
+    IngestControlResponse,
+    QueryControlResponse,
+)
 from modules.knowledge_graph.neo4j_repository import Neo4jGraphRepository
-from modules.knowledge_graph.service import execute_ingest, prepare_ingest_operation
+from modules.knowledge_graph.query_adapter import parse_query_request
+from modules.knowledge_graph.service import (
+    PreparedQuery,
+    build_query_dependency_failure,
+    execute_ingest,
+    execute_query,
+    prepare_ingest_operation,
+    prepare_query_operation,
+    publish_query_artifact,
+)
 from modules.knowledge_graph.settings import Neo4jSettings
 
 
@@ -36,13 +50,29 @@ def run(
     output_dir: str | Path,
     context: Mapping[str, Any],
 ) -> dict[str, Any]:
-    if operation != "ingest":
-        return _failed_response(
-            "OPERATION_UNSUPPORTED",
-            "지원하지 않는 knowledge_graph operation",
-            retryable=False,
-        )
+    if operation == "ingest":
+        return _run_ingest(input_paths, output_dir, context)
+    if operation == "query":
+        return _run_query(input_paths, output_dir, context)
+    return {
+        "operation": operation,
+        "status": "failed",
+        "errors": [
+            ControlError(
+                code="OPERATION_UNSUPPORTED",
+                message="지원하지 않는 knowledge_graph operation",
+                item_ref=None,
+                retryable=False,
+            ).to_mapping()
+        ],
+    }
 
+
+def _run_ingest(
+    input_paths: Mapping[str, Any],
+    output_dir: str | Path,
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
     try:
         request = parse_ingest_request(input_paths, output_dir, context)
         prepared = prepare_ingest_operation(request)
@@ -79,6 +109,57 @@ def run(
             "예상하지 못한 ingest 오류가 발생함",
             retryable=True,
         )
+
+
+def _run_query(
+    input_paths: Mapping[str, Any],
+    output_dir: str | Path,
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    try:
+        request = parse_query_request(input_paths, output_dir, context)
+        prepared = prepare_query_operation(request)
+    except (ContractValidationError, PathValidationError, OSError) as error:
+        return _query_input_failure_response(error)
+    except Exception:
+        LOGGER.exception("예상하지 못한 query 입력 준비 실패")
+        return _failed_query_control_response(
+            "QUERY_FAILED",
+            "예상하지 못한 query 입력 처리 오류가 발생함",
+            retryable=True,
+        )
+
+    try:
+        settings = Neo4jSettings.from_environment()
+    except ContractValidationError:
+        artifact = build_query_dependency_failure(
+            prepared,
+            "CONFIG_INVALID",
+            "Neo4j 연결 설정이 누락됐거나 올바르지 않음",
+            retryable=False,
+        )
+        return _publish_query(prepared, artifact)
+
+    try:
+        with Neo4jGraphRepository(settings) as repository:
+            artifact = execute_query(prepared, repository)
+    except RepositoryError as error:
+        LOGGER.warning("Neo4j query 실패: %s", error)
+        artifact = build_query_dependency_failure(
+            prepared,
+            "NEO4J_UNAVAILABLE",
+            "Neo4j가 query 요청을 완료하지 못함",
+            retryable=True,
+        )
+    except Exception:
+        LOGGER.exception("예상하지 못한 knowledge_graph query 실패")
+        artifact = build_query_dependency_failure(
+            prepared,
+            "QUERY_FAILED",
+            "예상하지 못한 query 오류가 발생함",
+            retryable=True,
+        )
+    return _publish_query(prepared, artifact)
 
 
 def _input_failure_response(error: Exception) -> dict[str, Any]:
@@ -136,6 +217,89 @@ def _repository_failure_response(error: RepositoryError) -> dict[str, Any]:
     )
 
 
+def _query_input_failure_response(error: Exception) -> dict[str, Any]:
+    if isinstance(error, InputArtifactFailedError):
+        return _failed_query_control_response(
+            "INPUT_STATUS_FAILED",
+            "graph_query가 사용할 수 없는 failed 상태임",
+            retryable=False,
+        )
+    if isinstance(error, InputHashMismatchError):
+        return _failed_query_control_response(
+            "INPUT_HASH_MISMATCH",
+            "graph_query 파일 해시가 전달값과 다름",
+            retryable=False,
+        )
+    if isinstance(error, (PathValidationError, OSError)):
+        LOGGER.warning("query 입력 경로 검증 실패: %s", error)
+        return _failed_query_control_response(
+            "PATH_INVALID",
+            "graph_query 또는 실행 경로에 접근할 수 없음",
+            retryable=False,
+        )
+    LOGGER.warning("query 입력 계약 검증 실패: %s", error)
+    return _failed_query_control_response(
+        "CONTRACT_INVALID",
+        "graph_query 또는 실행 인자가 계약을 위반함",
+        retryable=False,
+    )
+
+
+def _publish_query(
+    prepared: PreparedQuery,
+    artifact: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        return publish_query_artifact(prepared, artifact).to_mapping()
+    except OutputArtifactExistsError:
+        return _failed_query_control_response(
+            "OUTPUT_EXISTS",
+            "불변 graph_query_result 출력 경로가 이미 존재함",
+            retryable=False,
+            graph_id=prepared.graph_id,
+        )
+    except ContractValidationError as error:
+        LOGGER.warning("query 출력 계약 검증 실패: %s", error)
+        return _failed_query_control_response(
+            "OUTPUT_INVALID",
+            "생성한 graph_query_result가 출력 계약을 위반함",
+            retryable=False,
+            graph_id=prepared.graph_id,
+        )
+    except OSError as error:
+        LOGGER.warning("query 출력 저장 실패: %s", error)
+        return _failed_query_control_response(
+            "OUTPUT_WRITE_FAILED",
+            "graph_query_result를 원자적으로 저장하지 못함",
+            retryable=True,
+            graph_id=prepared.graph_id,
+        )
+
+
+def _failed_query_control_response(
+    code: str,
+    message: str,
+    retryable: bool,
+    graph_id: str | None = None,
+) -> dict[str, Any]:
+    return QueryControlResponse(
+        status="failed",
+        artifact_id=None,
+        output_path=None,
+        sha256=None,
+        graph_id=graph_id,
+        graph_revision=None,
+        errors=(
+            ControlError(
+                code=code,
+                message=message,
+                item_ref=None,
+                retryable=retryable,
+            ),
+        ),
+    ).to_mapping()
+
+
 def _failed_response(code: str, message: str, retryable: bool) -> dict[str, Any]:
     return IngestControlResponse(
         status="failed",
@@ -155,7 +319,7 @@ def _failed_response(code: str, message: str, retryable: bool) -> dict[str, Any]
 
 def _create_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="knowledge_graph")
-    parser.add_argument("operation", choices=("ingest",))
+    parser.add_argument("operation", choices=("ingest", "query"))
     parser.add_argument("--input-path", required=True)
     parser.add_argument("--input-sha256", required=True)
     parser.add_argument("--output-dir", required=True)
@@ -172,10 +336,11 @@ def _create_argument_parser() -> argparse.ArgumentParser:
 
 def main(arguments: Sequence[str] | None = None) -> int:
     parsed = _create_argument_parser().parse_args(arguments)
+    input_key = "semantic_analysis" if parsed.operation == "ingest" else "graph_query"
     response = run(
         operation=parsed.operation,
         input_paths={
-            "semantic_analysis": {
+            input_key: {
                 "path": parsed.input_path,
                 "sha256": parsed.input_sha256,
             }

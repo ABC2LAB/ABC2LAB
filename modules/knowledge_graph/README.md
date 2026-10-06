@@ -11,7 +11,7 @@
 
 ## 현재 구현 범위
 
-계약 기반, Neo4j 저장 계층, 공개 ingest 연산이 구현되어 있다.
+계약 기반, Neo4j 저장 계층, 공개 ingest·query 연산이 구현되어 있다.
 
 - 입력 Schema: semantic analysis, graph query, verification results
 - 출력 Schema: graph query result
@@ -24,9 +24,13 @@
 - 중첩 JSON 직렬화·복원
 - semantic artifact ID·SHA-256 기반 멱등 적재
 - 적재 트랜잭션 내부 건수 검증
-- `entrypoint.run("ingest", ...)`과 CLI
+- 허용된 `query_key`별 파라미터 검증과 읽기 전용 Cypher 템플릿
+- 질의 전후 revision 검증과 질의별 completed/failed 처리
+- 실제 Neo4j 적재 구조 기반 snapshot 복원
+- `graph_query_result.json` 출력 검증·원자적 저장·불변 경로 보호
+- `entrypoint.run("ingest" | "query", ...)`과 CLI
 
-query·apply_verification operation은 후속 단계에서 구현한다.
+apply_verification operation은 후속 단계에서 구현한다.
 
 ## ingest 공개 호출
 
@@ -71,6 +75,59 @@ CLI:
 ```bash
 .venv/bin/python -m modules.knowledge_graph.entrypoint ingest \
   --input-path artifacts/iteration-000/semantic_analyzer/semantic_analysis.json \
+  --input-sha256 '<64자리 SHA-256>' \
+  --output-dir artifacts/iteration-000/knowledge_graph \
+  --run-root /trusted/runs/run_example \
+  --run-id run_example \
+  --iteration 0 \
+  --mode diagnosis
+```
+
+## query 공개 호출
+
+```python
+from modules.knowledge_graph.entrypoint import run
+
+response = run(
+    operation="query",
+    input_paths={
+        "graph_query": {
+            "path": (
+                "artifacts/iteration-000/access_analyzer/"
+                "graph_query.json"
+            ),
+            "sha256": "<64자리 SHA-256>",
+        }
+    },
+    output_dir="artifacts/iteration-000/knowledge_graph",
+    context={
+        "run_id": "run_example",
+        "iteration": 0,
+        "mode": "diagnosis",
+        "run_root": "/trusted/runs/run_example",
+    },
+)
+```
+
+지원하는 고정 질의 키는 다음과 같다.
+
+- `resource_ownership`: 계정·자원 필터로 소유 관계 조회
+- `role_resource_access`: 역할 필터로 계정·역할·Endpoint·자원 접근 관계 조회
+- `workflow_dependencies`: workflow 필터로 단계 의존 관계 조회
+- `structure_snapshot`: 실제 적재된 노드·관계·workflow 반환
+
+`expected_graph_revision`이 현재 revision과 다르거나 질의 실행 중 revision이
+바뀌면 failed 산출물을 기록한다. 일부 질의만 실패하면 정상 질의 결과와
+오류를 함께 담은 partial 산출물을 기록한다. 기존 완료 파일은 덮어쓰지 않는다.
+
+query 제어 응답은 `artifact_id`, `output_path`, `sha256`, `graph_id`,
+`graph_revision`, `errors`를 반환한다.
+
+CLI:
+
+```bash
+.venv/bin/python -m modules.knowledge_graph.entrypoint query \
+  --input-path artifacts/iteration-000/access_analyzer/graph_query.json \
   --input-sha256 '<64자리 SHA-256>' \
   --output-dir artifacts/iteration-000/knowledge_graph \
   --run-root /trusted/runs/run_example \

@@ -39,3 +39,11 @@ class SourceArtifactConflictError(RepositoryError):
 
 class GraphStorageVerificationError(RepositoryError):
     """Raised when transaction-visible graph counts differ from the input."""
+
+
+class OutputArtifactExistsError(KnowledgeGraphError):
+    """Raised when an immutable output artifact path already exists."""
+
+
+class QueryResultValidationError(KnowledgeGraphError):
+    """Raised when stored graph data cannot satisfy a query row contract."""

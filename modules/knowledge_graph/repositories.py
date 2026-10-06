@@ -8,7 +8,7 @@ from modules.knowledge_graph.models import GraphSource, GraphState, SemanticGrap
 
 
 class GraphRepository(Protocol):
-    """Interface implemented by the Neo4j adapter in the next stage."""
+    """Persistence and query boundary implemented by the Neo4j adapter."""
 
     def ingest(
         self,
@@ -27,6 +27,9 @@ class GraphRepository(Protocol):
         parameters: dict[str, Any],
     ) -> list[dict[str, Any]]:
         """Execute one allowlisted query template."""
+
+    def get_revision(self, graph_id: str, run_id: str) -> int | None:
+        """Return the current graph revision in one run scope."""
 
     def apply_verification(
         self,

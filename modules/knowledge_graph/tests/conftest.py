@@ -32,3 +32,21 @@ def ingest_run_root(fixture_root: Path, tmp_path: Path) -> Path:
         input_path,
     )
     return run_root
+
+
+@pytest.fixture
+def query_run_root(fixture_root: Path, tmp_path: Path) -> Path:
+    run_root = tmp_path / "run_demo_001"
+    input_path = (
+        run_root
+        / "artifacts"
+        / "iteration-000"
+        / "access_analyzer"
+        / "graph_query.json"
+    )
+    input_path.parent.mkdir(parents=True)
+    copyfile(
+        fixture_root / "access_analyzer" / "graph_query.json",
+        input_path,
+    )
+    return run_root

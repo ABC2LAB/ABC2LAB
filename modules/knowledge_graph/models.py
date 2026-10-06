@@ -224,3 +224,53 @@ class IngestControlResponse:
             "is_ready": self.is_ready,
             "errors": [error.to_mapping() for error in self.errors],
         }
+
+
+@dataclass(frozen=True)
+class QueryRequest:
+    input_path: Path
+    input_relative_path: str
+    expected_sha256: str
+    output_path: Path
+    output_relative_path: str
+    run_id: str
+    iteration: int
+    mode: str
+
+
+@dataclass(frozen=True)
+class QueryDefinition:
+    query_id: str
+    query_key: str
+    parameters: dict[str, Any]
+
+    @classmethod
+    def from_mapping(cls, value: dict[str, Any]) -> "QueryDefinition":
+        return cls(
+            query_id=value["query_id"],
+            query_key=value["query_key"],
+            parameters=value["parameters"],
+        )
+
+
+@dataclass(frozen=True)
+class QueryControlResponse:
+    status: str
+    artifact_id: str | None
+    output_path: str | None
+    sha256: str | None
+    graph_id: str | None
+    graph_revision: int | None
+    errors: tuple[ControlError, ...]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "operation": "query",
+            "status": self.status,
+            "artifact_id": self.artifact_id,
+            "output_path": self.output_path,
+            "sha256": self.sha256,
+            "graph_id": self.graph_id,
+            "graph_revision": self.graph_revision,
+            "errors": [error.to_mapping() for error in self.errors],
+        }

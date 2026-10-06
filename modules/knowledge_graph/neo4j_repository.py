@@ -15,12 +15,15 @@ from modules.knowledge_graph.exceptions import (
     GraphAlreadyExistsError,
     GraphNotFoundError,
     GraphStorageVerificationError,
+    QueryResultValidationError,
     RepositoryError,
     SourceArtifactConflictError,
 )
 from modules.knowledge_graph.models import GraphSource, GraphState, SemanticGraph
+from modules.knowledge_graph.query_results import graph_to_snapshot
 from modules.knowledge_graph.settings import Neo4jSettings
 from modules.knowledge_graph.storage import (
+    decode_json,
     deserialize_edge,
     deserialize_node,
     deserialize_workflow,
@@ -44,6 +47,15 @@ ALLOWED_RELATIONSHIP_TYPES = frozenset(
         "REQUIRES",
         "VERIFIED_ACCESS",
         "VERIFIED_DENIAL",
+    }
+)
+
+ALLOWED_QUERY_KEYS = frozenset(
+    {
+        "resource_ownership",
+        "role_resource_access",
+        "workflow_dependencies",
+        "structure_snapshot",
     }
 )
 
@@ -169,6 +181,34 @@ class Neo4jGraphRepository:
             return None
         return int(records[0]["revision"])
 
+    def query(
+        self,
+        graph_id: str,
+        run_id: str,
+        query_key: str,
+        parameters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        self._validate_query_parameters(query_key, parameters)
+        if query_key == "structure_snapshot":
+            graph = self.load_graph(graph_id, run_id)
+            return [
+                graph_to_snapshot(
+                    graph,
+                    include_evidence_refs=parameters["include_evidence_refs"],
+                )
+            ]
+        try:
+            with self._driver.session(database=self._settings.database) as session:
+                return session.execute_read(
+                    self._query_transaction,
+                    graph_id,
+                    run_id,
+                    query_key,
+                    parameters,
+                )
+        except (DriverError, Neo4jError) as error:
+            raise RepositoryError("Neo4j 읽기 질의 실패") from error
+
     def get_counts(self, graph_id: str, run_id: str) -> GraphCounts:
         try:
             with self._driver.session(database=self._settings.database) as session:
@@ -189,6 +229,147 @@ class Neo4jGraphRepository:
         }
         if invalid_types:
             raise ContractValidationError("허용되지 않은 relationship type")
+
+    @staticmethod
+    def _validate_query_parameters(
+        query_key: str,
+        parameters: dict[str, Any],
+    ) -> None:
+        if query_key not in ALLOWED_QUERY_KEYS:
+            raise ContractValidationError("허용되지 않은 query_key")
+        expected_keys_by_query = {
+            "resource_ownership": {"account_ids", "resource_ids"},
+            "role_resource_access": {"role_ids"},
+            "workflow_dependencies": {"workflow_ids"},
+            "structure_snapshot": {"include_evidence_refs"},
+        }
+        if set(parameters) != expected_keys_by_query[query_key]:
+            raise ContractValidationError("query parameters 필드가 올바르지 않음")
+        if query_key == "structure_snapshot":
+            if not isinstance(parameters["include_evidence_refs"], bool):
+                raise ContractValidationError("include_evidence_refs는 boolean이어야 함")
+            return
+        for value in parameters.values():
+            if not isinstance(value, list) or any(
+                not isinstance(item, str) or not item for item in value
+            ):
+                raise ContractValidationError("query ID 필터는 문자열 배열이어야 함")
+
+    @classmethod
+    def _query_transaction(
+        cls,
+        transaction: ManagedTransaction,
+        graph_id: str,
+        run_id: str,
+        query_key: str,
+        parameters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        if query_key == "resource_ownership":
+            records = transaction.run(
+                "MATCH (owner:ABC2Entity {graph_id: $graph_id, run_id: $run_id})"
+                "-[edge:OWNS]->(resource:ABC2Entity {"
+                "graph_id: $graph_id, run_id: $run_id}) "
+                "WHERE owner.node_type = 'User' AND resource.node_type = 'Resource' "
+                "AND (size($account_ids) = 0 OR owner.node_id IN $account_ids) "
+                "AND (size($resource_ids) = 0 OR resource.node_id IN $resource_ids) "
+                "RETURN resource.node_id AS resource_id, "
+                "owner.node_id AS owner_account_id, edge.basis AS basis, "
+                "edge.evidence_refs_json AS evidence_refs_json "
+                "ORDER BY resource.node_id, owner.node_id",
+                graph_id=graph_id,
+                run_id=run_id,
+                **parameters,
+            )
+            return [cls._ownership_row(record) for record in records]
+        if query_key == "role_resource_access":
+            records = transaction.run(
+                "MATCH (account:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
+                "node_type: 'User'})-[:HAS_ROLE]->(role:ABC2Entity {"
+                "graph_id: $graph_id, run_id: $run_id, node_type: 'Role'}) "
+                "MATCH (account)"
+                "-[access]->(endpoint:ABC2Entity {graph_id: $graph_id, "
+                "run_id: $run_id, node_type: 'Endpoint'}) "
+                "WHERE type(access) IN ['ACCESS', 'VERIFIED_ACCESS'] "
+                "AND (size($role_ids) = 0 OR role.node_id IN $role_ids) "
+                "OPTIONAL MATCH (endpoint)-[resource_link]->(resource:ABC2Entity {"
+                "graph_id: $graph_id, run_id: $run_id, node_type: 'Resource'}) "
+                "WHERE type(resource_link) IN ['REFERENCE', 'USE'] "
+                "RETURN DISTINCT account.node_id AS account_id, "
+                "role.node_id AS role_id, endpoint.node_id AS endpoint_id, "
+                "resource.node_id AS resource_id, type(access) AS access_type, "
+                "access.basis AS basis, access.properties_json AS properties_json, "
+                "endpoint.properties_json AS endpoint_properties_json, "
+                "access.evidence_refs_json AS evidence_refs_json "
+                "ORDER BY account.node_id, role.node_id, endpoint.node_id, resource_id",
+                graph_id=graph_id,
+                run_id=run_id,
+                **parameters,
+            )
+            return [cls._access_row(record) for record in records]
+        records = transaction.run(
+            "MATCH (workflow:ABC2Workflow {graph_id: $graph_id, run_id: $run_id})"
+            "-[:ABC2_HAS_DEPENDENCY]->(dependency:ABC2WorkflowDependency {"
+            "graph_id: $graph_id, run_id: $run_id}) "
+            "WHERE size($workflow_ids) = 0 "
+            "OR workflow.workflow_id IN $workflow_ids "
+            "RETURN workflow.workflow_id AS workflow_id, "
+            "dependency.before_step_id AS before_step_id, "
+            "dependency.after_step_id AS after_step_id, "
+            "dependency.condition AS condition, dependency.basis AS basis, "
+            "dependency.evidence_refs_json AS evidence_refs_json "
+            "ORDER BY workflow.workflow_id, dependency.dependency_order",
+            graph_id=graph_id,
+            run_id=run_id,
+            **parameters,
+        )
+        return [cls._flow_row(record) for record in records]
+
+    @staticmethod
+    def _ownership_row(record: Any) -> dict[str, Any]:
+        return {
+            "resource_id": record["resource_id"],
+            "owner_account_id": record["owner_account_id"],
+            "basis": record["basis"],
+            "evidence_refs": _decode_list(record["evidence_refs_json"]),
+        }
+
+    @staticmethod
+    def _access_row(record: Any) -> dict[str, Any]:
+        properties = _decode_mapping(record["properties_json"])
+        endpoint_properties = _decode_mapping(record["endpoint_properties_json"])
+        action = properties.get("action") or properties.get("action_meaning")
+        action = action or endpoint_properties.get("action")
+        if not isinstance(action, str) or not action:
+            raise QueryResultValidationError("ACCESS 관계에 action 속성이 없음")
+        observed_value = properties.get("access_observed")
+        if observed_value is not None and not isinstance(observed_value, bool):
+            raise QueryResultValidationError("access_observed 속성이 boolean이 아님")
+        is_observed = (
+            observed_value
+            if isinstance(observed_value, bool)
+            else record["access_type"] == "VERIFIED_ACCESS"
+            or record["basis"] in {"observed", "verified"}
+        )
+        return {
+            "account_id": record["account_id"],
+            "role_id": record["role_id"],
+            "endpoint_id": record["endpoint_id"],
+            "resource_id": record["resource_id"],
+            "action": action,
+            "access_observed": is_observed,
+            "evidence_refs": _decode_list(record["evidence_refs_json"]),
+        }
+
+    @staticmethod
+    def _flow_row(record: Any) -> dict[str, Any]:
+        return {
+            "workflow_id": record["workflow_id"],
+            "before_step_id": record["before_step_id"],
+            "after_step_id": record["after_step_id"],
+            "condition": record["condition"],
+            "basis": record["basis"],
+            "evidence_refs": _decode_list(record["evidence_refs_json"]),
+        }
 
     @classmethod
     def _ingest_transaction(
@@ -503,3 +684,29 @@ def _group_by_workflow(
     for value in values:
         values_by_workflow[value["workflow_id"]].append(value)
     return values_by_workflow
+
+
+def _decode_list(value: str) -> list[dict[str, Any]]:
+    try:
+        decoded = decode_json(value)
+    except (TypeError, ValueError) as error:
+        raise QueryResultValidationError(
+            "저장된 evidence_refs JSON을 읽을 수 없음"
+        ) from error
+    if not isinstance(decoded, list) or any(
+        not isinstance(item, dict) for item in decoded
+    ):
+        raise QueryResultValidationError("저장된 evidence_refs 형식이 올바르지 않음")
+    return decoded
+
+
+def _decode_mapping(value: str) -> dict[str, Any]:
+    try:
+        decoded = decode_json(value)
+    except (TypeError, ValueError) as error:
+        raise QueryResultValidationError(
+            "저장된 properties JSON을 읽을 수 없음"
+        ) from error
+    if not isinstance(decoded, dict):
+        raise QueryResultValidationError("저장된 properties 형식이 올바르지 않음")
+    return decoded

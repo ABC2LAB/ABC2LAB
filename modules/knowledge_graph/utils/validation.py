@@ -201,3 +201,26 @@ def validate_graph_query_result_semantics(artifact: dict[str, Any]) -> None:
             raise ContractValidationError("완료 질의 결과의 errors는 비어 있어야 함")
         if result["status"] == "failed" and not result["errors"]:
             raise ContractValidationError("실패 질의 결과에는 error가 필요함")
+
+
+def validate_graph_query_result_against_input(
+    artifact: dict[str, Any],
+    source_artifact_id: str,
+    expected_queries: tuple[tuple[str, str], ...],
+) -> None:
+    matching_refs = [
+        item
+        for item in artifact["input_refs"]
+        if item["artifact_id"] == source_artifact_id
+        and item["artifact_type"] == "graph_query"
+    ]
+    if len(matching_refs) != 1:
+        raise ContractValidationError("graph_query input_ref 대응이 올바르지 않음")
+    if artifact["status"] == "failed":
+        return
+    actual_queries = tuple(
+        (item["query_id"], item["query_key"])
+        for item in artifact["data"]["results"]
+    )
+    if actual_queries != expected_queries:
+        raise ContractValidationError("질의 결과가 입력 query_id·query_key 순서와 다름")

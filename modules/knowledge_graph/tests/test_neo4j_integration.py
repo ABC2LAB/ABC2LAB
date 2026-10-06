@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -144,6 +145,83 @@ def test_public_ingest_is_idempotent_with_real_neo4j(
     assert conflicted["errors"][0]["code"] == "ARTIFACT_CONFLICT"
 
 
+@pytest.mark.skipif(
+    os.getenv("KG_RUN_NEO4J_INTEGRATION") != "1",
+    reason="KG_RUN_NEO4J_INTEGRATION=1일 때만 실제 Neo4j 통합 테스트 실행",
+)
+def test_public_query_returns_all_typed_rows_with_real_neo4j(
+    ingest_run_root: Path,
+    query_run_root: Path,
+) -> None:
+    run_root = ingest_run_root
+    semantic_relative = (
+        "artifacts/iteration-000/semantic_analyzer/semantic_analysis.json"
+    )
+    semantic_path = run_root / semantic_relative
+    _add_query_relationships(semantic_path)
+    settings = Neo4jSettings.from_environment()
+    graph_id: str | None = None
+
+    try:
+        ingest_response = _run_public_ingest(run_root, semantic_relative)
+        assert isinstance(ingest_response["graph_id"], str)
+        graph_id = ingest_response["graph_id"]
+        query_path = query_run_root / (
+            "artifacts/iteration-000/access_analyzer/graph_query.json"
+        )
+        query_artifact = json.loads(query_path.read_text(encoding="utf-8"))
+        query_artifact["data"]["graph_id"] = graph_id
+        query_path.write_text(
+            json.dumps(query_artifact, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        query_response = run(
+            operation="query",
+            input_paths={
+                "graph_query": {
+                    "path": (
+                        "artifacts/iteration-000/access_analyzer/graph_query.json"
+                    ),
+                    "sha256": calculate_sha256(query_path),
+                }
+            },
+            output_dir="artifacts/iteration-000/knowledge_graph",
+            context={
+                "run_id": "run_demo_001",
+                "iteration": 0,
+                "mode": "development",
+                "run_root": run_root,
+            },
+        )
+        result_path = run_root / str(query_response["output_path"])
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+    finally:
+        if graph_id is not None:
+            with GraphDatabase.driver(
+                settings.uri,
+                auth=(settings.username, settings.password),
+            ) as driver:
+                driver.execute_query(
+                    "MATCH (item {graph_id: $graph_id, run_id: $run_id}) "
+                    "DETACH DELETE item",
+                    graph_id=graph_id,
+                    run_id="run_demo_001",
+                    database_=settings.database,
+                )
+
+    results_by_key = {
+        item["query_key"]: item for item in result["data"]["results"]
+    }
+    assert query_response["status"] == "completed"
+    assert len(results_by_key["resource_ownership"]["rows"]) == 1
+    assert len(results_by_key["role_resource_access"]["rows"]) == 1
+    assert len(results_by_key["workflow_dependencies"]["rows"]) == 1
+    snapshot = results_by_key["structure_snapshot"]["rows"][0]
+    assert len(snapshot["nodes"]) == 4
+    assert len(snapshot["relationships"]) == 4
+    assert len(snapshot["workflows"]) == 1
+
+
 def _run_public_ingest(run_root: Path, relative_path: str) -> dict[str, object]:
     input_path = run_root / relative_path
     return run(
@@ -161,4 +239,64 @@ def _run_public_ingest(run_root: Path, relative_path: str) -> dict[str, object]:
             "mode": "development",
             "run_root": run_root,
         },
+    )
+
+
+def _add_query_relationships(semantic_path: Path) -> None:
+    artifact = json.loads(semantic_path.read_text(encoding="utf-8"))
+    artifact["data"]["relationships"].extend(
+        [
+            {
+                "relationship_id": "relationship_role_001",
+                "source_id": "account_user",
+                "target_id": "role_user",
+                "relation_type": "HAS_ROLE",
+                "properties": {},
+                "basis": "observed",
+                "evidence_refs": [],
+            },
+            {
+                "relationship_id": "relationship_access_001",
+                "source_id": "account_user",
+                "target_id": "endpoint_orders",
+                "relation_type": "ACCESS",
+                "properties": {
+                    "action": "read_order",
+                    "access_observed": True,
+                },
+                "basis": "observed",
+                "evidence_refs": [],
+            },
+            {
+                "relationship_id": "relationship_reference_001",
+                "source_id": "endpoint_orders",
+                "target_id": "resource_order_001",
+                "relation_type": "REFERENCE",
+                "properties": {},
+                "basis": "observed",
+                "evidence_refs": [],
+            },
+        ]
+    )
+    workflow = artifact["data"]["workflows"][0]
+    workflow["steps"].append(
+        {
+            "step_id": "step_follow",
+            "order": 1,
+            "action": "follow_order",
+            "request_ids": ["request_001"],
+        }
+    )
+    workflow["dependencies"].append(
+        {
+            "before_step_id": "step_read",
+            "after_step_id": "step_follow",
+            "condition": "order was read",
+            "basis": "inferred",
+            "evidence_refs": [],
+        }
+    )
+    semantic_path.write_text(
+        json.dumps(artifact, ensure_ascii=False),
+        encoding="utf-8",
     )
