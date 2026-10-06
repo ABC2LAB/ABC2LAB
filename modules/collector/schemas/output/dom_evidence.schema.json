@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:abc2lab:collector:dom_evidence:0.1.0",
+  "title": "collector DOM 요약 근거 파일 (EvidenceRef kind=dom)",
+  "description": "페이지 하나에서 찾은 링크·폼·버튼 요약. 페이지 하나에 파일 하나이고 항목은 crawl_result의 전역 action_id로 키잉한다. HTML 원문과 입력값은 넣지 않는다. 위치: evidence/collector/dom/page-<N>.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "evidence_id", "page_id", "actions"],
+  "properties": {
+    "schema_version": { "const": "0.1.0" },
+    "kind": { "const": "dom" },
+    "evidence_id": { "type": "string" },
+    "page_id": { "type": "string" },
+    "actions": {
+      "description": "action_id → 요소 요약. JSON map이라 키는 crawl_result의 action_id",
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          { "$ref": "#/$defs/LinkElement" },
+          { "$ref": "#/$defs/FormElement" },
+          { "$ref": "#/$defs/ButtonElement" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "LinkElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["element", "text", "url", "endpoint", "is_state_changing", "outcome"],
+      "properties": {
+        "element": { "const": "link" },
+        "text": { "type": ["string", "null"] },
+        "url": { "description": "민감 쿼리값을 가린 링크 URL", "type": "string" },
+        "endpoint": { "description": "경로 id를 {id}로 바꾼 템플릿", "type": "string" },
+        "is_state_changing": { "type": "boolean" },
+        "outcome": { "$ref": "#/$defs/LinkOutcome" }
+      }
+    },
+    "FormElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["element", "method", "target_url", "fields", "is_state_changing", "outcome"],
+      "properties": {
+        "element": { "const": "form" },
+        "method": { "type": "string" },
+        "target_url": { "description": "민감 쿼리값을 가린 form action URL", "type": ["string", "null"] },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/FormField" } },
+        "is_state_changing": { "type": "boolean" },
+        "outcome": { "$ref": "#/$defs/ActionOutcome" }
+      }
+    },
+    "ButtonElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["element", "label", "is_state_changing", "outcome"],
+      "properties": {
+        "element": { "const": "button" },
+        "label": { "type": ["string", "null"] },
+        "is_state_changing": { "type": "boolean" },
+        "outcome": { "$ref": "#/$defs/ActionOutcome" }
+      }
+    },
+    "FormField": {
+      "description": "입력칸 이름과 타입만. 값은 남기지 않는다",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string" }
+      }
+    },
+    "LinkOutcome": {
+      "enum": ["enqueued", "already_visited", "beyond_max_depth", "not_executed_state_changing"]
+    },
+    "ActionOutcome": {
+      "enum": [
+        "executed",
+        "enqueued",
+        "already_visited",
+        "beyond_max_depth",
+        "not_executed_state_changing",
+        "blocked_state_changing_request",
+        "outside_origin",
+        "not_visible",
+        "not_found",
+        "failed"
+      ]
+    }
+  }
+}
