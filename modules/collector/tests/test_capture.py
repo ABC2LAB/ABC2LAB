@@ -107,7 +107,7 @@ FORM_HTML = f"""<html><body><form method="post" action="/submit">
 JSON_FETCH_SCRIPT = f"""() => fetch("/api/profile", {{
   method: "POST",
   headers: {{"Content-Type": "application/json"}},
-  body: JSON.stringify({{password: "{JSON_PASSWORD}", nickname: "bob", nested: {{api_token: "{NESTED_TOKEN}"}}}}),
+  body: JSON.stringify({{password: "{JSON_PASSWORD}", nickname: "bob", count: 3, nested: {{api_token: "{NESTED_TOKEN}"}}}}),
 }}).then(response => response.status)"""
 
 
@@ -378,7 +378,9 @@ def test_json_body_sensitive_keys_masked(session: CaptureSession, site_url: str)
 
     assert record.body_params["password"] == [MASK]
     assert record.body_params["nickname"] == ["bob"]
-    assert NESTED_TOKEN not in record.body_params["nested"][0]
+    # JSON 값은 타입 그대로 남는다. 숫자 3이 문자열 "3"이 되면 안 된다.
+    assert record.body_params["count"] == [3]
+    assert record.body_params["nested"] == [{"api_token": MASK}]
 
 
 def test_configured_account_password_masked_under_any_key(session: CaptureSession, site_url: str) -> None:

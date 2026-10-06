@@ -6,11 +6,13 @@ draft와 다른 점(role·method를 str로, resource_type·헤더·response_shap
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, JsonValue
 
 # JSON 응답의 키 구조+타입. 잎은 "int", "int|null" 같은 타입 이름이고 값은 담지 않는다.
 # type 문으로 선언해야 pydantic이 중첩된 곳까지 재귀로 검증한다.
 type ShapeNode = str | dict[str, ShapeNode] | list[ShapeNode]
+# 바디 파라미터. 폼·multipart 값은 문자열, JSON 바디는 최상위 키마다 가린 뒤의 JSON 값 그대로.
+type BodyParams = dict[str, list[JsonValue]]
 
 
 class CapturedRequest(BaseModel):
@@ -30,7 +32,7 @@ class CapturedRequest(BaseModel):
     status: int | None
     # ?a=1&a=2 처럼 같은 키가 반복될 수 있어 값은 list로 둔다.
     query_params: dict[str, list[str]]
-    body_params: dict[str, list[str]]
+    body_params: BodyParams
     # 경로에서 뽑은 id만. 쿼리 값 중 무엇이 id인지는 KG 단계가 판단한다.
     resource_ids: list[str]
     request_headers: dict[str, str]
