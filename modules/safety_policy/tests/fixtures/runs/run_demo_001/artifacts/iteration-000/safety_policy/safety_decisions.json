@@ -1,0 +1,129 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "safety_decisions",
+  "artifact_id": "safety_decisions_demo_001",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "safety_policy",
+  "mode": "development",
+  "created_at": "2026-10-06T00:00:01Z",
+  "status": "completed",
+  "input_refs": [
+    {
+      "artifact_id": "test_scenarios_demo_001",
+      "artifact_type": "test_scenarios",
+      "iteration": 0,
+      "path": "artifacts/iteration-000/scenario_generator/test_scenarios.json",
+      "sha256": "14a537dc945dd497bb8bb264ad3712bb551770c286ab3532e10ad56177f02f58"
+    }
+  ],
+  "errors": [],
+  "runtime_metrics": {
+    "duration_ms": 3,
+    "llm_calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "peak_memory_mb": 12.5
+  },
+  "data": {
+    "policy_id": "abc2lab-default",
+    "policy_version": "0.1.0",
+    "scenarios_sha256": "14a537dc945dd497bb8bb264ad3712bb551770c286ab3532e10ad56177f02f58",
+    "decisions": [
+      {
+        "decision_id": "decision_read_order_001",
+        "scenario_id": "scenario_read_order_001",
+        "decision": "allow",
+        "reason_codes": ["ALL_ASSESSMENTS_PASSED"],
+        "reason": "정의된 실행 범위와 제한 안에서 읽기 검증을 수행할 수 있음",
+        "assessment": {
+          "target_scope": {
+            "status": "pass",
+            "rule_id": "scope.origin.allowed",
+            "reason": "모든 요청이 허용 origin에 포함됨"
+          },
+          "test_accounts": {
+            "status": "pass",
+            "rule_id": "account.test.allowed",
+            "reason": "모든 단계가 허용 테스트 계정을 사용함"
+          },
+          "request_budget": {
+            "status": "pass",
+            "rule_id": "budget.request.within_limit",
+            "reason": "계획 요청 수가 제한 이내임"
+          },
+          "state_change": {
+            "status": "pass",
+            "rule_id": "state_change.none",
+            "reason": "상태 변경 요청이 포함되지 않음"
+          },
+          "data_impact": {
+            "status": "pass",
+            "rule_id": "data_impact.read_only",
+            "reason": "허용된 테스트 데이터 조회만 포함됨"
+          },
+          "service_impact": {
+            "status": "pass",
+            "rule_id": "service_impact.low",
+            "reason": "요청량과 실행 시간이 허용 범위 이내임"
+          }
+        },
+        "effective_origins": ["http://127.0.0.1:8001"],
+        "effective_account_ids": ["account_user_001"],
+        "limits": {
+          "max_requests": 4,
+          "max_duration_ms": 10000,
+          "allow_state_change": false
+        },
+        "approval_ref": null
+      },
+      {
+        "decision_id": "decision_update_order_001",
+        "scenario_id": "scenario_update_order_001",
+        "decision": "require_approval",
+        "reason_codes": ["STATE_CHANGE_APPROVAL_REQUIRED"],
+        "reason": "데이터 변경 요청은 사용자 승인이 필요함",
+        "assessment": {
+          "target_scope": {
+            "status": "pass",
+            "rule_id": "scope.origin.allowed",
+            "reason": "모든 요청이 허용 origin에 포함됨"
+          },
+          "test_accounts": {
+            "status": "pass",
+            "rule_id": "account.test.allowed",
+            "reason": "모든 단계가 허용 테스트 계정을 사용함"
+          },
+          "request_budget": {
+            "status": "pass",
+            "rule_id": "budget.request.within_limit",
+            "reason": "계획 요청 수가 제한 이내임"
+          },
+          "state_change": {
+            "status": "require_approval",
+            "rule_id": "state_change.explicit_approval",
+            "reason": "상태 변경 요청에 사용자 승인이 필요함"
+          },
+          "data_impact": {
+            "status": "require_approval",
+            "rule_id": "data_impact.write_requires_approval",
+            "reason": "테스트 데이터 수정에 사용자 승인이 필요함"
+          },
+          "service_impact": {
+            "status": "pass",
+            "rule_id": "service_impact.low",
+            "reason": "요청량과 실행 시간이 허용 범위 이내임"
+          }
+        },
+        "effective_origins": [],
+        "effective_account_ids": [],
+        "limits": {
+          "max_requests": 0,
+          "max_duration_ms": 0,
+          "allow_state_change": false
+        },
+        "approval_ref": null
+      }
+    ]
+  }
+}

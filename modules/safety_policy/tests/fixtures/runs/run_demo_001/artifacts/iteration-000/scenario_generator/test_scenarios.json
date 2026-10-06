@@ -1,0 +1,160 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "test_scenarios",
+  "artifact_id": "test_scenarios_demo_001",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "scenario_generator",
+  "mode": "development",
+  "created_at": "2026-10-06T00:00:00Z",
+  "status": "completed",
+  "input_refs": [
+    {
+      "artifact_id": "candidates_demo_001",
+      "artifact_type": "vulnerability_candidates",
+      "iteration": 0,
+      "path": "artifacts/iteration-000/access_analyzer/vulnerability_candidates.json",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "artifact_id": "crawl_demo_001",
+      "artifact_type": "crawl_result",
+      "iteration": 0,
+      "path": "artifacts/iteration-000/collector/crawl_result.json",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ],
+  "errors": [],
+  "runtime_metrics": {
+    "duration_ms": 25,
+    "llm_calls": 1,
+    "input_tokens": 120,
+    "output_tokens": 80,
+    "peak_memory_mb": 32.5
+  },
+  "data": {
+    "scenarios": [
+      {
+        "scenario_id": "scenario_read_order_001",
+        "candidate_id": "candidate_idor_001",
+        "expected_basis": "rule",
+        "preconditions": [
+          {
+            "check_id": "check_session_001",
+            "kind": "session_valid",
+            "subject_ref": "session_user_001",
+            "selector": null,
+            "operator": "exists",
+            "expected": true
+          }
+        ],
+        "steps": [
+          {
+            "step_id": "step_list_orders_001",
+            "order": 0,
+            "source_request_id": "request_list_orders_001",
+            "account_id": "account_user_001",
+            "role_id": "role_user",
+            "session_ref": "session_user_001",
+            "request": {
+              "method": "GET",
+              "url_template": "http://127.0.0.1:8001/api/orders",
+              "parameters": [],
+              "body_ref": null
+            },
+            "bindings": [],
+            "state_change": "none"
+          },
+          {
+            "step_id": "step_read_order_001",
+            "order": 1,
+            "source_request_id": "request_read_order_001",
+            "account_id": "account_user_001",
+            "role_id": "role_user",
+            "session_ref": "session_user_001",
+            "request": {
+              "method": "GET",
+              "url_template": "http://127.0.0.1:8001/api/orders/{order_id}",
+              "parameters": [
+                {
+                  "name": "order_id",
+                  "location": "path",
+                  "value": null,
+                  "binding_ref": "order_id"
+                }
+              ],
+              "body_ref": null
+            },
+            "bindings": [
+              {
+                "binding_id": "order_id",
+                "source_step_id": "step_list_orders_001",
+                "source_part": "response_body",
+                "selector": "/orders/0/id"
+              }
+            ],
+            "state_change": "none"
+          }
+        ],
+        "assertions": [
+          {
+            "check_id": "check_owner_001",
+            "kind": "resource_owner",
+            "subject_ref": "step_read_order_001",
+            "selector": "/owner_id",
+            "operator": "ne",
+            "expected": "account_user_001"
+          }
+        ]
+      },
+      {
+        "scenario_id": "scenario_update_order_001",
+        "candidate_id": "candidate_workflow_001",
+        "expected_basis": "inferred",
+        "preconditions": [],
+        "steps": [
+          {
+            "step_id": "step_update_order_001",
+            "order": 0,
+            "source_request_id": "request_update_order_001",
+            "account_id": "account_user_002",
+            "role_id": "role_user",
+            "session_ref": "session_user_002",
+            "request": {
+              "method": "POST",
+              "url_template": "http://127.0.0.1:8001/api/orders/2001/status",
+              "parameters": [
+                {
+                  "name": "status",
+                  "location": "body",
+                  "value": "cancelled",
+                  "binding_ref": null
+                }
+              ],
+              "body_ref": null
+            },
+            "bindings": [],
+            "state_change": "expected"
+          }
+        ],
+        "assertions": [
+          {
+            "check_id": "check_status_001",
+            "kind": "resource_state",
+            "subject_ref": "step_update_order_001",
+            "selector": "/status",
+            "operator": "eq",
+            "expected": "cancelled"
+          }
+        ]
+      }
+    ],
+    "model_info": {
+      "model_id": "fixture-model",
+      "model_version": "fixture-v1",
+      "prompt_version": "scenario-prompt-v1",
+      "temperature": 0.0,
+      "seed": 7
+    }
+  }
+}

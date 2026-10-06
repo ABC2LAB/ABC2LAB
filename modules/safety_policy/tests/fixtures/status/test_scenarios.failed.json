@@ -1,0 +1,22 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "test_scenarios",
+  "artifact_id": "test_scenarios_failed_001",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "scenario_generator",
+  "mode": "development",
+  "created_at": "2026-10-06T00:00:00Z",
+  "status": "failed",
+  "input_refs": [],
+  "errors": [
+    {
+      "code": "SCENARIO_GENERATION_FAILED",
+      "message": "사용 가능한 시나리오가 없음",
+      "item_ref": null,
+      "retryable": false
+    }
+  ],
+  "runtime_metrics": null,
+  "data": null
+}
