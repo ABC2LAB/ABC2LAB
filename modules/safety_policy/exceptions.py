@@ -19,3 +19,7 @@ class StorageError(SafetyPolicyError):
 
 class SourceArtifactFailedError(ContractValidationError):
     """Raised when the scenario generator published a failed artifact."""
+
+
+class PolicyConfigurationError(SafetyPolicyError):
+    """Raised when safety policy settings are invalid or ambiguous."""

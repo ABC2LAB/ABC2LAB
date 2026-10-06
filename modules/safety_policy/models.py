@@ -59,6 +59,41 @@ class EvaluationInput:
 
 
 @dataclass(frozen=True)
+class AllowedTarget:
+    origin: str
+    path_prefixes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TestAccountPolicy:
+    account_id: str
+    role_ids: tuple[str, ...]
+    requires_session: bool
+
+
+@dataclass(frozen=True)
+class RequestPolicyRule:
+    rule_id: str
+    origin: str
+    path_prefix: str
+    methods: tuple[str, ...]
+    state_change: str
+    data_impact: str
+    service_impact: str
+
+
+@dataclass(frozen=True)
+class PolicyConfiguration:
+    policy_id: str
+    policy_version: str
+    allowed_targets: tuple[AllowedTarget, ...]
+    test_accounts: tuple[TestAccountPolicy, ...]
+    max_requests: int
+    max_duration_ms: int
+    request_rules: tuple[RequestPolicyRule, ...]
+
+
+@dataclass(frozen=True)
 class EvidenceReference:
     evidence_id: str
     kind: str
