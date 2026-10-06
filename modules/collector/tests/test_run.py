@@ -14,12 +14,12 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from playwright.sync_api import Browser, BrowserContext, sync_playwright
 
-from crawler import run
-from crawler.capture import RequestCapture
-from crawler.config import GUEST_ROLE, CrawlerConfig, load_config
-from crawler.run import RoleCrawl, RunInfo, assign_evidence_ids, main, make_run_id, run_crawl, save_result
-from crawler.schemas import SCHEMA_VERSION, CapturedRequest, CrawlResult, DiscoveredPage
-from crawler.tests.helpers import run_server
+from modules.collector.core import run
+from modules.collector.core.capture import RequestCapture
+from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
+from modules.collector.core.run import RoleCrawl, RunInfo, assign_evidence_ids, main, make_run_id, run_crawl, save_result
+from modules.collector.core.schemas import SCHEMA_VERSION, CapturedRequest, CrawlResult, DiscoveredPage
+from modules.collector.tests.helpers import run_server
 
 LOGIN_PATH = "/signin"
 HOME_PATH = "/"
@@ -35,7 +35,7 @@ SESSION_COOKIE = "sid"
 SESSION_VALUE = "alice-session"
 RUN_ID_PATTERN = re.compile(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{4}")
 BASE_TIME = datetime(2026, 10, 1, 5, 12, 3, tzinfo=UTC)
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 CLI_TIMEOUT_S = 120
 RUN_ID_SAMPLES = 20
 SETTLE_MS = 300
@@ -374,7 +374,7 @@ def test_cli_writes_valid_file_without_secrets(site_url: str, tmp_path: Path) ->
     output = Path("out") / "secure.json"
 
     completed = subprocess.run(
-        [sys.executable, "-m", "crawler.run", "--output", str(output)],
+        [sys.executable, "-m", "modules.collector.core.run", "--output", str(output)],
         cwd=tmp_path,
         env=process_env,
         capture_output=True,

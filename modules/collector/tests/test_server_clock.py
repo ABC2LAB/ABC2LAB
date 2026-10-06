@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from crawler.server_clock import CLOCK_WINDOW_SIZE, ServerClockSample, count_clock_regressions
+from modules.collector.core.server_clock import CLOCK_WINDOW_SIZE, ServerClockSample, count_clock_regressions
 
 BASE_TIME = datetime(2026, 10, 1, 5, 12, 3, tzinfo=UTC)
 # 서버 시계가 호스트보다 이만큼 앞선다고 둔다. Date 헤더는 초 단위로 버려지므로 오차가 1초 안쪽으로 생긴다.

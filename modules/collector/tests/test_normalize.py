@@ -1,6 +1,6 @@
 import pytest
 
-from crawler.normalize import NormalizedPath, normalize_path
+from modules.collector.core.normalize import NormalizedPath, normalize_path
 
 SAMPLE_UUID = "550e8400-e29b-41d4-a716-446655440000"
 NOT_A_UUID = "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"

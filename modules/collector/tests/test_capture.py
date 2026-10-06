@@ -10,11 +10,11 @@ import pytest
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 from pydantic import ValidationError
 
-from crawler.auth import open_role_context
-from crawler.capture import FILE_PART_VALUE, RequestCapture, select_stale_requests, start_capture
-from crawler.config import GUEST_ROLE, CrawlerConfig, load_config
-from crawler.schemas import CapturedRequest
-from crawler.tests.helpers import make_counting_handler, run_server
+from modules.collector.core.auth import open_role_context
+from modules.collector.core.capture import FILE_PART_VALUE, RequestCapture, select_stale_requests, start_capture
+from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
+from modules.collector.core.schemas import CapturedRequest
+from modules.collector.tests.helpers import make_counting_handler, run_server
 
 ROLE = "user"
 # 민감 키 목록에 걸리지 않는 이름이라, 설정의 비밀번호 필드명으로만 마스킹되는지 확인할 수 있다.

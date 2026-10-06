@@ -1,6 +1,6 @@
 """설정의 역할마다 로그인 → 탐색 → 캡처를 돌려 data/crawl_result.json으로 남긴다.
 
-    uv run python -m crawler.run [--output 경로]
+    .venv/bin/python -m modules.collector.core.run [--output 경로]
 
 대상 URL은 CRAWLER_TARGET_URL 환경변수로 덮어쓴다(.env보다 우선). 역할마다 context를 따로 열고,
 한 역할이 실패해도 error에 남기고 다음 역할로 넘어간다. evidence ID(page:N, request:N, role:이름)는
@@ -19,11 +19,11 @@ from pathlib import Path
 from playwright.sync_api import Browser, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
-from crawler.auth import SECRET_MASK, open_role_context
-from crawler.capture import RequestCapture, list_secret_variants, start_capture
-from crawler.config import ConfigError, CrawlerConfig, load_config_from_file
-from crawler.explorer import crawl
-from crawler.schemas import (
+from modules.collector.core.auth import SECRET_MASK, open_role_context
+from modules.collector.core.capture import RequestCapture, list_secret_variants, start_capture
+from modules.collector.core.config import ConfigError, CrawlerConfig, load_config_from_file
+from modules.collector.core.explorer import crawl
+from modules.collector.core.schemas import (
     SCHEMA_VERSION,
     CapturedRequest,
     CrawlResult,
@@ -32,7 +32,7 @@ from crawler.schemas import (
     RequestRecord,
     RoleResult,
 )
-from crawler.server_clock import count_clock_regressions
+from modules.collector.core.server_clock import count_clock_regressions
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +198,7 @@ def log_summary(result: CrawlResult, path: Path) -> None:
 
 def main(argv: Sequence[str] | None = None, env_path: Path = DEFAULT_ENV_PATH) -> int:
     """env_path는 테스트가 레포 루트 .env 대신 자기 설정을 쓰려고 받는다. CLI 옵션은 아니다."""
-    parser = argparse.ArgumentParser(prog="python -m crawler.run", description="역할별로 대상 앱을 탐색해 JSON으로 저장")
+    parser = argparse.ArgumentParser(prog="python -m modules.collector.core.run", description="역할별로 대상 앱을 탐색해 JSON으로 저장")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH, help=f"결과 파일 (기본 {DEFAULT_OUTPUT_PATH})")
     args = parser.parse_args(argv)
 

@@ -10,9 +10,9 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from playwright.sync_api import Browser, BrowserContext, sync_playwright
 
-from crawler.auth import LoginError, open_role_context
-from crawler.config import GUEST_ROLE, CrawlerConfig, load_config
-from crawler.tests.helpers import LOCALHOST, make_counting_handler, run_server
+from modules.collector.core.auth import LoginError, open_role_context
+from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
+from modules.collector.tests.helpers import LOCALHOST, make_counting_handler, run_server
 
 # 테스트 앱과 일부러 다른 경로·필드명을 써서 auth.py에 앱 전용 값이 없는지 확인한다.
 LOGIN_PATH = "/signin"
