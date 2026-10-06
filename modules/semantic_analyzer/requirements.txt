@@ -1,2 +1,6 @@
 # semantic_analyzer 직접 의존성 (담당: 이경준)
-# 아직 없음. 쓰게 되면 패키지==버전으로 적고 GitHub 관리자에게 lock 갱신을 요청한다(pip freeze 결과를 그대로 붙이지 않는다).
+# 쓰게 되면 패키지==버전으로 적고 GitHub 관리자에게 lock 갱신을 요청한다(pip freeze 결과를 그대로 붙이지 않는다).
+#
+# 현재: 모듈 전용 추가 의존성 없음.
+# - Schema 검증에 쓰는 jsonschema, 테스트에 쓰는 pytest는 루트 공통 패키지라 여기 선언하지 않는다(01-dev-standard.md).
+# - 실제 LLM provider(예: ollama)는 다음 PR에서 adapter에 붙이며 그때 여기 선언 + 관리자 lock 갱신을 요청한다.
