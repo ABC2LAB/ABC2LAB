@@ -14,10 +14,10 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from playwright.sync_api import Browser, BrowserContext, sync_playwright
 
-from modules.collector.core import run
+from modules.collector import service
 from modules.collector.core.capture import RequestCapture
 from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
-from modules.collector.core.run import RoleCrawl, RunInfo, assign_evidence_ids, main, make_run_id, run_crawl, save_result
+from modules.collector.service import RoleCrawl, RunInfo, assign_evidence_ids, main, make_run_id, run_crawl, save_result
 from modules.collector.core.models import SCHEMA_VERSION, CapturedRequest, CrawlResult, DiscoveredPage
 from modules.collector.tests.helpers import run_server
 
@@ -308,7 +308,7 @@ def test_ids_unique_in_run(result: CrawlResult) -> None:
 def test_crawl_failure_keeps_requests_and_continues(
     browser: Browser, config: CrawlerConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    real_crawl = run.crawl
+    real_crawl = service.crawl
 
     def crawl_then_fail(
         context: BrowserContext, cfg: CrawlerConfig, role: str, capture: RequestCapture
@@ -320,7 +320,7 @@ def test_crawl_failure_keeps_requests_and_continues(
         page.wait_for_timeout(SETTLE_MS)
         raise RuntimeError(f"boom {USER_PASSWORD}")
 
-    monkeypatch.setattr(run, "crawl", crawl_then_fail)
+    monkeypatch.setattr(service, "crawl", crawl_then_fail)
     crawl_result = run_crawl(browser, config)
     guest, user, _ = crawl_result.roles
 
@@ -374,7 +374,7 @@ def test_cli_writes_valid_file_without_secrets(site_url: str, tmp_path: Path) ->
     output = Path("out") / "secure.json"
 
     completed = subprocess.run(
-        [sys.executable, "-m", "modules.collector.core.run", "--output", str(output)],
+        [sys.executable, "-m", "modules.collector.service", "--output", str(output)],
         cwd=tmp_path,
         env=process_env,
         capture_output=True,
@@ -446,7 +446,7 @@ def make_clock_site_handler(step_after: int | None) -> type[BaseHTTPRequestHandl
 def test_server_clock_regression_warned(
     browser: Browser, caplog: pytest.LogCaptureFixture, step_after: int | None, expected_warnings: int
 ) -> None:
-    caplog.set_level(logging.WARNING, logger=run.__name__)
+    caplog.set_level(logging.WARNING, logger=service.__name__)
     with run_server(make_clock_site_handler(step_after)) as url:
         crawl_result = run_crawl(browser, load_config({"CRAWLER_TARGET_URL": f"{url}/"}))
 
