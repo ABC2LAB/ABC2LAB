@@ -50,8 +50,9 @@ class RunContext:
     iteration: int
     mode: Mode
     run_root: Path
-    # collector 설정 파일. context 키가 아니라 CLI --config·COLLECTOR_CONFIG_PATH·기본 .env 순으로 정한다.
+    # collector 설정 TOML과 비밀값 .env. context 키가 아니라 CLI 옵션·환경변수·기본값 순으로 정한다.
     config_path: Path
+    secrets_path: Path
 
 
 @dataclass(frozen=True)

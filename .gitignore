@@ -11,6 +11,8 @@ secrets/
 credentials/
 credentials.json
 service-account*.json
+# collector 실제 대상 설정은 로컬에만 둔다(예시는 collector.example.toml)
+modules/collector/configs/collector.toml
 
 # Private keys and certificates
 *.pem

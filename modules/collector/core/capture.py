@@ -29,7 +29,7 @@ from playwright.sync_api import BrowserContext, Frame, Page, Request, Response
 from playwright.sync_api import Error as PlaywrightError
 
 from modules.collector.core.auth import SECRET_MASK
-from modules.collector.core.config import CrawlerConfig, is_request_allowed
+from modules.collector.core.config import AccountSettings, CrawlerConfig, is_request_allowed
 from modules.collector.core.identifiers import extract_identifiers
 from modules.collector.core.normalize import normalize_path
 from modules.collector.core.response_shape import describe_json_shape
@@ -99,13 +99,14 @@ class RequestSource:
 
 
 class RequestCapture:
-    """한 역할의 context에 붙어 요청을 모은다. start_capture로 만든다."""
+    """한 계정의 context에 붙어 요청을 모은다. start_capture로 만든다."""
 
-    def __init__(self, config: CrawlerConfig, role: str) -> None:
-        if role not in config.roles:
-            raise ValueError(f"설정에 없는 역할: {role}")
+    def __init__(self, config: CrawlerConfig, account: AccountSettings) -> None:
+        if account not in config.accounts:
+            raise ValueError(f"설정에 없는 계정: {account.alias}")
         self._config = config
-        self._role = role
+        self._role = account.role
+        self._account_id = account.account_id
         self._source_page: str | None = None
         self._source_action: str | None = None
         self._pending_sources: dict[Request, RequestSource] = {}
@@ -118,7 +119,7 @@ class RequestCapture:
         self._records: list[CapturedRequest] = []
         # 목록에 안 걸리는 이름이어도 설정의 로그인 비밀번호 필드는 가린다.
         self._sensitive_field_names = frozenset({config.login.password_field.lower()} if config.login else ())
-        self._known_secrets = list_secret_variants(account.password for account in config.accounts.values())
+        self._known_secrets = list_secret_variants(config.known_passwords)
 
     @property
     def records(self) -> tuple[CapturedRequest, ...]:
@@ -211,6 +212,7 @@ class RequestCapture:
         summary = self._summarize_response(response, response_headers) if is_body_readable else None
         fields = {
             "role": self._role,
+            "account_id": self._account_id,
             "method": request.method.upper(),
             "resource_type": request.resource_type,
             "url": self._mask_url_query(request.url),
@@ -336,9 +338,9 @@ class RequestCapture:
         return text
 
 
-def start_capture(context: BrowserContext, config: CrawlerConfig, role: str) -> RequestCapture:
+def start_capture(context: BrowserContext, config: CrawlerConfig, account: AccountSettings) -> RequestCapture:
     """context에 캡처를 붙여 돌려준다. 붙인 뒤에 나가는 요청부터 기록된다."""
-    capture = RequestCapture(config, role)
+    capture = RequestCapture(config, account)
     capture.attach(context)
     return capture
 

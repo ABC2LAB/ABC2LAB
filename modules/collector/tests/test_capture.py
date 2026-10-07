@@ -10,13 +10,21 @@ import pytest
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 from pydantic import ValidationError
 
-from modules.collector.core.auth import open_role_context
+from modules.collector.core.auth import open_account_context
 from modules.collector.core.capture import FILE_PART_VALUE, RequestCapture, select_stale_requests, start_capture
-from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
+from modules.collector.core.config import (
+    GUEST_ACCOUNT,
+    GUEST_ROLE,
+    AccountSettings,
+    CrawlerConfig,
+    load_config,
+    secret_key_names,
+)
 from modules.collector.core.models import CapturedRequest, ResponseIdentifier
 from modules.collector.tests.helpers import make_counting_handler, run_server
 
 ROLE = "user"
+ALIAS = "user_a"
 # 민감 키 목록에 걸리지 않는 이름이라, 설정의 비밀번호 필드명으로만 마스킹되는지 확인할 수 있다.
 PASSWORD_FIELD = "login_pw"
 ACCOUNT_PASSWORD = "account-pw-value"
@@ -232,18 +240,23 @@ def site_url(site: FakeSite) -> Iterator[str]:
 
 @pytest.fixture
 def config(site_url: str) -> CrawlerConfig:
-    return load_config(
-        {
-            "CRAWLER_TARGET_URL": site_url,
-            "CRAWLER_ROLES": ROLE,
-            "CRAWLER_ROLE_USER_USERNAME": "alice",
-            "CRAWLER_ROLE_USER_PASSWORD": ACCOUNT_PASSWORD,
-            "CRAWLER_LOGIN_PATH": "/signin",
-            "CRAWLER_LOGIN_USERNAME_FIELD": "login_id",
-            "CRAWLER_LOGIN_PASSWORD_FIELD": PASSWORD_FIELD,
-            "CRAWLER_LOGIN_SUCCESS_CHECK": "left_login_page",
-        }
-    )
+    login_id_key, password_key = secret_key_names(ALIAS)
+    settings = {
+        "target_url": site_url,
+        "roles": [ROLE],
+        "login": {
+            "path": "/signin",
+            "username_field": "login_id",
+            "password_field": PASSWORD_FIELD,
+            "success_check": "left_login_page",
+        },
+        "accounts": [{"alias": ALIAS, "role": ROLE}],
+    }
+    return load_config(settings, {login_id_key: "alice", password_key: ACCOUNT_PASSWORD})
+
+
+def user_account(config: CrawlerConfig) -> AccountSettings:
+    return next(account for account in config.accounts if account.alias == ALIAS)
 
 
 @dataclass
@@ -254,11 +267,13 @@ class CaptureSession:
 
 
 @contextmanager
-def open_capture(browser: Browser, config: CrawlerConfig, role: str = ROLE) -> Iterator[CaptureSession]:
-    # 로그인 없이 가드만 있는 guest context에 캡처를 붙인다. 역할 이름은 capture가 받은 대로 기록한다.
-    context = open_role_context(browser, config, GUEST_ROLE)
+def open_capture(
+    browser: Browser, config: CrawlerConfig, account: AccountSettings | None = None
+) -> Iterator[CaptureSession]:
+    # 로그인 없이 가드만 있는 guest context에 캡처를 붙인다. 계정·역할은 capture가 받은 대로 기록한다.
+    context = open_account_context(browser, config, GUEST_ACCOUNT)
     try:
-        capture = start_capture(context, config, role)
+        capture = start_capture(context, config, account or user_account(config))
         yield CaptureSession(page=context.new_page(), capture=capture, context=context)
     finally:
         context.close()
@@ -319,7 +334,7 @@ def test_requests_outside_allowed_origin_are_not_recorded(
     # 가드 없는 context라 요청은 실제로 나간다. 그래도 capture가 스스로 걸러야 한다.
     context = browser.new_context()
     try:
-        capture = start_capture(context, config, ROLE)
+        capture = start_capture(context, config, user_account(config))
         page = context.new_page()
         with run_server(make_counting_handler(requested_paths)) as outside_url:
             page.goto(f"{site_url}/page")
@@ -406,19 +421,24 @@ def test_status_code_recorded(session: CaptureSession, site_url: str, path: str,
     assert record.status == status
 
 
-def test_role_recorded(browser: Browser, config: CrawlerConfig, site_url: str) -> None:
-    with open_capture(browser, config, role=GUEST_ROLE) as session:
+@pytest.mark.parametrize(("alias", "expected_role"), [(GUEST_ROLE, GUEST_ROLE), (ALIAS, ROLE)])
+def test_role_and_account_recorded(
+    browser: Browser, config: CrawlerConfig, site_url: str, alias: str, expected_role: str
+) -> None:
+    account = next(account for account in config.accounts if account.alias == alias)
+    with open_capture(browser, config, account) as session:
         session.page.goto(f"{site_url}/page")
         record = wait_for_record(session, path_is("/page"))
 
-    assert record.role == GUEST_ROLE
+    assert (record.role, record.account_id) == (expected_role, f"account:{alias}")
 
 
-def test_unknown_role_rejected(browser: Browser, config: CrawlerConfig) -> None:
+def test_unknown_account_rejected(browser: Browser, config: CrawlerConfig) -> None:
+    stranger = AccountSettings(alias="manager_a", role=ROLE, login_id=None, password=None)
     context = browser.new_context()
     try:
         with pytest.raises(ValueError):
-            start_capture(context, config, "manager")
+            start_capture(context, config, stranger)
     finally:
         context.close()
 

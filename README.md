@@ -19,7 +19,7 @@
 | `verifier` | verify | `verification_results.json` | 최민준 |
 | `reporter` | report · evaluate | `diagnosis_report.json` · `evaluation_results.json` | 이동찬 |
 
-collector는 `modules/collector/`에서 명세 형식 `crawl_result.json`과 근거 파일(응답·DOM)을 공개합니다(복수 계정은 작업 중). `target-app/`은 테스트용 쇼핑몰입니다.
+collector는 `modules/collector/`에서 명세 형식 `crawl_result.json`과 근거 파일(응답·DOM)을 공개합니다(같은 역할 복수 계정 지원). `target-app/`은 테스트용 쇼핑몰입니다.
 
 ## 표준 개발 환경
 
@@ -69,7 +69,10 @@ collector용 브라우저를 처음 한 번 설치합니다.
 
 ```bash
 cp .env.example .env
+cp modules/collector/configs/collector.example.toml modules/collector/configs/collector.toml
 ```
+
+collector 계정 로그인 ID·비밀번호는 `modules/collector/.env.example`의 키를 `.env`에 채웁니다. `collector.toml`은 비밀값이 없지만 대상마다 다른 로컬 설정이라 커밋하지 않습니다(git 제외).
 
 ## pull 후 동기화
 

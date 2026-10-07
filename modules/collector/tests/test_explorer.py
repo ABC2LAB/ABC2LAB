@@ -10,15 +10,15 @@ import threading
 import pytest
 from playwright.sync_api import Browser, sync_playwright
 
-from modules.collector.core.auth import open_role_context
+from modules.collector.core.auth import open_account_context
 from modules.collector.core.capture import start_capture
-from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
+from modules.collector.core.config import GUEST_ACCOUNT, GUEST_ROLE, CrawlerConfig, load_config
 from modules.collector.core import explorer
 from modules.collector.core.explorer import crawl
 from modules.collector.core.models import CapturedRequest, DiscoveredPage, FormField, PageAction, PageLink
 from modules.collector.tests.helpers import make_counting_handler, run_server
 
-DEFAULT_MAX_DEPTH = "2"
+DEFAULT_MAX_DEPTH = 2
 BUTTON_FETCH_DELAY_MS = 150
 # 기본 설정(max_depth=2)에서 기대하는 BFS 방문 순서. /items/2는 /items/1과 같은 템플릿이라 없다.
 EXPECTED_ORDER = ["/", "/a", "/b", "/items/1", "/search", "/c", "/a/deep"]
@@ -191,22 +191,21 @@ class CrawlRun:
 
 
 @contextmanager
-def serve_and_crawl(browser: Browser, **overrides: str) -> Iterator[CrawlRun]:
+def serve_and_crawl(browser: Browser, **overrides: object) -> Iterator[CrawlRun]:
     outside_paths: list[str] = []
     with run_server(make_counting_handler(outside_paths)) as outside_url:
         site = FakeSite(outside_url=outside_url)
         with run_server(make_site_handler(site)) as site_url:
-            env = {"CRAWLER_TARGET_URL": f"{site_url}/", "CRAWLER_MAX_DEPTH": DEFAULT_MAX_DEPTH}
-            env.update(overrides)
-            pages, records = run_crawl(browser, load_config(env))
+            settings = {"target_url": f"{site_url}/", "max_depth": DEFAULT_MAX_DEPTH, **overrides}
+            pages, records = run_crawl(browser, load_config(settings))
             yield CrawlRun(site_url, site, outside_paths, pages, records)
 
 
 def run_crawl(browser: Browser, config: CrawlerConfig) -> tuple[list[DiscoveredPage], tuple[CapturedRequest, ...]]:
-    context = open_role_context(browser, config, GUEST_ROLE)
+    context = open_account_context(browser, config, GUEST_ACCOUNT)
     try:
-        capture = start_capture(context, config, GUEST_ROLE)
-        pages = crawl(context, config, GUEST_ROLE, capture)
+        capture = start_capture(context, config, GUEST_ACCOUNT)
+        pages = crawl(context, config, GUEST_ACCOUNT, capture)
         return pages, capture.records
     finally:
         context.close()
@@ -251,11 +250,11 @@ def test_pages_visited_in_bfs_order(default_run: CrawlRun) -> None:
     assert paths == EXPECTED_ORDER
     assert depths == sorted(depths)
     assert page_at(default_run, "/").title == "Home"
-    assert all(page.role == GUEST_ROLE for page in default_run.pages)
+    assert all((page.role, page.account_id) == (GUEST_ROLE, GUEST_ACCOUNT.account_id) for page in default_run.pages)
 
 
 def test_stops_at_max_depth(browser: Browser) -> None:
-    with serve_and_crawl(browser, CRAWLER_MAX_DEPTH="1") as crawl_run:
+    with serve_and_crawl(browser, max_depth=1) as crawl_run:
         assert ("GET", "/a/deep") not in crawl_run.site.received
         assert link_to(page_at(crawl_run, "/a"), "/a/deep").outcome == "beyond_max_depth"
         assert max(page.depth for page in crawl_run.pages) == 1
@@ -309,7 +308,7 @@ def test_form_field_values_not_stored(default_run: CrawlRun) -> None:
 
 def test_state_changing_actions_executed_when_allowed(browser: Browser, caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.WARNING, logger=explorer.__name__)
-    with serve_and_crawl(browser, CRAWLER_ALLOW_STATE_CHANGING="true") as crawl_run:
+    with serve_and_crawl(browser, allow_state_changing=True) as crawl_run:
         root = page_at(crawl_run, "/")
         a_page = page_at(crawl_run, "/a")
         cart = action_labeled(a_page, "add to cart")
@@ -499,7 +498,7 @@ def test_unfinished_request_waited_once_then_recorded(
     release = threading.Event()
     with run_server(make_hang_handler(release)) as site_url:
         try:
-            pages, records = run_crawl(browser, load_config({"CRAWLER_TARGET_URL": f"{site_url}/"}))
+            pages, records = run_crawl(browser, load_config({"target_url": f"{site_url}/"}))
         finally:
             release.set()
     root = next(page for page in pages if urlsplit(page.url).path == "/")

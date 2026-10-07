@@ -1,15 +1,16 @@
 """collector 공개 실행 창구: run(operation, input_paths, output_dir, context)와 CLI.
 
     .venv/bin/python -m modules.collector.entrypoint collect --mode development [--run-id ID] [--iteration 0]
-        [--runs-dir runs] [--config .env]
+        [--runs-dir runs] [--config 설정.toml] [--secrets .env]
 
 처리 순서: 실행 값 검증 → 수집(service) → 공개 형식 변환(export·envelope) → 자기 출력 검증(validation)
 → 원자적 공개(storage). 반환값과 CLI stdout 한 줄은 {status, artifact_path, artifact_id, sha256, errors}다.
 파일을 쓰지 못했으면 artifact_path·artifact_id·sha256이 null이고 이유는 errors에 있다.
 
 context 키는 명세 03 실행 값만 받는다: run_id·iteration·mode·run_root(신뢰된 루트, runs/<run_id>).
-대상·역할·계정·실행 제한은 collector 설정 파일에서 읽는다. 위치는 CLI --config > 환경변수
-COLLECTOR_CONFIG_PATH > 기본 .env 순으로 정한다.
+대상·역할·계정·실행 제한은 collector 설정 TOML에서, 계정 로그인 ID·비밀번호는 비밀값 .env에서 읽는다.
+위치는 각각 CLI 옵션 > 환경변수 > 기본값 순: --config > COLLECTOR_CONFIG_PATH > modules/collector/configs/collector.toml,
+--secrets > COLLECTOR_SECRETS_PATH > .env.
 """
 
 import argparse
@@ -27,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from modules.collector import service
-from modules.collector.core.config import ConfigError, load_config_from_file
+from modules.collector.core.config import ConfigError, load_config_files
 from modules.collector.utils import export
 from modules.collector.utils.envelope import (
     ErrorCode,
@@ -61,7 +62,9 @@ COLLECT_OPERATION = "collect"
 REQUIRED_CONTEXT_KEYS = frozenset({"run_id", "iteration", "mode", "run_root"})
 # 설정 파일 위치는 실행 값이 아니라 collector 자기 설정이라 context가 아니라 환경변수로 받는다.
 CONFIG_PATH_ENV = "COLLECTOR_CONFIG_PATH"
-DEFAULT_CONFIG_PATH = Path(".env")
+SECRETS_PATH_ENV = "COLLECTOR_SECRETS_PATH"
+DEFAULT_CONFIG_PATH = Path("modules") / "collector" / "configs" / "collector.toml"
+DEFAULT_SECRETS_PATH = Path(".env")
 DEFAULT_RUNS_DIR = Path("runs")
 # 폴더 이름으로 쓰이므로 경로 구분자·..가 들어갈 수 없는 모양만 받는다.
 RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -122,13 +125,15 @@ def parse_context(context: Mapping[str, Any]) -> RunContext:
     run_root = Path(context["run_root"])
     if run_root.name != run_id:
         raise ContextError("run_root 폴더 이름이 run_id와 같아야 함 (runs/<run_id>)")
-    return RunContext(run_id, iteration, Mode(context["mode"]), run_root, resolve_config_path())
+    config_path = resolve_path(CONFIG_PATH_ENV, DEFAULT_CONFIG_PATH)
+    secrets_path = resolve_path(SECRETS_PATH_ENV, DEFAULT_SECRETS_PATH)
+    return RunContext(run_id, iteration, Mode(context["mode"]), run_root, config_path, secrets_path)
 
 
-def resolve_config_path() -> Path:
-    """COLLECTOR_CONFIG_PATH가 있으면 그 파일, 없으면 기본 .env(현재 폴더 기준)."""
-    configured = os.environ.get(CONFIG_PATH_ENV, "").strip()
-    return Path(configured) if configured else DEFAULT_CONFIG_PATH
+def resolve_path(env_key: str, default: Path) -> Path:
+    """환경변수가 있으면 그 경로, 없거나 비었으면 기본값(현재 폴더 기준)."""
+    configured = os.environ.get(env_key, "").strip()
+    return Path(configured) if configured else default
 
 
 def make_run_id(now: datetime) -> str:
@@ -148,10 +153,10 @@ def _check_call(operation: str, input_paths: Sequence[str | Path]) -> list[dict[
 def _collect(run_context: RunContext, started: float) -> tuple[WorkResult, tuple[str, ...]]:
     """설정 읽기 → 탐색 → 변환. 돌려주는 비밀값은 공개 전 노출 검사에 쓴다."""
     try:
-        config = load_config_from_file(run_context.config_path)
+        config = load_config_files(run_context.config_path, run_context.secrets_path)
     except ConfigError as error:
         return _make_failed(started, ErrorCode.CONFIG_INVALID, str(error), is_retryable=False), ()
-    known_secrets = tuple(account.password for account in config.accounts.values())
+    known_secrets = config.known_passwords
     try:
         outcome = service.collect(config)
     except service.BrowserLaunchError as error:
@@ -276,7 +281,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--config",
         type=Path,
-        help=f"collector 설정 파일 (없으면 {CONFIG_PATH_ENV}, 그것도 없으면 {DEFAULT_CONFIG_PATH})",
+        help=f"collector 설정 TOML (없으면 {CONFIG_PATH_ENV}, 그것도 없으면 {DEFAULT_CONFIG_PATH})",
+    )
+    parser.add_argument(
+        "--secrets",
+        type=Path,
+        help=f"계정 로그인 ID·비밀번호 .env (없으면 {SECRETS_PATH_ENV}, 그것도 없으면 {DEFAULT_SECRETS_PATH})",
     )
     args = parser.parse_args(argv)
 
@@ -289,9 +299,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "mode": args.mode,
         "run_root": str(run_root),
     }
+    # run()은 context에 명세 실행 값만 받으므로 설정 파일 위치는 이 프로세스의 환경변수로 넘긴다.
     if args.config is not None:
-        # run()은 context에 명세 실행 값만 받으므로 이 프로세스의 환경변수로 넘긴다.
         os.environ[CONFIG_PATH_ENV] = str(args.config)
+    if args.secrets is not None:
+        os.environ[SECRETS_PATH_ENV] = str(args.secrets)
     result = run(args.operation, [], output_dir, context)
     # stdout은 호출자가 읽는 결과 한 줄이다. 로그는 stderr로 간다.
     sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
