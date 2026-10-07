@@ -41,6 +41,29 @@
         ],
         "basis": "observed",
         "evidence_refs": []
+      },
+      {
+        "request_id": "request_update_order",
+        "endpoint_id": "endpoint_order_status",
+        "method": "POST",
+        "path_template": "/api/orders/{order_id}/status",
+        "account_id": "account_user_a",
+        "role_id": "role_user",
+        "action_meaning": "update_order",
+        "resource_ids": [
+          "resource_order_b"
+        ],
+        "parameters": [
+          {
+            "parameter_id": "parameter_update_order_id",
+            "name": "order_id",
+            "location": "path",
+            "value_type": "string",
+            "is_sensitive": false
+          }
+        ],
+        "basis": "observed",
+        "evidence_refs": []
       }
     ],
     "nodes": [
@@ -89,6 +112,16 @@
           "external_id": "order-b"
         },
         "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "endpoint_order_status",
+        "node_type": "Endpoint",
+        "properties": {
+          "method": "POST",
+          "path_template": "/api/orders/{order_id}/status"
+        },
+        "basis": "observed",
         "evidence_refs": []
       }
     ],

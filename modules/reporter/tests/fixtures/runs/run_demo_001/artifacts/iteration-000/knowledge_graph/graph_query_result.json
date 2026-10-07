@@ -74,6 +74,16 @@
                 },
                 "basis": "inferred",
                 "evidence_refs": []
+              },
+              {
+                "node_id": "endpoint_order_status",
+                "node_type": "Endpoint",
+                "properties": {
+                  "method": "POST",
+                  "path_template": "/api/orders/{order_id}/status"
+                },
+                "basis": "observed",
+                "evidence_refs": []
               }
             ],
             "relationships": [

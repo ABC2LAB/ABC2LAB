@@ -20,7 +20,7 @@
   "data": {
     "policy_id": "policy_demo",
     "policy_version": "1",
-    "scenarios_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "scenarios_sha256": "8300a04c5bb9a73c55ae340d929578315653d0e3c1835c0394258ae4dafad1d1",
     "decisions": [
       {
         "decision_id": "decision_idor_001",
