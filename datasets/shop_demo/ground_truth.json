@@ -1,0 +1,1044 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "ground_truth",
+  "dataset_id": "shop_demo",
+  "dataset_version": "1.0.0",
+  "producer": "test_fixture",
+  "created_at": "2026-10-07T05:49:13Z",
+  "data": {
+    "entities": [
+      {
+        "gt_id": "e_role_guest",
+        "entity_type": "Role",
+        "match_key": {
+          "name": "guest"
+        }
+      },
+      {
+        "gt_id": "e_role_user",
+        "entity_type": "Role",
+        "match_key": {
+          "name": "user"
+        }
+      },
+      {
+        "gt_id": "e_role_admin",
+        "entity_type": "Role",
+        "match_key": {
+          "name": "admin"
+        }
+      },
+      {
+        "gt_id": "e_user_alice",
+        "entity_type": "User",
+        "match_key": {
+          "alias": "alice"
+        }
+      },
+      {
+        "gt_id": "e_res_order",
+        "entity_type": "Resource",
+        "match_key": {
+          "name": "order"
+        }
+      },
+      {
+        "gt_id": "e_res_user",
+        "entity_type": "Resource",
+        "match_key": {
+          "name": "user"
+        }
+      },
+      {
+        "gt_id": "e_res_product",
+        "entity_type": "Resource",
+        "match_key": {
+          "name": "product"
+        }
+      },
+      {
+        "gt_id": "e_res_cart",
+        "entity_type": "Resource",
+        "match_key": {
+          "name": "cart"
+        }
+      },
+      {
+        "gt_id": "e_page_root",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/"
+        }
+      },
+      {
+        "gt_id": "e_page_products_id",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/products/{id}"
+        }
+      },
+      {
+        "gt_id": "e_page_signup",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/signup"
+        }
+      },
+      {
+        "gt_id": "e_page_login",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/login"
+        }
+      },
+      {
+        "gt_id": "e_page_cart",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/cart"
+        }
+      },
+      {
+        "gt_id": "e_page_checkout",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/checkout"
+        }
+      },
+      {
+        "gt_id": "e_page_orders",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/orders"
+        }
+      },
+      {
+        "gt_id": "e_page_orders_id",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/orders/{id}"
+        }
+      },
+      {
+        "gt_id": "e_page_mypage",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/mypage"
+        }
+      },
+      {
+        "gt_id": "e_page_admin",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/admin"
+        }
+      },
+      {
+        "gt_id": "e_page_admin_users",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/admin/users"
+        }
+      },
+      {
+        "gt_id": "e_page_admin_products",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/admin/products"
+        }
+      },
+      {
+        "gt_id": "e_page_admin_products_new",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/admin/products/new"
+        }
+      },
+      {
+        "gt_id": "e_page_admin_products_id_edit",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/admin/products/{id}/edit"
+        }
+      },
+      {
+        "gt_id": "e_page_admin_orders",
+        "entity_type": "Page",
+        "match_key": {
+          "path": "/admin/orders"
+        }
+      },
+      {
+        "gt_id": "e_ep_post_signup",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "POST",
+          "path_template": "/signup"
+        }
+      },
+      {
+        "gt_id": "e_param_post_signup_email",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "email",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/signup"
+        }
+      },
+      {
+        "gt_id": "e_param_post_signup_password",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "password",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/signup"
+        }
+      },
+      {
+        "gt_id": "e_param_post_signup_name",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "name",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/signup"
+        }
+      },
+      {
+        "gt_id": "e_param_post_signup_address",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "address",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/signup"
+        }
+      },
+      {
+        "gt_id": "e_ep_post_login",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "POST",
+          "path_template": "/login"
+        }
+      },
+      {
+        "gt_id": "e_param_post_login_email",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "email",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/login"
+        }
+      },
+      {
+        "gt_id": "e_param_post_login_password",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "password",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/login"
+        }
+      },
+      {
+        "gt_id": "e_ep_post_logout",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "POST",
+          "path_template": "/logout"
+        }
+      },
+      {
+        "gt_id": "e_ep_post_cart_add",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "POST",
+          "path_template": "/cart/add"
+        }
+      },
+      {
+        "gt_id": "e_param_post_cart_add_product_id",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "product_id",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/cart/add"
+        }
+      },
+      {
+        "gt_id": "e_param_post_cart_add_quantity",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "quantity",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/cart/add"
+        }
+      },
+      {
+        "gt_id": "e_param_post_cart_add_price",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "price",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/cart/add"
+        }
+      },
+      {
+        "gt_id": "e_ep_post_cart_update",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "POST",
+          "path_template": "/cart/update"
+        }
+      },
+      {
+        "gt_id": "e_param_post_cart_update_item_id",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "item_id",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/cart/update"
+        }
+      },
+      {
+        "gt_id": "e_param_post_cart_update_quantity",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "quantity",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/cart/update"
+        }
+      },
+      {
+        "gt_id": "e_ep_post_cart_remove",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "POST",
+          "path_template": "/cart/remove"
+        }
+      },
+      {
+        "gt_id": "e_param_post_cart_remove_item_id",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "item_id",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/cart/remove"
+        }
+      },
+      {
+        "gt_id": "e_ep_post_orders",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "POST",
+          "path_template": "/orders"
+        }
+      },
+      {
+        "gt_id": "e_param_post_orders_shipping_address",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "shipping_address",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/orders"
+        }
+      },
+      {
+        "gt_id": "e_ep_post_mypage",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "POST",
+          "path_template": "/mypage"
+        }
+      },
+      {
+        "gt_id": "e_param_post_mypage_name",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "name",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/mypage"
+        }
+      },
+      {
+        "gt_id": "e_param_post_mypage_address",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "address",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/mypage"
+        }
+      },
+      {
+        "gt_id": "e_ep_get_api_users_id",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "GET",
+          "path_template": "/api/users/{id}"
+        }
+      },
+      {
+        "gt_id": "e_param_get_api_users_id_id",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "id",
+          "endpoint_method": "GET",
+          "endpoint_path_template": "/api/users/{id}"
+        }
+      },
+      {
+        "gt_id": "e_ep_get_admin_api_users",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "GET",
+          "path_template": "/admin/api/users"
+        }
+      },
+      {
+        "gt_id": "e_ep_post_admin_products",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "POST",
+          "path_template": "/admin/products"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_name",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "name",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_description",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "description",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_price",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "price",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_stock",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "stock",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_category",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "category",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_image_emoji",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "image_emoji",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products"
+        }
+      },
+      {
+        "gt_id": "e_ep_post_admin_products_id",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "POST",
+          "path_template": "/admin/products/{id}"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_id_name",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "name",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products/{id}"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_id_description",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "description",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products/{id}"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_id_price",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "price",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products/{id}"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_id_stock",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "stock",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products/{id}"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_id_category",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "category",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products/{id}"
+        }
+      },
+      {
+        "gt_id": "e_param_post_admin_products_id_image_emoji",
+        "entity_type": "Parameter",
+        "match_key": {
+          "name": "image_emoji",
+          "endpoint_method": "POST",
+          "endpoint_path_template": "/admin/products/{id}"
+        }
+      },
+      {
+        "gt_id": "e_ep_post_admin_products_id_delete",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "POST",
+          "path_template": "/admin/products/{id}/delete"
+        }
+      },
+      {
+        "gt_id": "e_ep_get_admin_export_orders",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "GET",
+          "path_template": "/admin/export/orders"
+        }
+      }
+    ],
+    "relationships": [
+      {
+        "gt_relation_id": "r_access_e_role_guest__e_ep_post_signup",
+        "source_gt_id": "e_role_guest",
+        "target_gt_id": "e_ep_post_signup",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_signup__e_param_post_signup_email",
+        "source_gt_id": "e_ep_post_signup",
+        "target_gt_id": "e_param_post_signup_email",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_signup__e_param_post_signup_password",
+        "source_gt_id": "e_ep_post_signup",
+        "target_gt_id": "e_param_post_signup_password",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_signup__e_param_post_signup_name",
+        "source_gt_id": "e_ep_post_signup",
+        "target_gt_id": "e_param_post_signup_name",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_signup__e_param_post_signup_address",
+        "source_gt_id": "e_ep_post_signup",
+        "target_gt_id": "e_param_post_signup_address",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_guest__e_ep_post_login",
+        "source_gt_id": "e_role_guest",
+        "target_gt_id": "e_ep_post_login",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_login__e_param_post_login_email",
+        "source_gt_id": "e_ep_post_login",
+        "target_gt_id": "e_param_post_login_email",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_login__e_param_post_login_password",
+        "source_gt_id": "e_ep_post_login",
+        "target_gt_id": "e_param_post_login_password",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_user__e_ep_post_logout",
+        "source_gt_id": "e_role_user",
+        "target_gt_id": "e_ep_post_logout",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_user__e_ep_post_cart_add",
+        "source_gt_id": "e_role_user",
+        "target_gt_id": "e_ep_post_cart_add",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_cart_add__e_param_post_cart_add_product_id",
+        "source_gt_id": "e_ep_post_cart_add",
+        "target_gt_id": "e_param_post_cart_add_product_id",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_cart_add__e_param_post_cart_add_quantity",
+        "source_gt_id": "e_ep_post_cart_add",
+        "target_gt_id": "e_param_post_cart_add_quantity",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_cart_add__e_param_post_cart_add_price",
+        "source_gt_id": "e_ep_post_cart_add",
+        "target_gt_id": "e_param_post_cart_add_price",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_user__e_ep_post_cart_update",
+        "source_gt_id": "e_role_user",
+        "target_gt_id": "e_ep_post_cart_update",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_cart_update__e_param_post_cart_update_item_id",
+        "source_gt_id": "e_ep_post_cart_update",
+        "target_gt_id": "e_param_post_cart_update_item_id",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_cart_update__e_param_post_cart_update_quantity",
+        "source_gt_id": "e_ep_post_cart_update",
+        "target_gt_id": "e_param_post_cart_update_quantity",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_user__e_ep_post_cart_remove",
+        "source_gt_id": "e_role_user",
+        "target_gt_id": "e_ep_post_cart_remove",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_cart_remove__e_param_post_cart_remove_item_id",
+        "source_gt_id": "e_ep_post_cart_remove",
+        "target_gt_id": "e_param_post_cart_remove_item_id",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_user__e_ep_post_orders",
+        "source_gt_id": "e_role_user",
+        "target_gt_id": "e_ep_post_orders",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_orders__e_param_post_orders_shipping_address",
+        "source_gt_id": "e_ep_post_orders",
+        "target_gt_id": "e_param_post_orders_shipping_address",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_user__e_ep_post_mypage",
+        "source_gt_id": "e_role_user",
+        "target_gt_id": "e_ep_post_mypage",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_mypage__e_param_post_mypage_name",
+        "source_gt_id": "e_ep_post_mypage",
+        "target_gt_id": "e_param_post_mypage_name",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_mypage__e_param_post_mypage_address",
+        "source_gt_id": "e_ep_post_mypage",
+        "target_gt_id": "e_param_post_mypage_address",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_user__e_ep_get_api_users_id",
+        "source_gt_id": "e_role_user",
+        "target_gt_id": "e_ep_get_api_users_id",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_get_api_users_id__e_param_get_api_users_id_id",
+        "source_gt_id": "e_ep_get_api_users_id",
+        "target_gt_id": "e_param_get_api_users_id_id",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_admin__e_ep_get_admin_api_users",
+        "source_gt_id": "e_role_admin",
+        "target_gt_id": "e_ep_get_admin_api_users",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_admin__e_ep_post_admin_products",
+        "source_gt_id": "e_role_admin",
+        "target_gt_id": "e_ep_post_admin_products",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products__e_param_post_admin_products_name",
+        "source_gt_id": "e_ep_post_admin_products",
+        "target_gt_id": "e_param_post_admin_products_name",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products__e_param_post_admin_products_description",
+        "source_gt_id": "e_ep_post_admin_products",
+        "target_gt_id": "e_param_post_admin_products_description",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products__e_param_post_admin_products_price",
+        "source_gt_id": "e_ep_post_admin_products",
+        "target_gt_id": "e_param_post_admin_products_price",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products__e_param_post_admin_products_stock",
+        "source_gt_id": "e_ep_post_admin_products",
+        "target_gt_id": "e_param_post_admin_products_stock",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products__e_param_post_admin_products_category",
+        "source_gt_id": "e_ep_post_admin_products",
+        "target_gt_id": "e_param_post_admin_products_category",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products__e_param_post_admin_products_image_emoji",
+        "source_gt_id": "e_ep_post_admin_products",
+        "target_gt_id": "e_param_post_admin_products_image_emoji",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_admin__e_ep_post_admin_products_id",
+        "source_gt_id": "e_role_admin",
+        "target_gt_id": "e_ep_post_admin_products_id",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products_id__e_param_post_admin_products_id_name",
+        "source_gt_id": "e_ep_post_admin_products_id",
+        "target_gt_id": "e_param_post_admin_products_id_name",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products_id__e_param_post_admin_products_id_description",
+        "source_gt_id": "e_ep_post_admin_products_id",
+        "target_gt_id": "e_param_post_admin_products_id_description",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products_id__e_param_post_admin_products_id_price",
+        "source_gt_id": "e_ep_post_admin_products_id",
+        "target_gt_id": "e_param_post_admin_products_id_price",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products_id__e_param_post_admin_products_id_stock",
+        "source_gt_id": "e_ep_post_admin_products_id",
+        "target_gt_id": "e_param_post_admin_products_id_stock",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products_id__e_param_post_admin_products_id_category",
+        "source_gt_id": "e_ep_post_admin_products_id",
+        "target_gt_id": "e_param_post_admin_products_id_category",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_use_e_ep_post_admin_products_id__e_param_post_admin_products_id_image_emoji",
+        "source_gt_id": "e_ep_post_admin_products_id",
+        "target_gt_id": "e_param_post_admin_products_id_image_emoji",
+        "relation_type": "USE"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_admin__e_ep_post_admin_products_id_delete",
+        "source_gt_id": "e_role_admin",
+        "target_gt_id": "e_ep_post_admin_products_id_delete",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_access_e_role_admin__e_ep_get_admin_export_orders",
+        "source_gt_id": "e_role_admin",
+        "target_gt_id": "e_ep_get_admin_export_orders",
+        "relation_type": "ACCESS"
+      },
+      {
+        "gt_relation_id": "r_call_e_page_admin_products_id_edit__e_ep_post_admin_products_id",
+        "source_gt_id": "e_page_admin_products_id_edit",
+        "target_gt_id": "e_ep_post_admin_products_id",
+        "relation_type": "CALL"
+      },
+      {
+        "gt_relation_id": "r_call_e_page_admin_products_new__e_ep_post_admin_products",
+        "source_gt_id": "e_page_admin_products_new",
+        "target_gt_id": "e_ep_post_admin_products",
+        "relation_type": "CALL"
+      },
+      {
+        "gt_relation_id": "r_call_e_page_admin_users__e_ep_get_admin_api_users",
+        "source_gt_id": "e_page_admin_users",
+        "target_gt_id": "e_ep_get_admin_api_users",
+        "relation_type": "CALL"
+      },
+      {
+        "gt_relation_id": "r_call_e_page_cart__e_ep_post_cart_update",
+        "source_gt_id": "e_page_cart",
+        "target_gt_id": "e_ep_post_cart_update",
+        "relation_type": "CALL"
+      },
+      {
+        "gt_relation_id": "r_call_e_page_checkout__e_ep_post_orders",
+        "source_gt_id": "e_page_checkout",
+        "target_gt_id": "e_ep_post_orders",
+        "relation_type": "CALL"
+      },
+      {
+        "gt_relation_id": "r_call_e_page_login__e_ep_post_login",
+        "source_gt_id": "e_page_login",
+        "target_gt_id": "e_ep_post_login",
+        "relation_type": "CALL"
+      },
+      {
+        "gt_relation_id": "r_call_e_page_mypage__e_ep_get_api_users_id",
+        "source_gt_id": "e_page_mypage",
+        "target_gt_id": "e_ep_get_api_users_id",
+        "relation_type": "CALL"
+      },
+      {
+        "gt_relation_id": "r_call_e_page_products_id__e_ep_post_cart_add",
+        "source_gt_id": "e_page_products_id",
+        "target_gt_id": "e_ep_post_cart_add",
+        "relation_type": "CALL"
+      },
+      {
+        "gt_relation_id": "r_call_e_page_signup__e_ep_post_signup",
+        "source_gt_id": "e_page_signup",
+        "target_gt_id": "e_ep_post_signup",
+        "relation_type": "CALL"
+      },
+      {
+        "gt_relation_id": "r_owns_e_user_alice__e_res_order",
+        "source_gt_id": "e_user_alice",
+        "target_gt_id": "e_res_order",
+        "relation_type": "OWNS"
+      }
+    ],
+    "workflows": [
+      {
+        "gt_workflow_id": "w_01_guest",
+        "name": "둘러보기 후 가입",
+        "ordered_actions": [
+          "view_product_list",
+          "view_product_detail",
+          "view_signup_form",
+          "signup",
+          "view_login_form",
+          "login"
+        ],
+        "constraints": [
+          "role=guest 필요",
+          "ordered_actions 순서대로 수행"
+        ]
+      },
+      {
+        "gt_workflow_id": "w_02_user",
+        "name": "상품 구매",
+        "ordered_actions": [
+          "view_product_list",
+          "view_product_detail",
+          "add_cart_item",
+          "view_cart",
+          "update_cart_item",
+          "view_checkout",
+          "create_order",
+          "view_order_list",
+          "read_order"
+        ],
+        "constraints": [
+          "role=user 필요",
+          "ordered_actions 순서대로 수행",
+          "POST /cart/add: price 파라미터가 와도 무시하고 서버 DB의 상품 가격을 사용",
+          "POST /cart/update: 장바구니 항목 소유자만 변경 가능",
+          "GET /orders/{id}: 주문 소유자이거나 admin일 때만 200, 그 외 403"
+        ]
+      },
+      {
+        "gt_workflow_id": "w_03_user",
+        "name": "회원정보 관리",
+        "ordered_actions": [
+          "view_mypage",
+          "read_user",
+          "update_profile"
+        ],
+        "constraints": [
+          "role=user 필요",
+          "ordered_actions 순서대로 수행",
+          "GET /api/users/{id}: 요청자 본인이거나 admin일 때만 200, 그 외 403",
+          "POST /mypage: 대상은 항상 세션 사용자 본인, URL·파라미터로 대상 id를 받지 않음"
+        ]
+      },
+      {
+        "gt_workflow_id": "w_04_admin",
+        "name": "상품 관리",
+        "ordered_actions": [
+          "view_admin_dashboard",
+          "view_admin_product_list",
+          "view_product_create_form",
+          "create_product",
+          "view_product_edit_form",
+          "update_product",
+          "delete_product"
+        ],
+        "constraints": [
+          "role=admin 필요",
+          "ordered_actions 순서대로 수행"
+        ]
+      },
+      {
+        "gt_workflow_id": "w_05_admin",
+        "name": "회원/주문 관리",
+        "ordered_actions": [
+          "view_admin_user_list",
+          "list_users",
+          "view_admin_order_list",
+          "read_order"
+        ],
+        "constraints": [
+          "role=admin 필요",
+          "ordered_actions 순서대로 수행",
+          "GET /admin/api/users: role이 admin일 때만 200"
+        ]
+      }
+    ],
+    "cases": [
+      {
+        "case_id": "V1",
+        "category": "authorization",
+        "vulnerability_type": "horizontal_access",
+        "actor_alias": "bob",
+        "resource_match_key": {
+          "method": "GET",
+          "path_template": "/orders/{id}"
+        },
+        "is_vulnerable": true,
+        "expected_behavior": "요청자가 주문의 소유자이거나 admin일 때만 200, 그 외에는 403"
+      },
+      {
+        "case_id": "V2",
+        "category": "authorization",
+        "vulnerability_type": "horizontal_access",
+        "actor_alias": "bob",
+        "resource_match_key": {
+          "method": "GET",
+          "path_template": "/api/users/{id}"
+        },
+        "is_vulnerable": true,
+        "expected_behavior": "요청자 본인이거나 admin일 때만 200, 그 외에는 403"
+      },
+      {
+        "case_id": "V3",
+        "category": "authorization",
+        "vulnerability_type": "function_level_access",
+        "actor_alias": "alice",
+        "resource_match_key": {
+          "method": "GET",
+          "path_template": "/admin/api/users"
+        },
+        "is_vulnerable": true,
+        "expected_behavior": "role == admin 인 경우에만 200, user 권한이면 403"
+      },
+      {
+        "case_id": "V4",
+        "category": "authorization",
+        "vulnerability_type": "forced_browsing",
+        "actor_alias": "guest",
+        "resource_match_key": {
+          "method": "GET",
+          "path_template": "/admin/export/orders"
+        },
+        "is_vulnerable": true,
+        "expected_behavior": "admin이 아니면 403 (비로그인 포함)"
+      },
+      {
+        "case_id": "V5",
+        "category": "business_logic",
+        "vulnerability_type": "price_tampering",
+        "actor_alias": "alice",
+        "resource_match_key": {
+          "method": "POST",
+          "path_template": "/cart/add"
+        },
+        "is_vulnerable": true,
+        "expected_behavior": "요청에 price 파라미터가 포함되어 있어도 무시하고 항상 서버(DB)의 상품 가격을 사용"
+      },
+      {
+        "case_id": "D1",
+        "category": "authorization",
+        "vulnerability_type": "horizontal_access",
+        "actor_alias": "bob",
+        "resource_match_key": {
+          "method": "POST",
+          "path_templates": [
+            "/cart/update",
+            "/cart/remove"
+          ]
+        },
+        "is_vulnerable": false,
+        "expected_behavior": "두 모드 모두 item.user_id != user.id 이면 항상 403 - 취약점 아님"
+      },
+      {
+        "case_id": "D2",
+        "category": "authorization",
+        "vulnerability_type": "horizontal_access",
+        "actor_alias": "bob",
+        "resource_match_key": {
+          "method": "POST",
+          "path_template": "/mypage"
+        },
+        "is_vulnerable": false,
+        "expected_behavior": "대상 사용자를 URL/파라미터가 아닌 세션에서만 가져오므로 애초에 다른 사용자를 지정할 방법이 없음 - 취약점 아님"
+      },
+      {
+        "case_id": "D3",
+        "category": "authorization",
+        "vulnerability_type": "function_level_access",
+        "actor_alias": "bob",
+        "resource_match_key": {
+          "method": "GET",
+          "path_templates": [
+            "/admin",
+            "/admin/users",
+            "/admin/products",
+            "/admin/orders"
+          ]
+        },
+        "is_vulnerable": false,
+        "expected_behavior": "이 HTML 페이지 라우트들은 VULN_MODE와 무관하게 항상 role == admin 검사를 강제함 (V3/V4는 이 페이지들이 호출하는 별도의 API/엔드포인트에서만 발생)"
+      }
+    ]
+  }
+}
