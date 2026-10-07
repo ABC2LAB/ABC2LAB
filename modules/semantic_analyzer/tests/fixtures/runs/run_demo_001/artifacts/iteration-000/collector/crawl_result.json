@@ -32,6 +32,7 @@
     "pages": [
       {
         "page_id": "page_products",
+        "account_id": "acc_alice",
         "url": "http://localhost:8001/products",
         "title": "상품 목록",
         "evidence_refs": [
@@ -40,6 +41,7 @@
       },
       {
         "page_id": "page_orders",
+        "account_id": "acc_bob",
         "url": "http://localhost:8001/orders",
         "title": "주문 내역",
         "evidence_refs": [

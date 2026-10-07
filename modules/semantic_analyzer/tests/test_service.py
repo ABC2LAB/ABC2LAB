@@ -65,6 +65,13 @@ def test_structural_edges_are_observed(result):
         assert all(e["basis"] == "observed" for e in edges)
 
 
+def test_access_edges_cover_role_and_account(result):
+    # ACCESS는 역할 단위(집계)와 계정 단위 둘 다 만든다. KG의 계정→Endpoint 질의용.
+    sources = {e["source_id"] for e in _edges_by_type(result, "ACCESS")}
+    assert any(s.startswith("role:") for s in sources), "역할 단위 ACCESS가 없음"
+    assert "user:acc_alice" in sources, "계정 단위 ACCESS가 없음"
+
+
 def test_resource_nodes_and_owns_are_inferred(result):
     resources = _nodes_by_type(result, "Resource")
     assert any(n["properties"]["name"] == "order" for n in resources)

@@ -132,7 +132,11 @@ def _process_request(graph: _Graph, request: dict, client: LlmClient,
     # ── 구조(관찰) ──
     graph.add_node(endpoint_id, "Endpoint",
                    {"method": method, "path_template": path_template}, BASIS_OBSERVED, evidence)
+    # 역할 단위(집계)와 계정 단위 접근을 둘 다 남긴다.
+    # KG가 계정→Endpoint 접근을 조회하므로(role_resource_access) 계정 엣지도 있어야 비지 않는다.
     graph.add_edge(ids.role_node_id(request["role_id"]), "ACCESS", endpoint_id, {},
+                   BASIS_OBSERVED, evidence)
+    graph.add_edge(ids.user_node_id(request["account_id"]), "ACCESS", endpoint_id, {},
                    BASIS_OBSERVED, evidence)
     _link_source(graph, request, endpoint_id, page_ids, action_ids, evidence)
     parameters = _process_parameters(graph, endpoint_id, request["parameters"], evidence)
