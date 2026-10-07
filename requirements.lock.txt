@@ -101,6 +101,7 @@ jsonschema==4.26.0 \
     # via
     #   -r modules/access_analyzer/requirements.txt
     #   -r modules/collector/requirements.txt
+    #   -r modules/verifier/requirements.txt
     #   -r requirements.txt
 jsonschema-specifications==2025.9.1 \
     --hash=sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe \
