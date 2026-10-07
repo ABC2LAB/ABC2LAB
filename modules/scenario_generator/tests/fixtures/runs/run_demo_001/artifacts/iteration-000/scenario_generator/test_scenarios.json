@@ -1,0 +1,163 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "test_scenarios",
+  "artifact_id": "test_scenarios_run_demo_001_iteration000",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "scenario_generator",
+  "mode": "development",
+  "created_at": "2026-10-06T08:00:14Z",
+  "status": "completed",
+  "input_refs": [
+    {
+      "artifact_id": "crawl_result_demo_001",
+      "artifact_type": "crawl_result",
+      "iteration": 0,
+      "path": "artifacts/iteration-000/collector/crawl_result.json",
+      "sha256": "d5c7400146358fab60c6127634ced55927b2dbd17685eee50c7a5de0fddcd811"
+    },
+    {
+      "artifact_id": "vulnerability_candidates_demo_001",
+      "artifact_type": "vulnerability_candidates",
+      "iteration": 0,
+      "path": "artifacts/iteration-000/access_analyzer/vulnerability_candidates.json",
+      "sha256": "37d0d0ca4744a30de90910ed70722d91167910f1fec50eb54fb534fa0fb56f45"
+    }
+  ],
+  "errors": [],
+  "runtime_metrics": {
+    "duration_ms": 9,
+    "llm_calls": 2,
+    "input_tokens": null,
+    "output_tokens": null,
+    "peak_memory_mb": null
+  },
+  "data": {
+    "scenarios": [
+      {
+        "scenario_id": "scenario_cand_horizontal_1",
+        "candidate_id": "cand_horizontal_1",
+        "expected_basis": "inferred",
+        "preconditions": [
+          {
+            "check_id": "pre_actor_session",
+            "kind": "session_valid",
+            "subject_ref": "account_a",
+            "selector": null,
+            "operator": "eq",
+            "expected": true
+          },
+          {
+            "check_id": "pre_reference_session",
+            "kind": "session_valid",
+            "subject_ref": "account_b",
+            "selector": null,
+            "operator": "eq",
+            "expected": true
+          }
+        ],
+        "steps": [
+          {
+            "step_id": "step_owner_list",
+            "order": 0,
+            "source_request_id": "req_b_list",
+            "account_id": "account_b",
+            "role_id": "role_user",
+            "session_ref": "session_ref_b",
+            "request": {
+              "method": "GET",
+              "url_template": "http://target.example.test/items",
+              "parameters": [],
+              "body_ref": null
+            },
+            "bindings": [],
+            "state_change": "none"
+          },
+          {
+            "step_id": "step_actor_detail",
+            "order": 1,
+            "source_request_id": "req_b_detail",
+            "account_id": "account_a",
+            "role_id": "role_user",
+            "session_ref": "session_ref_a",
+            "request": {
+              "method": "GET",
+              "url_template": "http://target.example.test/items/{binding_item_id}",
+              "parameters": [],
+              "body_ref": null
+            },
+            "bindings": [
+              {
+                "binding_id": "binding_item_id",
+                "source_step_id": "step_owner_list",
+                "source_part": "response_body",
+                "selector": "/0/id"
+              }
+            ],
+            "state_change": "none"
+          }
+        ],
+        "assertions": [
+          {
+            "check_id": "assert_actor_status",
+            "kind": "response_status",
+            "subject_ref": "step_actor_detail",
+            "selector": null,
+            "operator": "eq",
+            "expected": 200
+          }
+        ]
+      },
+      {
+        "scenario_id": "scenario_cand_workflow_1",
+        "candidate_id": "cand_workflow_1",
+        "expected_basis": "unknown",
+        "preconditions": [
+          {
+            "check_id": "pre_actor_session",
+            "kind": "session_valid",
+            "subject_ref": "account_a",
+            "selector": null,
+            "operator": "eq",
+            "expected": true
+          }
+        ],
+        "steps": [
+          {
+            "step_id": "step_confirm_directly",
+            "order": 0,
+            "source_request_id": "req_a_confirm",
+            "account_id": "account_a",
+            "role_id": "role_user",
+            "session_ref": "session_ref_a",
+            "request": {
+              "method": "POST",
+              "url_template": "http://target.example.test/items/202/confirm",
+              "parameters": [],
+              "body_ref": null
+            },
+            "bindings": [],
+            "state_change": "expected"
+          }
+        ],
+        "assertions": [
+          {
+            "check_id": "assert_confirm_status",
+            "kind": "response_status",
+            "subject_ref": "step_confirm_directly",
+            "selector": null,
+            "operator": "eq",
+            "expected": 200
+          }
+        ]
+      }
+    ],
+    "model_info": {
+      "model_id": "replay_file",
+      "model_version": "none",
+      "prompt_version": "none",
+      "temperature": null,
+      "seed": null
+    }
+  }
+}
