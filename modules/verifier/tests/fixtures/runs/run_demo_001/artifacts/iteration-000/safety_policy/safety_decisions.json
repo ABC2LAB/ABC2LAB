@@ -1,0 +1,123 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "safety_decisions",
+  "artifact_id": "safety_decisions-run_demo_001-000-cccc0001",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "safety_policy",
+  "mode": "development",
+  "created_at": "2026-10-07T00:00:00.000000Z",
+  "status": "completed",
+  "input_refs": [],
+  "errors": [],
+  "runtime_metrics": null,
+  "data": {
+    "policy_id": "abc2lab-default",
+    "policy_version": "0.1.0",
+    "scenarios_sha256": "5976ac731f57484d3c2d658ecbd7ced1806e5b301701ed32afc20654931a833a",
+    "decisions": [
+      {
+        "decision_id": "decision_allow",
+        "scenario_id": "scenario_allow",
+        "decision": "allow",
+        "reason_codes": [
+          "ALL_ASSESSMENTS_PASSED"
+        ],
+        "reason": "읽기 검증 허용",
+        "assessment": {
+          "target_scope": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          },
+          "test_accounts": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          },
+          "request_budget": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          },
+          "state_change": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          },
+          "data_impact": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          },
+          "service_impact": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          }
+        },
+        "effective_origins": [
+          "http://127.0.0.1:8001"
+        ],
+        "effective_account_ids": [
+          "acc_user"
+        ],
+        "limits": {
+          "max_requests": 4,
+          "max_duration_ms": 10000,
+          "allow_state_change": false
+        },
+        "approval_ref": null
+      },
+      {
+        "decision_id": "decision_block",
+        "scenario_id": "scenario_block",
+        "decision": "require_approval",
+        "reason_codes": [
+          "STATE_CHANGE_APPROVAL_REQUIRED"
+        ],
+        "reason": "상태 변경은 승인 필요",
+        "assessment": {
+          "target_scope": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          },
+          "test_accounts": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          },
+          "request_budget": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          },
+          "state_change": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          },
+          "data_impact": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          },
+          "service_impact": {
+            "status": "pass",
+            "rule_id": "r",
+            "reason": "ok"
+          }
+        },
+        "effective_origins": [],
+        "effective_account_ids": [],
+        "limits": {
+          "max_requests": 0,
+          "max_duration_ms": 0,
+          "allow_state_change": false
+        },
+        "approval_ref": null
+      }
+    ]
+  }
+}

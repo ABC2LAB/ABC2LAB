@@ -113,10 +113,10 @@ CLI:
 | 2026-10-07 | `vulnerability_candidates` `Candidate.resource_ids` | `array<string>` → `minItems:1` | 같음. TODO(choiamj980818): `workflow_step_bypass` 규칙은 자원 없이 `workflow_id`만 가질 수 있어 그 규칙 추가 시 minItems:1을 재검토한다 |
 | 2026-10-07 | `vulnerability_candidates` `Candidate.reference_account_id`·`workflow_id` | `string/null` → `nonEmptyString/null` | 빈 문자열 금지. reporter 입력 Schema와 일치시킴(수동 확인: reporter·scenario_generator 입력 통과) |
 
-## 연결 때 다른 모듈과 맞출 것
+## 연결 때 다른 모듈과 맞춘 것 (전부 해결, 10/7)
 
-모듈 완성 후 파이프라인 연결 때 맞춘다. 그 전까지는 명세 의미대로 만든 fixture로 독립 개발한다.
+입력 사본 Schema는 생산자 실제 출력과 일치. 아래 연결 과제는 모두 머지로 해결됐다.
 
-- **A2 (결과 row의 계정·역할 ID 형식) → #29(이동찬)로 해결.** ownership `owner_account_id`·access `account_id`·`role_id`가 이제 crawl 원본 ID로 나온다(KG observation 기반). resource_id는 `resource:<key>`, endpoint_id는 `endpoint:<METHOD>:<path>`.
-- **A3 (후보 `source_request_ids`의 출처) → #32(이동찬)로 해결.** `AccessRow`에 `request_ids`(원본 수집 요청 ID, `minItems:1`·`uniqueItems`)가 추가됐다. 우리 입력 사본 Schema에 그대로 미러링했다. Rule A는 이 값으로 `source_request_ids`를 채운다. 매칭되는 AccessRow가 없으면 그 후보는 발행하지 않고 errors로 둔다(안전장치).
-- 남은 연결 항목: reporter의 crawl_result 입력에 Page.account_id 반영(#23 이후) 확인 — 우리 모듈 무관, 연결 때.
+- **A2 (결과 row의 계정·역할 ID 형식) → #29(이동찬)로 해결.** ownership `owner_account_id`·access `account_id`·`role_id`가 crawl 원본 ID로 나온다(KG observation 기반). resource_id는 `resource:<key>`, endpoint_id는 `endpoint:<METHOD>:<path>`.
+- **A3 (후보 `source_request_ids`의 출처) → #32(이동찬)로 해결, 입력 사본 미러링 #33.** `AccessRow.request_ids`(원본 수집 요청 ID, `minItems:1`·`uniqueItems`)를 Rule A가 소유자 접근 행에서 읽어 `source_request_ids`를 채운다. 매칭 AccessRow가 없으면 발행하지 않고 errors로 둔다(안전장치).
+- **reporter crawl_result Page.account_id → #35로 해결.** (우리 모듈 무관이지만 파이프라인 연결 과제로 추적했던 항목.)

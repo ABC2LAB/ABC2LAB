@@ -1,2 +1,4 @@
 # verifier 직접 의존성 (담당: 최민준)
-# 아직 없음. 쓰게 되면 패키지==버전으로 적고 GitHub 관리자에게 lock 갱신을 요청한다(pip freeze 결과를 그대로 붙이지 않는다).
+# Schema 검증에 직접 쓰는 jsonschema를 선언한다(utils/validation.py가 import). 명세 m7 "실제 사용하는 직접 의존성 선언".
+# 버전은 루트 공통과 같아 lock 재해결 결과가 동일하다(# via 주석만 바뀜). 추가·변경은 GitHub 관리자에게 lock 갱신을 요청한다.
+jsonschema==4.26.0
