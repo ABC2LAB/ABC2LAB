@@ -22,6 +22,26 @@
     "graph_revision": 1,
     "results": [
       {
+        "query_id": "query_access",
+        "query_key": "role_resource_access",
+        "status": "completed",
+        "rows": [
+          {
+            "account_id": "account_user_a",
+            "role_id": "role_user",
+            "endpoint_id": "endpoint_order",
+            "resource_id": "resource_order_b",
+            "action": "read_order",
+            "request_ids": [
+              "request_read_order"
+            ],
+            "access_observed": true,
+            "evidence_refs": []
+          }
+        ],
+        "errors": []
+      },
+      {
         "query_id": "query_snapshot",
         "query_key": "structure_snapshot",
         "status": "completed",
