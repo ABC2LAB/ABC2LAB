@@ -11,6 +11,7 @@ from modules.knowledge_graph.models import (
     EvidenceReference,
     GraphEdge,
     GraphNode,
+    RequestObservation,
     Workflow,
     WorkflowDependency,
     WorkflowStep,
@@ -29,6 +30,43 @@ def encode_json(value: Any) -> str:
 
 def decode_json(value: str) -> Any:
     return json.loads(value)
+
+
+def serialize_request_observation(
+    observation: RequestObservation,
+) -> dict[str, Any]:
+    return {
+        "request_id": observation.request_id,
+        "account_id": observation.account_id,
+        "role_id": observation.role_id,
+        "user_node_id": observation.user_node_id,
+        "role_node_id": observation.role_node_id,
+        "endpoint_id": observation.endpoint_id,
+        "action": observation.action,
+        "resource_ids_json": encode_json(list(observation.resource_ids)),
+        "basis": observation.basis,
+        "evidence_refs_json": encode_json(
+            [asdict(item) for item in observation.evidence_refs]
+        ),
+    }
+
+
+def deserialize_request_observation(value: dict[str, Any]) -> RequestObservation:
+    return RequestObservation(
+        request_id=value["request_id"],
+        account_id=value["account_id"],
+        role_id=value["role_id"],
+        user_node_id=value["user_node_id"],
+        role_node_id=value["role_node_id"],
+        endpoint_id=value["endpoint_id"],
+        action=value["action"],
+        resource_ids=tuple(decode_json(value["resource_ids_json"])),
+        basis=value["basis"],
+        evidence_refs=tuple(
+            EvidenceReference.from_mapping(item)
+            for item in decode_json(value["evidence_refs_json"])
+        ),
+    )
 
 
 def serialize_node(node: GraphNode) -> dict[str, Any]:

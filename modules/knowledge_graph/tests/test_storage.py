@@ -2,6 +2,7 @@ from modules.knowledge_graph.models import (
     EvidenceReference,
     GraphEdge,
     GraphNode,
+    RequestObservation,
     Workflow,
     WorkflowDependency,
     WorkflowStep,
@@ -9,10 +10,12 @@ from modules.knowledge_graph.models import (
 from modules.knowledge_graph.storage import (
     deserialize_edge,
     deserialize_node,
+    deserialize_request_observation,
     deserialize_workflow,
     encode_json,
     serialize_edge,
     serialize_node,
+    serialize_request_observation,
     serialize_workflow,
     serialize_workflow_dependency,
     serialize_workflow_step,
@@ -48,6 +51,27 @@ def test_node_and_edge_round_trip_nested_json() -> None:
 
     assert deserialize_node(serialize_node(node)) == node
     assert deserialize_edge(serialize_edge(edge)) == edge
+
+
+def test_request_observation_round_trip_preserves_internal_links() -> None:
+    observation = RequestObservation(
+        request_id="request_001",
+        account_id="account_001",
+        role_id="role_user",
+        user_node_id="user:account_001",
+        role_node_id="role:role_user",
+        endpoint_id="endpoint:GET:/orders/{id}",
+        action="read_order",
+        resource_ids=("resource:order", "resource:audit"),
+        basis="observed",
+        evidence_refs=(EVIDENCE,),
+    )
+
+    restored = deserialize_request_observation(
+        serialize_request_observation(observation)
+    )
+
+    assert restored == observation
 
 
 def test_workflow_round_trip_and_dependency_identity_are_stable() -> None:

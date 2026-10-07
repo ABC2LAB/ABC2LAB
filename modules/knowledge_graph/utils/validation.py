@@ -63,6 +63,78 @@ def _require_unique(values: Iterable[str], label: str) -> set[str]:
     return values_set
 
 
+def _build_original_id_index(
+    nodes: list[dict[str, Any]],
+    node_type: str,
+    property_name: str,
+) -> dict[str, str]:
+    node_id_by_original_id: dict[str, str] = {}
+    for node in nodes:
+        if node["node_type"] != node_type:
+            continue
+        original_id = node["properties"].get(property_name)
+        if not isinstance(original_id, str) or not original_id:
+            raise ContractValidationError(
+                f"{node_type} 노드의 {property_name} 속성이 올바르지 않음"
+            )
+        if original_id in node_id_by_original_id:
+            raise ContractValidationError(
+                f"중복 {node_type} 원본 {property_name}"
+            )
+        node_id_by_original_id[original_id] = node["node_id"]
+    return node_id_by_original_id
+
+
+def _validate_user_role_relationships(
+    nodes: list[dict[str, Any]],
+    relationships: list[dict[str, Any]],
+    node_type_by_id: dict[str, str],
+    role_node_id_by_role_id: dict[str, str],
+) -> dict[str, str]:
+    role_id_by_user_node_id: dict[str, str] = {}
+    for node in nodes:
+        if node["node_type"] != "User":
+            continue
+        role_id = node["properties"].get("role_id")
+        if not isinstance(role_id, str) or not role_id:
+            raise ContractValidationError(
+                "User 노드의 role_id 속성이 올바르지 않음"
+            )
+        if role_id not in role_node_id_by_role_id:
+            raise ContractValidationError(
+                "User 노드가 존재하지 않는 원본 role_id를 참조함"
+            )
+        role_id_by_user_node_id[node["node_id"]] = role_id
+
+    has_role_pairs: set[tuple[str, str]] = set()
+    for relationship in relationships:
+        if relationship["relation_type"] != "HAS_ROLE":
+            continue
+        source_id = relationship["source_id"]
+        target_id = relationship["target_id"]
+        if (
+            node_type_by_id[source_id] != "User"
+            or node_type_by_id[target_id] != "Role"
+        ):
+            raise ContractValidationError("HAS_ROLE 관계의 노드 타입이 올바르지 않음")
+        expected_role_id = role_id_by_user_node_id[source_id]
+        expected_target_id = role_node_id_by_role_id[expected_role_id]
+        if target_id != expected_target_id:
+            raise ContractValidationError(
+                "HAS_ROLE 관계와 User 원본 role_id가 일치하지 않음"
+            )
+        pair = (source_id, target_id)
+        if pair in has_role_pairs:
+            raise ContractValidationError("중복 User-Role HAS_ROLE 관계")
+        has_role_pairs.add(pair)
+
+    for user_node_id, role_id in role_id_by_user_node_id.items():
+        role_node_id = role_node_id_by_role_id[role_id]
+        if (user_node_id, role_node_id) not in has_role_pairs:
+            raise ContractValidationError("User의 HAS_ROLE 관계가 없음")
+    return role_id_by_user_node_id
+
+
 def validate_semantic_analysis_semantics(artifact: dict[str, Any]) -> None:
     data = artifact["data"]
     nodes = data["nodes"]
@@ -85,36 +157,72 @@ def validate_semantic_analysis_semantics(artifact: dict[str, Any]) -> None:
         if relationship["target_id"] not in node_ids:
             raise ContractValidationError("관계 target_id가 nodes에 존재하지 않음")
 
+    user_node_id_by_account_id = _build_original_id_index(
+        nodes,
+        "User",
+        "account_id",
+    )
+    role_node_id_by_role_id = _build_original_id_index(
+        nodes,
+        "Role",
+        "role_id",
+    )
+    role_id_by_user_node_id = _validate_user_role_relationships(
+        nodes,
+        relationships,
+        node_type_by_id,
+        role_node_id_by_role_id,
+    )
+
     for request in requests:
-        referenced_ids = [
-            request["account_id"],
-            request["role_id"],
-            request["endpoint_id"],
-            *request["resource_ids"],
-        ]
-        if any(item not in node_ids for item in referenced_ids):
-            raise ContractValidationError("정규화 요청이 존재하지 않는 node_id를 참조함")
-        expected_types = {
-            request["account_id"]: "User",
-            request["role_id"]: "Role",
-            request["endpoint_id"]: "Endpoint",
-            **{resource_id: "Resource" for resource_id in request["resource_ids"]},
-        }
-        if any(
-            node_type_by_id[node_id] != node_type
-            for node_id, node_type in expected_types.items()
-        ):
-            raise ContractValidationError("정규화 요청의 node_type 참조가 올바르지 않음")
+        account_id = request["account_id"]
+        role_id = request["role_id"]
+        endpoint_id = request["endpoint_id"]
+        if account_id not in user_node_id_by_account_id:
+            raise ContractValidationError(
+                "정규화 요청이 존재하지 않는 원본 account_id를 참조함"
+            )
+        if role_id not in role_node_id_by_role_id:
+            raise ContractValidationError(
+                "정규화 요청이 존재하지 않는 원본 role_id를 참조함"
+            )
+        user_node_id = user_node_id_by_account_id[account_id]
+        if role_id_by_user_node_id[user_node_id] != role_id:
+            raise ContractValidationError(
+                "정규화 요청의 account_id와 role_id 연결이 올바르지 않음"
+            )
+        if endpoint_id not in node_ids:
+            raise ContractValidationError(
+                "정규화 요청이 존재하지 않는 Endpoint node_id를 참조함"
+            )
+        if node_type_by_id[endpoint_id] != "Endpoint":
+            raise ContractValidationError(
+                "정규화 요청의 endpoint_id가 Endpoint 노드가 아님"
+            )
+        for resource_id in request["resource_ids"]:
+            if resource_id not in node_ids:
+                raise ContractValidationError(
+                    "정규화 요청이 존재하지 않는 Resource node_id를 참조함"
+                )
+            if node_type_by_id[resource_id] != "Resource":
+                raise ContractValidationError(
+                    "정규화 요청의 resource_id가 Resource 노드가 아님"
+                )
         _require_unique(
             (item["parameter_id"] for item in request["parameters"]),
             f"parameter_id ({request['request_id']})",
         )
 
     for workflow in workflows:
-        if any(role_id not in node_ids for role_id in workflow["role_ids"]):
-            raise ContractValidationError("workflow가 없는 role_id를 참조함")
-        if any(node_type_by_id[role_id] != "Role" for role_id in workflow["role_ids"]):
-            raise ContractValidationError("workflow role_id가 Role 노드가 아님")
+        _require_unique(
+            workflow["role_ids"],
+            f"workflow 원본 role_id ({workflow['workflow_id']})",
+        )
+        if any(
+            role_id not in role_node_id_by_role_id
+            for role_id in workflow["role_ids"]
+        ):
+            raise ContractValidationError("workflow가 없는 원본 role_id를 참조함")
         step_ids = _require_unique(
             (item["step_id"] for item in workflow["steps"]),
             f"step_id ({workflow['workflow_id']})",
