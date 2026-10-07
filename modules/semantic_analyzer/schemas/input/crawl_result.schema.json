@@ -113,9 +113,10 @@
     "Page": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["page_id", "url", "title", "evidence_refs"],
+      "required": ["page_id", "account_id", "url", "title", "evidence_refs"],
       "properties": {
         "page_id": { "type": "string" },
+        "account_id": { "type": "string" },
         "url": { "type": "string" },
         "title": { "type": ["string", "null"] },
         "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }
