@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "policy_config.schema.json",
+  "title": "safety policy configuration contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "allowed_targets",
+    "test_accounts",
+    "limits",
+    "request_rules"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "policy_id": {"$ref": "#/$defs/nonEmptyString"},
+    "policy_version": {"$ref": "#/$defs/nonEmptyString"},
+    "allowed_targets": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/allowedTarget"}
+    },
+    "test_accounts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/testAccount"}
+    },
+    "limits": {"$ref": "#/$defs/limits"},
+    "request_rules": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/requestRule"}
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1},
+    "allowedTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "path_prefixes"],
+      "properties": {
+        "origin": {"$ref": "#/$defs/nonEmptyString"},
+        "path_prefixes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/nonEmptyString"}
+        }
+      }
+    },
+    "testAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["account_id", "role_ids", "requires_session"],
+      "properties": {
+        "account_id": {"$ref": "#/$defs/nonEmptyString"},
+        "role_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/nonEmptyString"}
+        },
+        "requires_session": {"type": "boolean"}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_requests", "max_duration_ms"],
+      "properties": {
+        "max_requests": {"type": "integer", "minimum": 1},
+        "max_duration_ms": {"type": "integer", "minimum": 1}
+      }
+    },
+    "requestRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "origin",
+        "path_prefix",
+        "methods",
+        "state_change",
+        "data_impact",
+        "service_impact"
+      ],
+      "properties": {
+        "rule_id": {"$ref": "#/$defs/nonEmptyString"},
+        "origin": {"$ref": "#/$defs/nonEmptyString"},
+        "path_prefix": {"$ref": "#/$defs/nonEmptyString"},
+        "methods": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Z]+$"}
+        },
+        "state_change": {
+          "enum": ["none", "allow", "require_approval", "block"]
+        },
+        "data_impact": {
+          "enum": ["read_only", "allow", "require_approval", "block"]
+        },
+        "service_impact": {
+          "enum": ["low", "allow", "require_approval", "block"]
+        }
+      }
+    }
+  }
+}

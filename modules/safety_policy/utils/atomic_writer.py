@@ -8,12 +8,14 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from modules.safety_policy.exceptions import StorageError
+from modules.safety_policy.exceptions import OutputArtifactExistsError
 
 
 def write_json_atomically(output_path: Path, value: dict[str, Any]) -> None:
     if output_path.exists():
-        raise StorageError(f"완료 파일은 덮어쓸 수 없음: {output_path}")
+        raise OutputArtifactExistsError(
+            f"완료 파일은 덮어쓸 수 없음: {output_path}"
+        )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -34,7 +36,9 @@ def write_json_atomically(output_path: Path, value: dict[str, Any]) -> None:
             output_file.flush()
             os.fsync(output_file.fileno())
         if output_path.exists():
-            raise StorageError(f"완료 파일은 덮어쓸 수 없음: {output_path}")
+            raise OutputArtifactExistsError(
+                f"완료 파일은 덮어쓸 수 없음: {output_path}"
+            )
         temporary_path.replace(output_path)
     except Exception:
         temporary_path.unlink(missing_ok=True)

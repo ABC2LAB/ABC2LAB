@@ -5,6 +5,7 @@ from typing import Any, Callable
 import pytest
 from jsonschema import Draft202012Validator
 
+from modules.safety_policy.approval_adapter import APPROVAL_RECORD_SCHEMA
 from modules.safety_policy.contracts import (
     SAFETY_DECISIONS_SCHEMA,
     SCHEMA_DIRECTORY,
@@ -12,6 +13,7 @@ from modules.safety_policy.contracts import (
     load_safety_decisions,
     load_test_scenarios,
 )
+from modules.safety_policy.config_adapter import POLICY_CONFIG_SCHEMA
 from modules.safety_policy.exceptions import ContractValidationError
 from modules.safety_policy.utils.validation import (
     load_json,
@@ -27,9 +29,12 @@ ContractLoader = Callable[[Path], tuple[dict[str, Any], object | None]]
 def test_all_schemas_are_valid() -> None:
     schema_paths = sorted(SCHEMA_DIRECTORY.rglob("*.schema.json"))
 
-    assert len(schema_paths) == 2
+    assert len(schema_paths) == 4
     for schema_path in schema_paths:
         Draft202012Validator.check_schema(load_json(schema_path))
+
+    assert POLICY_CONFIG_SCHEMA in schema_paths
+    assert APPROVAL_RECORD_SCHEMA in schema_paths
 
 
 def test_completed_contract_fixtures_are_valid(
