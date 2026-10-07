@@ -31,6 +31,7 @@ JSON_INDENT = 2
 GUEST_REQUEST = "request:1"
 MEMBER_A_API_REQUEST = "request:4"
 MEMBER_A_LINK_REQUEST = "request:5"
+MEMBER_B_API_REQUEST = "request:7"
 MEMBER_B_ACCOUNT = "account:member_b"
 RESPONSE_EVIDENCE_PATH = "evidence/collector/response/request-4.json"
 DOM_EVIDENCE_PATH = "evidence/collector/dom/page-2.json"
@@ -148,6 +149,11 @@ def test_fixture_covers_contract_cases() -> None:
     assert any(parameter["is_sensitive"] and parameter["location"] != "cookie" for parameter in parameters)
     assert any(header["redacted"] for header in headers)
     assert any(page["evidence_refs"] for page in data["pages"])
+    # 같은 URL을 두 계정이 본 페이지가 계정별로 따로 있다.
+    accounts_by_url: dict[str, set[str]] = {}
+    for page in data["pages"]:
+        accounts_by_url.setdefault(page["url"], set()).add(page["account_id"])
+    assert max(len(accounts) for accounts in accounts_by_url.values()) >= 2
     assert any(action["evidence_refs"] for action in data["actions"])
 
 
@@ -278,6 +284,21 @@ DOCUMENT_MUTATIONS: list[tuple[str, Mutation, IssueCode]] = [
             _find(document, "accounts", "account_id", MEMBER_B_ACCOUNT), "role_id", "role:nobody"
         ),
         IssueCode.REFERENCE_MISSING,
+    ),
+    (
+        "page_account_missing",
+        lambda document: _assign(_find(document, "pages", "page_id", "page:3"), "account_id", "account:nobody"),
+        IssueCode.REFERENCE_MISSING,
+    ),
+    (
+        "page_without_account_id",
+        lambda document: _find(document, "pages", "page_id", "page:2").pop("account_id"),
+        IssueCode.SCHEMA_INVALID,
+    ),
+    (
+        "request_on_page_of_other_account",
+        lambda document: _assign(_request(document, MEMBER_B_API_REQUEST), "page_id", "page:2"),
+        IssueCode.ACCOUNT_MISMATCH,
     ),
     (
         "request_action_on_other_page",

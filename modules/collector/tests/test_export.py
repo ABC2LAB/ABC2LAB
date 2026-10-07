@@ -170,6 +170,22 @@ def test_requests_sorted_by_sent_time_within_role(writer: EvidenceWriter) -> Non
     assert [urlsplit(request["url"]).path for request in data["requests"]] == ["/a/early", "/a/late"]
 
 
+def test_pages_carry_observing_account(writer: EvidenceWriter) -> None:
+    user_a = make_crawl("user_a", (make_page("user_a", PAGE_A),), (), role=USER_ROLE)
+    user_b = make_crawl("user_b", (make_page("user_b", PAGE_A), make_page("user_b", PAGE_B)), (), role=USER_ROLE)
+    guest = make_crawl(GUEST_ROLE, (make_page(GUEST_ROLE, PAGE_A),), ())
+
+    pages = build_data(writer, make_outcome(guest, user_a, user_b))["pages"]
+
+    # 같은 URL이어도 페이지마다 그 페이지를 본 계정이 붙는다.
+    assert [(page["page_id"], page["account_id"], page["url"]) for page in pages] == [
+        ("page:1", "account:guest", PAGE_A),
+        ("page:2", "account:user_a", PAGE_A),
+        ("page:3", "account:user_b", PAGE_A),
+        ("page:4", "account:user_b", PAGE_B),
+    ]
+
+
 def test_request_links_to_page_and_action_of_same_role(writer: EvidenceWriter) -> None:
     guest_page = make_page(GUEST_ROLE, PAGE_A, links=[make_link("link:0", "b")])
     user_page = make_page(USER_ROLE, PAGE_A, links=[make_link("link:0", "b")])

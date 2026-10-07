@@ -31,6 +31,7 @@
     "pages": [
       {
         "page_id": "page:1",
+        "account_id": "account:guest",
         "url": "http://localhost:8080/",
         "title": "Demo Catalog",
         "evidence_refs": [
@@ -39,6 +40,7 @@
       },
       {
         "page_id": "page:2",
+        "account_id": "account:member_a",
         "url": "http://localhost:8080/items",
         "title": "Items",
         "evidence_refs": [
@@ -47,6 +49,7 @@
       },
       {
         "page_id": "page:3",
+        "account_id": "account:member_b",
         "url": "http://localhost:8080/items",
         "title": "Items",
         "evidence_refs": []

@@ -230,6 +230,22 @@ def test_requests_match_account_role_and_session(partial_run: FinishedRun) -> No
         assert (request["role_id"], request["session_ref"]) == (account["role_id"], account["session_ref"])
 
 
+def test_every_page_carries_its_account(partial_run: FinishedRun) -> None:
+    data = partial_run.document["data"]
+    account_ids = {account["account_id"] for account in data["accounts"]}
+    page_account = {page["page_id"]: page["account_id"] for page in data["pages"]}
+    pages_per_account = {account_id: 0 for account_id in LOGIN_ACCOUNT_IDS}
+    for page in data["pages"]:
+        pages_per_account[page["account_id"]] += 1
+
+    assert set(page_account.values()) <= account_ids
+    # 로그인에 실패한 admin_a만 페이지가 없다.
+    assert [account_id for account_id, count in pages_per_account.items() if count == 0] == ["account:admin_a"]
+    assert all(
+        page_account[request["page_id"]] == request["account_id"] for request in data["requests"] if request["page_id"]
+    )
+
+
 def test_api_request_linked_and_parameters_mapped(partial_run: FinishedRun) -> None:
     data = partial_run.document["data"]
     api_request = next(request for request in data["requests"] if MINE_API_PATH in request["url"])
