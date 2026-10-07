@@ -4,7 +4,10 @@ from typing import Any
 
 import pytest
 
-from modules.knowledge_graph.exceptions import ContractValidationError
+from modules.knowledge_graph.exceptions import (
+    ContractValidationError,
+    QueryResultValidationError,
+)
 from modules.knowledge_graph.neo4j_repository import Neo4jGraphRepository
 from modules.knowledge_graph.settings import Neo4jSettings
 from modules.knowledge_graph.storage import encode_json
@@ -70,20 +73,23 @@ def test_resource_ownership_uses_parameterized_template() -> None:
     assert "account_001" not in query
     assert parameters["account_ids"] == ["account_001"]
     assert "edge:OWNS" in query
+    assert "ABC2RequestObservation" in query
+    assert "observation.account_id IN $account_ids" in query
+    assert "owner.node_id IN $account_ids" not in query
+    assert "observation.account_id AS owner_account_id" in query
 
 
-def test_role_resource_access_maps_stored_properties() -> None:
+def test_role_resource_access_maps_request_observation_resources() -> None:
     transaction = FakeQueryTransaction(
         [
             {
-                "account_id": "account_001",
-                "role_id": "role_001",
-                "endpoint_id": "endpoint_001",
-                "resource_id": None,
-                "access_type": "ACCESS",
-                "basis": "observed",
-                "properties_json": encode_json({"action": "read_item"}),
-                "endpoint_properties_json": "{}",
+                "account_id": "acc_alice",
+                "role_id": "role_user",
+                "endpoint_id": "endpoint:GET:/orders/{id}",
+                "action": "read_order",
+                "resource_ids_json": encode_json(
+                    ["resource:order", "resource:audit"]
+                ),
                 "evidence_refs_json": "[]",
             }
         ]
@@ -94,23 +100,120 @@ def test_role_resource_access_maps_stored_properties() -> None:
         "graph_001",
         "run_001",
         "role_resource_access",
-        {"role_ids": []},
+        {"role_ids": ["role_user"]},
     )
 
     assert rows == [
         {
-            "account_id": "account_001",
-            "role_id": "role_001",
-            "endpoint_id": "endpoint_001",
-            "resource_id": None,
-            "action": "read_item",
+            "account_id": "acc_alice",
+            "role_id": "role_user",
+            "endpoint_id": "endpoint:GET:/orders/{id}",
+            "resource_id": "resource:order",
+            "action": "read_order",
             "access_observed": True,
             "evidence_refs": [],
-        }
+        },
+        {
+            "account_id": "acc_alice",
+            "role_id": "role_user",
+            "endpoint_id": "endpoint:GET:/orders/{id}",
+            "resource_id": "resource:audit",
+            "action": "read_order",
+            "access_observed": True,
+            "evidence_refs": [],
+        },
     ]
-    query, _ = transaction.calls[0]
+    query, parameters = transaction.calls[0]
+    assert "ABC2RequestObservation" in query
     assert "MATCH (account)-[access]->" in query
-    assert "actor = account OR actor = role" not in query
+    assert "MATCH (account)-[has_role:HAS_ROLE]->(role)" in query
+    assert "observation.role_id IN $role_ids" in query
+    assert "role.node_id IN $role_ids" not in query
+    assert "OPTIONAL MATCH" not in query
+    assert parameters["role_ids"] == ["role_user"]
+
+
+def test_role_resource_access_uses_null_when_request_has_no_resource() -> None:
+    transaction = FakeQueryTransaction(
+        [
+            {
+                "account_id": "acc_alice",
+                "role_id": "role_user",
+                "endpoint_id": "endpoint:POST:/logout",
+                "action": "logout",
+                "resource_ids_json": "[]",
+                "evidence_refs_json": "[]",
+            }
+        ]
+    )
+
+    rows = _repository(transaction).query(
+        "graph_001",
+        "run_001",
+        "role_resource_access",
+        {"role_ids": []},
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["resource_id"] is None
+
+
+def test_role_resource_access_merges_repeated_observation_evidence() -> None:
+    first_evidence = _evidence("evidence_request_001")
+    second_evidence = _evidence("evidence_request_002")
+    base_record = {
+        "account_id": "acc_alice",
+        "role_id": "role_user",
+        "endpoint_id": "endpoint:GET:/orders/{id}",
+        "action": "read_order",
+        "resource_ids_json": encode_json(["resource:order"]),
+    }
+    transaction = FakeQueryTransaction(
+        [
+            {**base_record, "evidence_refs_json": encode_json([first_evidence])},
+            {**base_record, "evidence_refs_json": encode_json([second_evidence])},
+            {
+                **base_record,
+                "action": "download_order",
+                "evidence_refs_json": "[]",
+            },
+        ]
+    )
+
+    rows = _repository(transaction).query(
+        "graph_001",
+        "run_001",
+        "role_resource_access",
+        {"role_ids": []},
+    )
+
+    assert len(rows) == 2
+    assert rows[0]["action"] == "read_order"
+    assert rows[0]["evidence_refs"] == [first_evidence, second_evidence]
+    assert rows[1]["action"] == "download_order"
+
+
+def test_role_resource_access_rejects_invalid_stored_resource_ids() -> None:
+    transaction = FakeQueryTransaction(
+        [
+            {
+                "account_id": "acc_alice",
+                "role_id": "role_user",
+                "endpoint_id": "endpoint:GET:/orders/{id}",
+                "action": "read_order",
+                "resource_ids_json": '{"resource": "order"}',
+                "evidence_refs_json": "[]",
+            }
+        ]
+    )
+
+    with pytest.raises(QueryResultValidationError, match="resource_ids 형식"):
+        _repository(transaction).query(
+            "graph_001",
+            "run_001",
+            "role_resource_access",
+            {"role_ids": []},
+        )
 
 
 def test_workflow_dependencies_returns_typed_rows() -> None:
@@ -180,3 +283,13 @@ def _repository(transaction: FakeQueryTransaction) -> Neo4jGraphRepository:
         settings,
         driver=FakeQueryDriver(transaction),
     )
+
+
+def _evidence(evidence_id: str) -> dict[str, Any]:
+    return {
+        "evidence_id": evidence_id,
+        "kind": "request",
+        "path": f"evidence/semantic_analyzer/{evidence_id}.json",
+        "sha256": "a" * 64,
+        "redacted": True,
+    }

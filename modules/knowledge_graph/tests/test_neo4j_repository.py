@@ -43,8 +43,9 @@ class FakeTransaction:
         self.existing_source = existing_source
         self.has_graph_collision = has_graph_collision
         self.counts = counts or {
+            "request_observations": 1,
             "nodes": 4,
-            "relationships": 1,
+            "relationships": 2,
             "workflows": 1,
             "workflow_steps": 1,
             "workflow_dependencies": 0,
@@ -60,6 +61,7 @@ class FakeTransaction:
                 return FakeResult()
             return FakeResult({"graph_id": "existing_graph"})
         count_key_by_label = {
+            "ABC2RequestObservation": "request_observations",
             "ABC2Entity": "nodes",
             "ABC2Workflow ": "workflows",
             "ABC2WorkflowStep": "workflow_steps",
@@ -134,7 +136,7 @@ def test_ingest_writes_scoped_graph_records(fixture_root: Path) -> None:
     assert state.is_created is True
     assert len(driver.schema_queries) == len(SCHEMA_QUERIES)
     assert set(driver.database_names) == {"neo4j"}
-    assert len(transaction.calls) == 13
+    assert len(transaction.calls) == 16
     for _, parameters in transaction.calls:
         assert parameters["run_id"] == "run_demo_001"
 
@@ -146,9 +148,28 @@ def test_ingest_writes_scoped_graph_records(fixture_root: Path) -> None:
     relationship_call = next(
         call for call in transaction.calls if "relationship_id" in call[0]
     )
+    observation_call = next(
+        call
+        for call in transaction.calls
+        if "CREATE (:ABC2RequestObservation" in call[0]
+    )
     assert len(node_call[1]["records"]) == 4
     assert len(relationship_call[1]["records"]) == 1
     assert "run_id: $run_id" in relationship_call[0]
+    assert observation_call[1]["records"] == [
+        {
+            "request_id": "request_001",
+            "account_id": "account_user",
+            "role_id": "role_user",
+            "user_node_id": "account_user",
+            "role_node_id": "role_user",
+            "endpoint_id": "endpoint_orders",
+            "action": "read_order",
+            "resource_ids_json": '["resource_order_001"]',
+            "basis": "observed",
+            "evidence_refs_json": "[]",
+        }
+    ]
     metadata_call = next(
         call for call in transaction.calls if "CREATE (:ABC2Graph" in call[0]
     )
@@ -217,6 +238,7 @@ def test_ingest_rolls_back_when_counts_differ(fixture_root: Path) -> None:
     )
     transaction = FakeTransaction(
         counts={
+            "request_observations": 0,
             "nodes": 3,
             "relationships": 1,
             "workflows": 1,

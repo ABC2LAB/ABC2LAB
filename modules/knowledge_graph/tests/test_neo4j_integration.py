@@ -15,6 +15,14 @@ from modules.knowledge_graph.settings import Neo4jSettings
 from modules.knowledge_graph.utils.hashing import calculate_sha256
 
 
+CURRENT_SEMANTIC_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "semantic_analyzer_current"
+    / "semantic_analysis.json"
+)
+
+
 @pytest.mark.skipif(
     os.getenv("KG_RUN_NEO4J_INTEGRATION") != "1",
     reason="KG_RUN_NEO4J_INTEGRATION=1일 때만 실제 Neo4j 통합 테스트 실행",
@@ -78,6 +86,7 @@ def test_ingest_round_trip_with_real_neo4j(fixture_root: Path) -> None:
     assert repeated_state.graph_id == graph_id
     assert repeated_state.graph_revision == 1
     assert repeated_state.is_created is False
+    assert restored.request_observations == graph.request_observations
     assert {node.node_id: node for node in restored.nodes} == {
         node.node_id: node for node in graph.nodes
     }
@@ -91,6 +100,7 @@ def test_ingest_round_trip_with_real_neo4j(fixture_root: Path) -> None:
     assert {workflow.workflow_id: workflow for workflow in restored.workflows} == {
         workflow.workflow_id: workflow for workflow in graph.workflows
     }
+    assert counts.request_observations == len(graph.request_observations)
     assert counts.nodes == len(graph.nodes)
     assert counts.relationships == len(graph.relationships)
     assert counts.workflows == len(graph.workflows)
@@ -158,7 +168,7 @@ def test_public_query_returns_all_typed_rows_with_real_neo4j(
         "artifacts/iteration-000/semantic_analyzer/semantic_analysis.json"
     )
     semantic_path = run_root / semantic_relative
-    _add_query_relationships(semantic_path)
+    _replace_with_current_semantic_fixture(semantic_path)
     settings = Neo4jSettings.from_environment()
     graph_id: str | None = None
 
@@ -214,11 +224,19 @@ def test_public_query_returns_all_typed_rows_with_real_neo4j(
     }
     assert query_response["status"] == "completed"
     assert len(results_by_key["resource_ownership"]["rows"]) == 1
+    ownership_row = results_by_key["resource_ownership"]["rows"][0]
+    assert ownership_row["owner_account_id"] == "acc_alice"
+    assert ownership_row["resource_id"] == "resource:order"
     assert len(results_by_key["role_resource_access"]["rows"]) == 1
-    assert len(results_by_key["workflow_dependencies"]["rows"]) == 1
+    access_row = results_by_key["role_resource_access"]["rows"][0]
+    assert access_row["account_id"] == "acc_alice"
+    assert access_row["role_id"] == "role_user"
+    assert access_row["action"] == "read_order"
+    assert access_row["resource_id"] == "resource:order"
+    assert results_by_key["workflow_dependencies"]["rows"] == []
     snapshot = results_by_key["structure_snapshot"]["rows"][0]
-    assert len(snapshot["nodes"]) == 4
-    assert len(snapshot["relationships"]) == 4
+    assert len(snapshot["nodes"]) == 5
+    assert len(snapshot["relationships"]) == 6
     assert len(snapshot["workflows"]) == 1
 
 
@@ -409,60 +427,11 @@ def _add_verified_node_update(run_root: Path) -> None:
     )
 
 
-def _add_query_relationships(semantic_path: Path) -> None:
-    artifact = json.loads(semantic_path.read_text(encoding="utf-8"))
-    artifact["data"]["relationships"].extend(
-        [
-            {
-                "relationship_id": "relationship_role_001",
-                "source_id": "account_user",
-                "target_id": "role_user",
-                "relation_type": "HAS_ROLE",
-                "properties": {},
-                "basis": "observed",
-                "evidence_refs": [],
-            },
-            {
-                "relationship_id": "relationship_access_001",
-                "source_id": "account_user",
-                "target_id": "endpoint_orders",
-                "relation_type": "ACCESS",
-                "properties": {
-                    "action": "read_order",
-                    "access_observed": True,
-                },
-                "basis": "observed",
-                "evidence_refs": [],
-            },
-            {
-                "relationship_id": "relationship_reference_001",
-                "source_id": "endpoint_orders",
-                "target_id": "resource_order_001",
-                "relation_type": "REFERENCE",
-                "properties": {},
-                "basis": "observed",
-                "evidence_refs": [],
-            },
-        ]
-    )
-    workflow = artifact["data"]["workflows"][0]
-    workflow["steps"].append(
-        {
-            "step_id": "step_follow",
-            "order": 1,
-            "action": "follow_order",
-            "request_ids": ["request_001"],
-        }
-    )
-    workflow["dependencies"].append(
-        {
-            "before_step_id": "step_read",
-            "after_step_id": "step_follow",
-            "condition": "order was read",
-            "basis": "inferred",
-            "evidence_refs": [],
-        }
-    )
+def _replace_with_current_semantic_fixture(semantic_path: Path) -> None:
+    artifact = json.loads(CURRENT_SEMANTIC_FIXTURE.read_text(encoding="utf-8"))
+    artifact["artifact_id"] = "semantic_integration_current_001"
+    artifact["run_id"] = "run_demo_001"
+    artifact["input_refs"] = []
     semantic_path.write_text(
         json.dumps(artifact, ensure_ascii=False),
         encoding="utf-8",

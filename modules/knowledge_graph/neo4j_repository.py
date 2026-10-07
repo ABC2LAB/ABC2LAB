@@ -36,9 +36,12 @@ from modules.knowledge_graph.storage import (
     decode_json,
     deserialize_edge,
     deserialize_node,
+    deserialize_request_observation,
     deserialize_workflow,
+    encode_json,
     serialize_edge,
     serialize_node,
+    serialize_request_observation,
     serialize_workflow,
     serialize_workflow_dependency,
     serialize_workflow_step,
@@ -78,6 +81,10 @@ SCHEMA_QUERIES = (
     "CREATE CONSTRAINT abc2_entity_identity IF NOT EXISTS "
     "FOR (entity:ABC2Entity) "
     "REQUIRE (entity.run_id, entity.graph_id, entity.node_id) IS UNIQUE",
+    "CREATE CONSTRAINT abc2_request_observation_identity IF NOT EXISTS "
+    "FOR (observation:ABC2RequestObservation) "
+    "REQUIRE (observation.run_id, observation.graph_id, "
+    "observation.request_id) IS UNIQUE",
     "CREATE CONSTRAINT abc2_workflow_identity IF NOT EXISTS "
     "FOR (workflow:ABC2Workflow) "
     "REQUIRE (workflow.run_id, workflow.graph_id, workflow.workflow_id) IS UNIQUE",
@@ -96,6 +103,7 @@ SCHEMA_QUERIES = (
 
 @dataclass(frozen=True)
 class GraphCounts:
+    request_observations: int
     nodes: int
     relationships: int
     workflows: int
@@ -316,13 +324,17 @@ class Neo4jGraphRepository:
                 "MATCH (owner:ABC2Entity {graph_id: $graph_id, run_id: $run_id})"
                 "-[edge:OWNS]->(resource:ABC2Entity {"
                 "graph_id: $graph_id, run_id: $run_id}) "
+                "MATCH (observation:ABC2RequestObservation {"
+                "graph_id: $graph_id, run_id: $run_id}) "
                 "WHERE owner.node_type = 'User' AND resource.node_type = 'Resource' "
-                "AND (size($account_ids) = 0 OR owner.node_id IN $account_ids) "
+                "AND observation.user_node_id = owner.node_id "
+                "AND (size($account_ids) = 0 "
+                "OR observation.account_id IN $account_ids) "
                 "AND (size($resource_ids) = 0 OR resource.node_id IN $resource_ids) "
-                "RETURN resource.node_id AS resource_id, "
-                "owner.node_id AS owner_account_id, edge.basis AS basis, "
+                "RETURN DISTINCT resource.node_id AS resource_id, "
+                "observation.account_id AS owner_account_id, edge.basis AS basis, "
                 "edge.evidence_refs_json AS evidence_refs_json "
-                "ORDER BY resource.node_id, owner.node_id",
+                "ORDER BY resource.node_id, owner_account_id",
                 graph_id=graph_id,
                 run_id=run_id,
                 **parameters,
@@ -330,29 +342,39 @@ class Neo4jGraphRepository:
             return [cls._ownership_row(record) for record in records]
         if query_key == "role_resource_access":
             records = transaction.run(
+                "MATCH (observation:ABC2RequestObservation {"
+                "graph_id: $graph_id, run_id: $run_id}) "
                 "MATCH (account:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
-                "node_type: 'User'})-[:HAS_ROLE]->(role:ABC2Entity {"
-                "graph_id: $graph_id, run_id: $run_id, node_type: 'Role'}) "
-                "MATCH (account)"
-                "-[access]->(endpoint:ABC2Entity {graph_id: $graph_id, "
-                "run_id: $run_id, node_type: 'Endpoint'}) "
-                "WHERE type(access) IN ['ACCESS', 'VERIFIED_ACCESS'] "
-                "AND (size($role_ids) = 0 OR role.node_id IN $role_ids) "
-                "OPTIONAL MATCH (endpoint)-[resource_link]->(resource:ABC2Entity {"
-                "graph_id: $graph_id, run_id: $run_id, node_type: 'Resource'}) "
-                "WHERE type(resource_link) IN ['REFERENCE', 'USE'] "
-                "RETURN DISTINCT account.node_id AS account_id, "
-                "role.node_id AS role_id, endpoint.node_id AS endpoint_id, "
-                "resource.node_id AS resource_id, type(access) AS access_type, "
-                "access.basis AS basis, access.properties_json AS properties_json, "
-                "endpoint.properties_json AS endpoint_properties_json, "
-                "access.evidence_refs_json AS evidence_refs_json "
-                "ORDER BY account.node_id, role.node_id, endpoint.node_id, resource_id",
+                "node_type: 'User'}) "
+                "MATCH (role:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
+                "node_type: 'Role'}) "
+                "MATCH (endpoint:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
+                "node_type: 'Endpoint'}) "
+                "WHERE account.node_id = observation.user_node_id "
+                "AND role.node_id = observation.role_node_id "
+                "AND endpoint.node_id = observation.endpoint_id "
+                "AND (size($role_ids) = 0 OR observation.role_id IN $role_ids) "
+                "AND EXISTS { "
+                "MATCH (account)-[has_role:HAS_ROLE]->(role) "
+                "WHERE has_role.graph_id = $graph_id AND has_role.run_id = $run_id "
+                "} "
+                "AND EXISTS { "
+                "MATCH (account)-[access]->(endpoint) "
+                "WHERE access.graph_id = $graph_id AND access.run_id = $run_id "
+                "AND type(access) IN ['ACCESS', 'VERIFIED_ACCESS'] "
+                "} "
+                "RETURN observation.account_id AS account_id, "
+                "observation.role_id AS role_id, endpoint.node_id AS endpoint_id, "
+                "observation.action AS action, "
+                "observation.resource_ids_json AS resource_ids_json, "
+                "observation.evidence_refs_json AS evidence_refs_json "
+                "ORDER BY observation.account_id, observation.role_id, "
+                "endpoint.node_id, observation.request_id",
                 graph_id=graph_id,
                 run_id=run_id,
                 **parameters,
             )
-            return [cls._access_row(record) for record in records]
+            return cls._access_rows(records)
         records = transaction.run(
             "MATCH (workflow:ABC2Workflow {graph_id: $graph_id, run_id: $run_id})"
             "-[:ABC2_HAS_DEPENDENCY]->(dependency:ABC2WorkflowDependency {"
@@ -380,32 +402,48 @@ class Neo4jGraphRepository:
             "evidence_refs": _decode_list(record["evidence_refs_json"]),
         }
 
+    @classmethod
+    def _access_rows(cls, records: Iterable[Any]) -> list[dict[str, Any]]:
+        row_by_identity: dict[tuple[Any, ...], dict[str, Any]] = {}
+        for record in records:
+            for row in cls._access_rows_for_record(record):
+                identity = (
+                    row["account_id"],
+                    row["role_id"],
+                    row["endpoint_id"],
+                    row["resource_id"],
+                    row["action"],
+                )
+                existing = row_by_identity.get(identity)
+                if existing is None:
+                    row_by_identity[identity] = row
+                    continue
+                existing["evidence_refs"] = _merge_evidence_refs(
+                    existing["evidence_refs"],
+                    row["evidence_refs"],
+                )
+        return list(row_by_identity.values())
+
     @staticmethod
-    def _access_row(record: Any) -> dict[str, Any]:
-        properties = _decode_mapping(record["properties_json"])
-        endpoint_properties = _decode_mapping(record["endpoint_properties_json"])
-        action = properties.get("action") or properties.get("action_meaning")
-        action = action or endpoint_properties.get("action")
+    def _access_rows_for_record(record: Any) -> list[dict[str, Any]]:
+        action = record["action"]
         if not isinstance(action, str) or not action:
-            raise QueryResultValidationError("ACCESS 관계에 action 속성이 없음")
-        observed_value = properties.get("access_observed")
-        if observed_value is not None and not isinstance(observed_value, bool):
-            raise QueryResultValidationError("access_observed 속성이 boolean이 아님")
-        is_observed = (
-            observed_value
-            if isinstance(observed_value, bool)
-            else record["access_type"] == "VERIFIED_ACCESS"
-            or record["basis"] in {"observed", "verified"}
-        )
-        return {
-            "account_id": record["account_id"],
-            "role_id": record["role_id"],
-            "endpoint_id": record["endpoint_id"],
-            "resource_id": record["resource_id"],
-            "action": action,
-            "access_observed": is_observed,
-            "evidence_refs": _decode_list(record["evidence_refs_json"]),
-        }
+            raise QueryResultValidationError("요청 관찰 레코드의 action이 올바르지 않음")
+        resource_ids = _decode_string_list(record["resource_ids_json"])
+        resources: list[str | None] = resource_ids or [None]
+        evidence_refs = _decode_list(record["evidence_refs_json"])
+        return [
+            {
+                "account_id": record["account_id"],
+                "role_id": record["role_id"],
+                "endpoint_id": record["endpoint_id"],
+                "resource_id": resource_id,
+                "action": action,
+                "access_observed": True,
+                "evidence_refs": list(evidence_refs),
+            }
+            for resource_id in resources
+        ]
 
     @staticmethod
     def _flow_row(record: Any) -> dict[str, Any]:
@@ -712,6 +750,7 @@ class Neo4jGraphRepository:
         ).consume()
         cls._create_nodes(transaction, graph_id, run_id, graph)
         cls._create_relationships(transaction, graph_id, run_id, graph)
+        cls._create_request_observations(transaction, graph_id, run_id, graph)
         cls._create_workflows(transaction, graph_id, run_id, graph)
         cls._verify_graph_counts(transaction, graph_id, run_id, graph)
         return GraphState(graph_id=graph_id, graph_revision=1, is_created=True)
@@ -765,6 +804,31 @@ class Neo4jGraphRepository:
                 run_id=run_id,
                 records=records,
             ).consume()
+
+    @staticmethod
+    def _create_request_observations(
+        transaction: ManagedTransaction,
+        graph_id: str,
+        run_id: str,
+        graph: SemanticGraph,
+    ) -> None:
+        records = [
+            serialize_request_observation(observation)
+            for observation in graph.request_observations
+        ]
+        transaction.run(
+            "UNWIND $records AS record "
+            "CREATE (:ABC2RequestObservation {"
+            "graph_id: $graph_id, run_id: $run_id, "
+            "request_id: record.request_id, account_id: record.account_id, "
+            "role_id: record.role_id, user_node_id: record.user_node_id, "
+            "role_node_id: record.role_node_id, endpoint_id: record.endpoint_id, "
+            "action: record.action, resource_ids_json: record.resource_ids_json, "
+            "basis: record.basis, evidence_refs_json: record.evidence_refs_json})",
+            graph_id=graph_id,
+            run_id=run_id,
+            records=records,
+        ).consume()
 
     @staticmethod
     def _create_workflows(
@@ -862,6 +926,15 @@ class Neo4jGraphRepository:
                 run_id=run_id,
             )
         )
+        request_observation_values = _record_values(
+            transaction.run(
+                "MATCH (observation:ABC2RequestObservation {"
+                "graph_id: $graph_id, run_id: $run_id}) "
+                "RETURN observation {.*} AS value ORDER BY observation.request_id",
+                graph_id=graph_id,
+                run_id=run_id,
+            )
+        )
         workflow_values = _record_values(
             transaction.run(
                 "MATCH (workflow:ABC2Workflow {graph_id: $graph_id, run_id: $run_id}) "
@@ -891,6 +964,10 @@ class Neo4jGraphRepository:
         steps_by_workflow = _group_by_workflow(step_values)
         dependencies_by_workflow = _group_by_workflow(dependency_values)
         return SemanticGraph(
+            request_observations=tuple(
+                deserialize_request_observation(item)
+                for item in request_observation_values
+            ),
             nodes=tuple(deserialize_node(item) for item in node_values),
             relationships=tuple(deserialize_edge(item) for item in edge_values),
             workflows=tuple(
@@ -910,6 +987,7 @@ class Neo4jGraphRepository:
         run_id: str,
     ) -> GraphCounts:
         labels = (
+            ("ABC2RequestObservation", "request_observations"),
             ("ABC2Entity", "nodes"),
             ("ABC2Workflow", "workflows"),
             ("ABC2WorkflowStep", "workflow_steps"),
@@ -932,6 +1010,7 @@ class Neo4jGraphRepository:
             run_id=run_id,
         ).single(strict=True)
         return GraphCounts(
+            request_observations=counts["request_observations"],
             nodes=counts["nodes"],
             relationships=int(relationship_record["count"]),
             workflows=counts["workflows"],
@@ -949,6 +1028,7 @@ class Neo4jGraphRepository:
     ) -> None:
         actual = cls._count_transaction(transaction, graph_id, run_id)
         expected = GraphCounts(
+            request_observations=len(graph.request_observations),
             nodes=len(graph.nodes),
             relationships=len(graph.relationships),
             workflows=len(graph.workflows),
@@ -988,13 +1068,32 @@ def _decode_list(value: str) -> list[dict[str, Any]]:
     return decoded
 
 
-def _decode_mapping(value: str) -> dict[str, Any]:
+def _decode_string_list(value: str) -> list[str]:
     try:
         decoded = decode_json(value)
     except (TypeError, ValueError) as error:
         raise QueryResultValidationError(
-            "저장된 properties JSON을 읽을 수 없음"
+            "저장된 request resource_ids JSON을 읽을 수 없음"
         ) from error
-    if not isinstance(decoded, dict):
-        raise QueryResultValidationError("저장된 properties 형식이 올바르지 않음")
+    if not isinstance(decoded, list) or any(
+        not isinstance(item, str) or not item for item in decoded
+    ):
+        raise QueryResultValidationError(
+            "저장된 request resource_ids 형식이 올바르지 않음"
+        )
     return decoded
+
+
+def _merge_evidence_refs(
+    existing_refs: list[dict[str, Any]],
+    new_refs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged_refs = list(existing_refs)
+    identities = {encode_json(item) for item in existing_refs}
+    for evidence_ref in new_refs:
+        identity = encode_json(evidence_ref)
+        if identity in identities:
+            continue
+        merged_refs.append(evidence_ref)
+        identities.add(identity)
+    return merged_refs

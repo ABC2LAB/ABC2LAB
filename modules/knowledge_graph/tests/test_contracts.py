@@ -37,8 +37,9 @@ def test_contract_fixtures_are_valid(fixture_root: Path) -> None:
 
     assert semantic_artifact["artifact_id"] == "semantic_demo_001"
     assert isinstance(semantic_graph, SemanticGraph)
+    assert len(semantic_graph.request_observations) == 1
     assert len(semantic_graph.nodes) == 4
-    assert len(semantic_graph.relationships) == 1
+    assert len(semantic_graph.relationships) == 2
     assert len(semantic_graph.workflows) == 1
     assert len(query_artifact["data"]["queries"]) == 4
     assert len(verification_artifact["data"]["graph_updates"]["relationships"]) == 1

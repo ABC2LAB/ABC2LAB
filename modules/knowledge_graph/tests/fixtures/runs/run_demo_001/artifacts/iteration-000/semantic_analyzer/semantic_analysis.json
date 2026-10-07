@@ -36,12 +36,13 @@
       }
     ],
     "nodes": [
-      {"node_id": "account_user", "node_type": "User", "properties": {}, "basis": "observed", "evidence_refs": []},
-      {"node_id": "role_user", "node_type": "Role", "properties": {"name": "user"}, "basis": "observed", "evidence_refs": []},
+      {"node_id": "account_user", "node_type": "User", "properties": {"account_id": "account_user", "alias": "user", "role_id": "role_user"}, "basis": "observed", "evidence_refs": []},
+      {"node_id": "role_user", "node_type": "Role", "properties": {"name": "user", "role_id": "role_user"}, "basis": "observed", "evidence_refs": []},
       {"node_id": "endpoint_orders", "node_type": "Endpoint", "properties": {"method": "GET", "path_template": "/api/orders/{order_id}"}, "basis": "observed", "evidence_refs": []},
       {"node_id": "resource_order_001", "node_type": "Resource", "properties": {"resource_type": "order"}, "basis": "inferred", "evidence_refs": []}
     ],
     "relationships": [
+      {"relationship_id": "relationship_has_role_001", "source_id": "account_user", "target_id": "role_user", "relation_type": "HAS_ROLE", "properties": {}, "basis": "observed", "evidence_refs": []},
       {"relationship_id": "relationship_owns_001", "source_id": "account_user", "target_id": "resource_order_001", "relation_type": "OWNS", "properties": {}, "basis": "inferred", "evidence_refs": []}
     ],
     "workflows": [

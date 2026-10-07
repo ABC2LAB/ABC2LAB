@@ -30,6 +30,42 @@ class EvidenceReference:
 
 
 @dataclass(frozen=True)
+class RequestObservation:
+    request_id: str
+    account_id: str
+    role_id: str
+    user_node_id: str
+    role_node_id: str
+    endpoint_id: str
+    action: str
+    resource_ids: tuple[str, ...]
+    basis: str
+    evidence_refs: tuple[EvidenceReference, ...]
+
+    @classmethod
+    def from_mapping(
+        cls,
+        value: dict[str, Any],
+        user_node_id_by_account_id: dict[str, str],
+        role_node_id_by_role_id: dict[str, str],
+    ) -> "RequestObservation":
+        return cls(
+            request_id=value["request_id"],
+            account_id=value["account_id"],
+            role_id=value["role_id"],
+            user_node_id=user_node_id_by_account_id[value["account_id"]],
+            role_node_id=role_node_id_by_role_id[value["role_id"]],
+            endpoint_id=value["endpoint_id"],
+            action=value["action_meaning"],
+            resource_ids=tuple(value["resource_ids"]),
+            basis=value["basis"],
+            evidence_refs=tuple(
+                EvidenceReference.from_mapping(item) for item in value["evidence_refs"]
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class GraphNode:
     node_id: str
     node_type: str
@@ -142,6 +178,7 @@ class Workflow:
 
 @dataclass(frozen=True)
 class SemanticGraph:
+    request_observations: tuple[RequestObservation, ...]
     nodes: tuple[GraphNode, ...]
     relationships: tuple[GraphEdge, ...]
     workflows: tuple[Workflow, ...]
@@ -149,7 +186,25 @@ class SemanticGraph:
     @classmethod
     def from_artifact(cls, artifact: dict[str, Any]) -> "SemanticGraph":
         data = artifact["data"]
+        user_node_id_by_account_id = {
+            item["properties"]["account_id"]: item["node_id"]
+            for item in data["nodes"]
+            if item["node_type"] == "User"
+        }
+        role_node_id_by_role_id = {
+            item["properties"]["role_id"]: item["node_id"]
+            for item in data["nodes"]
+            if item["node_type"] == "Role"
+        }
         return cls(
+            request_observations=tuple(
+                RequestObservation.from_mapping(
+                    item,
+                    user_node_id_by_account_id,
+                    role_node_id_by_role_id,
+                )
+                for item in data["normalized_requests"]
+            ),
             nodes=tuple(GraphNode.from_mapping(item) for item in data["nodes"]),
             relationships=tuple(
                 GraphEdge.from_mapping(item) for item in data["relationships"]
