@@ -1,0 +1,82 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "ground_truth",
+  "dataset_id": "shop_demo",
+  "dataset_version": "1",
+  "producer": "test_fixture",
+  "created_at": "2026-10-07T02:00:00Z",
+  "data": {
+    "entities": [
+      {
+        "gt_id": "gt_role_user",
+        "entity_type": "Role",
+        "match_key": {
+          "name": "User"
+        }
+      },
+      {
+        "gt_id": "gt_endpoint_order",
+        "entity_type": "Endpoint",
+        "match_key": {
+          "method": "GET",
+          "path_template": "/api/orders/{order_id}"
+        }
+      },
+      {
+        "gt_id": "gt_resource_order_b",
+        "entity_type": "Resource",
+        "match_key": {
+          "resource_type": "order",
+          "external_id": "order-b"
+        }
+      }
+    ],
+    "relationships": [
+      {
+        "gt_relation_id": "gt_relationship_owns",
+        "source_gt_id": "gt_role_user",
+        "target_gt_id": "gt_resource_order_b",
+        "relation_type": "OWNS"
+      }
+    ],
+    "workflows": [
+      {
+        "gt_workflow_id": "gt_workflow_order_update",
+        "name": "주문 상태 변경",
+        "ordered_actions": [
+          "read_order",
+          "update_order"
+        ],
+        "constraints": [
+          "조회 뒤 상태 변경"
+        ]
+      }
+    ],
+    "cases": [
+      {
+        "case_id": "case_idor_001",
+        "category": "authorization",
+        "vulnerability_type": "horizontal_access",
+        "actor_alias": "user_a",
+        "resource_match_key": {
+          "resource_type": "order",
+          "external_id": "order-b"
+        },
+        "is_vulnerable": true,
+        "expected_behavior": "다른 사용자 주문 조회를 거부해야 한다"
+      },
+      {
+        "case_id": "case_workflow_001",
+        "category": "business_logic",
+        "vulnerability_type": "workflow_step_bypass",
+        "actor_alias": "user_a",
+        "resource_match_key": {
+          "resource_type": "order",
+          "external_id": "order-b"
+        },
+        "is_vulnerable": false,
+        "expected_behavior": "선행 조건 없는 상태 변경을 거부해야 한다"
+      }
+    ]
+  }
+}
