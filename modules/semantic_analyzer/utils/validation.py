@@ -18,13 +18,22 @@ def _validator(schema_path: Path) -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
+# jsonschema 기본 메시지는 anyOf·type·enum 등에서 입력 값(URL·토큰 등)을 그대로 담는다.
+# 키 이름만 들어가는 제약만 메시지를 쓰고, 나머지는 위치+제약 종류만 남긴다(절대 규칙 2: 비밀값 누출 금지).
+_KEY_ONLY_KEYWORDS = frozenset({"required", "additionalProperties", "dependentRequired"})
+
+
+def _safe_message(error) -> str:
+    location = error.json_path  # $.data.requests[0].url 처럼 경로만(입력 값 없음)
+    if error.validator in _KEY_ONLY_KEYWORDS:
+        return f"{location}: {error.message}"  # 이 제약의 메시지는 키 이름만 담는다
+    return f"{location}: {error.validator} 제약 위반"
+
+
 def _schema_errors(instance: dict, schema_path: Path) -> list[str]:
     validator = _validator(schema_path)
-    messages: list[str] = []
-    for error in sorted(validator.iter_errors(instance), key=lambda e: list(e.path)):
-        location = "/".join(str(part) for part in error.path) or "<root>"
-        messages.append(f"{location}: {error.message}")
-    return messages
+    return [_safe_message(error)
+            for error in sorted(validator.iter_errors(instance), key=lambda e: e.json_path)]
 
 
 def validate_crawl_result(instance: dict) -> list[str]:
