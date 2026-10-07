@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "graph_query.schema.json",
+  "title": "graph_query.json (schema_version 0.1.0) - access_analyzer 출력 계약",
+  "description": "생산자: access_analyzer(prepare_queries). 직접 소비자: knowledge_graph. 기준: docs/spec/m4-access_analyzer.md, 02-common-contract.md. KG가 받아들이는 graph_query 입력과 동일한 모양이라 우리 출력이 KG 입력 검증을 그대로 통과한다. 계약이 바뀌면 KG와 합의 후 같이 고친다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "artifact_type", "artifact_id", "run_id", "iteration", "producer",
+    "mode", "created_at", "status", "input_refs", "errors", "runtime_metrics", "data"
+  ],
+  "properties": {
+    "schema_version": { "const": "0.1.0" },
+    "artifact_type": { "const": "graph_query" },
+    "artifact_id": { "$ref": "#/$defs/nonEmptyString" },
+    "run_id": { "$ref": "#/$defs/nonEmptyString" },
+    "iteration": { "type": "integer", "minimum": 0 },
+    "producer": { "const": "access_analyzer" },
+    "mode": { "enum": ["diagnosis", "development"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["completed", "partial", "failed"] },
+    "input_refs": { "type": "array", "items": { "$ref": "#/$defs/artifactRef" } },
+    "errors": { "type": "array", "items": { "$ref": "#/$defs/errorItem" } },
+    "runtime_metrics": { "oneOf": [{ "$ref": "#/$defs/runtimeMetrics" }, { "type": "null" }] },
+    "data": { "oneOf": [{ "$ref": "#/$defs/queryData" }, { "type": "null" }] }
+  },
+  "allOf": [{ "$ref": "#/$defs/statusRules" }],
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_type", "iteration", "path", "sha256"],
+      "properties": {
+        "artifact_id": { "$ref": "#/$defs/nonEmptyString" },
+        "artifact_type": { "$ref": "#/$defs/nonEmptyString" },
+        "iteration": { "type": "integer", "minimum": 0 },
+        "path": { "$ref": "#/$defs/nonEmptyString" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "errorItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "item_ref", "retryable"],
+      "properties": {
+        "code": { "$ref": "#/$defs/nonEmptyString" },
+        "message": { "$ref": "#/$defs/nonEmptyString" },
+        "item_ref": { "type": ["string", "null"] },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "runtimeMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duration_ms", "llm_calls", "input_tokens", "output_tokens", "peak_memory_mb"],
+      "properties": {
+        "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "llm_calls": { "type": ["integer", "null"], "minimum": 0 },
+        "input_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "output_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "peak_memory_mb": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "ownershipQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_id", "query_key", "parameters"],
+      "properties": {
+        "query_id": { "$ref": "#/$defs/nonEmptyString" },
+        "query_key": { "const": "resource_ownership" },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["account_ids", "resource_ids"],
+          "properties": {
+            "account_ids": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyString" } },
+            "resource_ids": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyString" } }
+          }
+        }
+      }
+    },
+    "accessQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_id", "query_key", "parameters"],
+      "properties": {
+        "query_id": { "$ref": "#/$defs/nonEmptyString" },
+        "query_key": { "const": "role_resource_access" },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role_ids"],
+          "properties": {
+            "role_ids": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyString" } }
+          }
+        }
+      }
+    },
+    "flowQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_id", "query_key", "parameters"],
+      "properties": {
+        "query_id": { "$ref": "#/$defs/nonEmptyString" },
+        "query_key": { "const": "workflow_dependencies" },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workflow_ids"],
+          "properties": {
+            "workflow_ids": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyString" } }
+          }
+        }
+      }
+    },
+    "snapshotQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_id", "query_key", "parameters"],
+      "properties": {
+        "query_id": { "$ref": "#/$defs/nonEmptyString" },
+        "query_key": { "const": "structure_snapshot" },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["include_evidence_refs"],
+          "properties": {
+            "include_evidence_refs": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "queryData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["graph_id", "expected_graph_revision", "queries"],
+      "properties": {
+        "graph_id": { "$ref": "#/$defs/nonEmptyString" },
+        "expected_graph_revision": { "type": ["integer", "null"], "minimum": 0 },
+        "queries": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/ownershipQuery" },
+              { "$ref": "#/$defs/accessQuery" },
+              { "$ref": "#/$defs/flowQuery" },
+              { "$ref": "#/$defs/snapshotQuery" }
+            ]
+          }
+        }
+      }
+    },
+    "statusRules": {
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "completed" } } },
+          "then": { "properties": { "errors": { "maxItems": 0 }, "data": { "$ref": "#/$defs/queryData" } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "partial" } } },
+          "then": { "properties": { "errors": { "minItems": 1 }, "data": { "$ref": "#/$defs/queryData" } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "failed" } } },
+          "then": { "properties": { "errors": { "minItems": 1 }, "data": { "type": "null" } } }
+        }
+      ]
+    }
+  }
+}
