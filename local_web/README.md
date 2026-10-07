@@ -1,515 +1,731 @@
-# ABC2LAB 로컬 웹 통합 설계안
+# ABC2LAB `local_web` 초기 통합 아키텍처
 
-> 상태: 구현 전 설계 문서
+> 상태: 구현 전 초기 아키텍처 문서
 >
-> 기준: `docs/spec/`의 인터페이스 명세 v0.1과 각 모듈의 공개
-> `entrypoint.run(operation, input_paths, output_dir, context)` 계약
+> 핵심 원칙: **경계는 강하게, 구현은 느슨하게 유지한다.**
 
-## 1. 목표
+`local_web`은 ABC2LAB의 사용자 인터페이스 계층이다. 이 문서는 현재 단계에서
+반드시 지켜야 할 책임 경계와 제품 방향을 정의한다. 구체적인 API, 데이터 구조,
+프레임워크, 실행 프로세스는 각 진단 모듈의 공개 인터페이스가 안정화된 뒤
+확정한다.
 
-8개 진단 모듈을 통합한 뒤 사용자가 브라우저에서 다음 작업을 수행할 수 있는
-온프레미스 로컬 웹을 만든다.
+## 1. 문서 목적과 현재 단계
 
-- 진단 실행 생성과 시작
-- 모듈별 진행 상태와 오류 확인
-- Safety Policy의 승인 대기 항목 확인과 승인 제출
-- 진단 리포트와 개발 평가 결과 열람
-- 이전 실행 목록과 실행별 산출물 상태 확인
+ABC2LAB의 진단 모듈은 현재 구현과 통합이 진행 중이다. 일부 공개 operation,
+artifact, Schema, 실행 방식은 아직 최종 확정되지 않았다. 따라서 이 문서는
+상세 구현 명세서가 아니라 다음을 정의하는 초기 아키텍처 문서다.
 
-로컬 웹은 새로운 진단 모듈이 아니다. 진단·추론·정책·검증·평가 로직을 갖지
-않고, 기존 모듈을 실행하고 결과를 사용자에게 보여주는 통합 애플리케이션이다.
+- `local_web`의 책임과 비책임
+- 사용자에게 제공할 기능의 방향
+- 진단 엔진과 UI의 분리 원칙
+- 통합 과정에서 지켜야 할 보안·독립성 원칙
+- 구현을 구체화하기 전에 확인할 순서
 
-## 2. 핵심 원칙
+문서의 내용을 다음 세 범주로 구분한다.
 
-1. 프론트엔드는 화면 표시와 사용자 입력만 담당한다.
-2. 웹 백엔드는 실행 요청, 프로세스 수명, 진행 상태 전달, 읽기 전용 화면 변환만
-   담당한다.
-3. 파이프라인 순서와 모듈 호출은 관리자 소유 runner가 담당한다.
-4. 모듈의 내부 `service`, `utils`, Schema, DB driver, 브라우저 객체를 웹에서
-   import하지 않는다.
-5. 모듈 호출은 공개 entrypoint 또는 공개 CLI만 사용한다.
-6. 모듈 산출물은 단일 작성자가 만든 불변 파일이며 웹은 수정하지 않는다.
-7. 실행 허용은 웹이나 LLM이 아니라 `safety_policy`가 결정한다.
-8. 인증정보·쿠키·토큰·비밀번호는 API 응답, 브라우저 상태, 이벤트, 로그,
-   실행 메타데이터에 넣지 않는다.
-9. 테스트 앱의 URL·셀렉터·계정·엔드포인트·배열 위치를 웹 코드에 고정하지 않는다.
-10. 첫 구현은 단일 호스트·단일 사용자·한 번에 한 실행으로 시작하고, 동시 실행은
-    실제 자원 격리 검증 후 확장한다.
+### 현재 확정된 원칙
 
-## 3. 권장 구조
+- `local_web`은 UI·Presentation·User Interaction 계층이다.
+- 진단 기능과 판정은 독립된 `modules/*`가 담당한다.
+- `local_web`과 `modules/*`는 서로의 내부 구현에 의존하지 않는다.
+- UI 요구만으로 모듈 Schema나 business logic을 변경하지 않는다.
+- Safety Policy와 최종 취약점 판정의 소유권을 UI로 옮기지 않는다.
+- 인증정보와 비밀값을 화면 상태, 일반 결과물, 이벤트, 로그에 노출하지 않는다.
 
-```mermaid
-flowchart LR
-    U[로컬 사용자] --> F[정적 Frontend]
-    F -->|REST| B[Local Web API]
-    F <-->|SSE 진행 이벤트| B
-    B -->|start/resume/cancel| G[Runner Process Gateway]
-    G -->|별도 Python 프로세스| P[pipeline.py]
-    P -->|공개 entrypoint.run| M[8개 모듈]
-    M -->|불변 JSON·Evidence·Report| R[runs/run_id]
-    B -->|허용된 메타데이터·리포트만 읽기| R
-    B --> S[(Web state DB)]
+### 현재 예상하는 방향
+
+- 사용자는 ABC2LAB을 실행하고 로컬 브라우저로 진단을 제어한다.
+- 여러 독립 모듈 사이에는 별도의 통합 경계가 필요하다.
+- UI는 통합 경계가 제공하는 진행 상태와 결과를 화면용 형태로 표현한다.
+- Pipeline Runner는 통합 경계의 구현 후보 중 하나다.
+- Knowledge Graph, 승인 요청, 검증 결과, 최종 리포트를 주요 화면으로 제공한다.
+
+### 향후 모듈 구현 후 확정할 사항
+
+- REST API 경로와 Web-facing DTO 필드
+- Runner와 Web 사이의 JSON protocol과 event 이름
+- 최종 artifact 경로와 모듈 operation 이름
+- Runner, process, service, adapter의 구체적인 구성
+- 인증정보와 session context 전달 방식
+- Graph visualization 데이터 포맷
+- Frontend·Backend framework와 상태 저장 방식
+- SSE, WebSocket, polling 등 진행 상태 전달 방식
+- Local LLM provider, 모델, port, API 형식
+
+이 문서의 예시와 후보는 계약이 아니며, 구현 시점에 실제 공개 인터페이스를
+확인한 뒤 변경할 수 있다.
+
+## 2. 최종 제품 방향
+
+ABC2LAB은 사용자의 컴퓨터에서 실행되는 온프레미스 웹 취약점 진단
+애플리케이션을 목표로 한다. 사용자는 최종적으로 로컬 브라우저 화면에서 진단을
+시작하고 진행 상황과 결과를 확인한다.
+
+개념적인 사용자 흐름은 다음과 같다.
+
+```text
+ABC2LAB 실행
+    ↓
+로컬 웹 인터페이스 실행
+    ↓
+사용자 브라우저 접속
+    ↓
+대상 URL 입력
+    ↓
+테스트 계정 입력
+    ↓
+진단 시작
+    ↓
+진단 진행 상태 확인
+    ↓
+필요 시 사용자 승인
+    ↓
+Knowledge Graph 확인
+    ↓
+취약점 검증 결과 확인
+    ↓
+최종 리포트 확인
 ```
 
-권장 경계는 다음과 같다.
+이 흐름은 제품 경험의 방향만 나타낸다. Web server, 진단 process, Runner, DB,
+Local LLM을 어떤 process 조합으로 실행할지는 아직 확정하지 않는다.
 
-| 계층 | 책임 | 하지 않는 일 |
-| --- | --- | --- |
-| Frontend | 입력 폼, 진행 화면, 승인 화면, 결과 화면 | 파일 경로 계산, 모듈 호출, Safety 판정, JSON 계약 해석 |
-| Local Web API | HTTP 검증, runner 시작, 이벤트 전달, 화면 DTO 생성 | 취약점 판정, Cypher, LLM 호출, 검증 요청 실행 |
-| Runner gateway | 별도 프로세스 실행·종료 코드·stdout 이벤트 수집 | 모듈 업무 데이터 수정 |
-| `pipeline.py` | 호출 순서, 입력 경로와 제어 응답 전달, pause/resume | 모듈별 Schema·업무 결과 해석 |
-| 각 모듈 | 입력 검증, 실제 처리, 출력 검증·저장 | 다음 모듈 실행, UI 상태 관리 |
-| Reporter | 사용자용 진단 HTML·평가 JSON 생성 | 웹 화면 라우팅, 실행 제어 |
+## 3. `local_web`의 정의
 
-### 왜 웹 백엔드가 모듈을 직접 import하지 않는가
+`local_web`은 새로운 취약점 진단 모듈이 아니다. 사용자와 ABC2LAB 사이의
+인터페이스 계층이다.
 
-웹 서버 프로세스에서 8개 모듈을 직접 실행하면 브라우저·Neo4j·LLM 작업이 서버
-이벤트 루프와 수명을 공유한다. 한 모듈의 crash, 환경변수 변경, 긴 실행이 웹
-응답 전체에 영향을 줄 수 있다.
+```text
+local_web
+=
+User Interface
++
+Presentation
++
+User Interaction
+```
 
-따라서 백엔드는 `pipeline.py`를 별도 Python 프로세스로 실행하는 방식을 우선한다.
-runner만 공개 entrypoint를 호출하고, 웹은 버전이 있는 작은 runner 이벤트 규약만
-소비한다. 이 구조는 모듈 구현 변경이 웹으로 전파되는 범위를 줄인다.
+```text
+local_web
+≠
+Diagnosis Engine
+```
 
-## 4. 제안 디렉터리
+프론트엔드는 화면과 사용자 입력을 담당한다. Web의 interface 계층은 사용자
+요청을 통합 경계에 전달하고, 통합 경계가 제공하는 상태와 결과를 화면에 적합한
+형태로 전달한다. 두 영역 모두 진단 판단을 소유하지 않는다.
 
-구현 시 다음처럼 웹 전용 파일을 분리한다. 기존 `modules/*`는 수정하지 않는다.
+## 4. 책임 경계
+
+### 4.1 `local_web`이 책임지는 영역
+
+`local_web`은 사용자 관점의 기능만 담당한다.
+
+- 대상 URL 입력
+- 여러 역할의 테스트 계정 입력
+- 진단 시작 요청
+- 진단 취소·재개 등 사용자 제어 요청
+- 진단 진행 상태와 오류 표시
+- 사용자 승인 요청 표시
+- 승인·거절 입력 전달
+- Knowledge Graph 시각화
+- 취약점 후보와 검증 결과 표시
+- 최종 진단 리포트 표시
+- development 모드의 성능 평가 결과 표시
+- 사용자에게 필요한 상태와 결과의 화면용 표현
+
+정확한 화면 DTO와 컴포넌트 구조는 현재 확정하지 않는다.
+
+### 4.2 `local_web`이 책임하지 않는 영역
+
+다음 기능은 `local_web`이 소유하거나 복제하지 않는다.
+
+- 웹 크롤링과 HTTP 요청 수집
+- 웹 구조 분석과 의미 분석
+- LLM prompt 생성과 LLM 직접 호출
+- Knowledge Graph 생성과 Neo4j 저장
+- Cypher 생성과 실행
+- 취약점 후보 생성
+- 접근통제 판단
+- 공격 시나리오 생성
+- Safety Policy 판단
+- 실제 취약점 검증 요청 실행
+- 검증 성공·실패와 최종 취약점 판정
+- Reporter 결과 생성
+- 각 진단 모듈의 business logic
+
+이 책임은 계속 `modules/*`와 향후 정해질 통합 계층에 둔다. Web이 결과를 보기
+좋게 변환하는 것과 진단 의미를 다시 판정하는 것을 구분한다.
+
+## 5. 모듈 독립성
+
+### 5.1 내부 구현에 의존하지 않는다
+
+`local_web`은 진단 모듈의 내부 함수, helper, repository, prompt, DB driver,
+브라우저 객체를 참조하지 않는다. 다음과 같은 변경이 Web 수정으로 직접 이어지지
+않아야 한다.
+
+```text
+semantic_analyzer 내부 함수 변경
+LLM adapter 변경
+Knowledge Graph 저장 방식 변경
+Neo4j repository 리팩토링
+access_analyzer Rule 변경
+scenario_generator prompt 구조 변경
+safety_policy 내부 정책 변경
+verifier HTTP client 변경
+reporter 내부 helper 변경
+```
+
+목표는 다음과 같다.
+
+```text
+modules/* 내부 구현 변경
+        ↓
+local_web 영향 없음
+```
+
+Web은 향후 합의할 안정된 통합 경계만 사용한다. 그 경계의 구현 방식과 구체적인
+데이터 모델은 아직 확정하지 않는다.
+
+### 5.2 역방향 의존성을 금지한다
+
+진단 모듈도 `local_web`을 알아서는 안 된다.
+
+```text
+금지되는 방향
+
+modules/*
+    ↓
+local_web
+```
+
+각 모듈은 Web 없이 독립 실행과 독립 테스트가 가능해야 한다. Web을 제거하거나
+교체해도 진단 엔진의 공개 동작이 유지되어야 한다.
+
+### 5.3 UI 요구로 모듈 계약을 바로 바꾸지 않는다
+
+UI에 필요한 정보가 없다는 이유만으로 진단 모듈의 Schema나 business logic을
+즉시 수정하지 않는다. 다음 순서로 확인한다.
+
+```text
+기존 공개 결과에 있는가?
+        ↓ 있음
+Presentation 계층에서 변환
+
+다른 공개 결과에 있는가?
+        ↓ 있음
+Integration 계층에서 조합
+
+UI에서 계산 가능한가?
+        ↓ 가능
+Presentation 계층에서 처리
+
+그래도 필요한 데이터가 없는가?
+        ↓
+공개 계약 변경 필요성을 별도 검토하고 생산자·소비자와 합의
+```
+
+화면 디자인 변경은 가능한 한 `local_web` 내부에서 해결한다.
+
+```text
+UI 디자인 변경
+        ↓
+local_web 변경
+
+진단 엔진 변경 없음
+```
+
+## 6. 현재 단계의 추상 구조
+
+현재 전체 구조는 책임 관계만 표현한다.
+
+```text
+                User
+                  │
+                  ▼
+             local_web
+        User Interface Layer
+                  │
+                  ▼
+         Integration Boundary
+                  │
+                  ▼
+        Independent Modules
+                  │
+                  ▼
+          Diagnosis Results
+                  │
+                  ▼
+       Presentation Boundary
+                  │
+                  ▼
+             local_web
+                  │
+                  ▼
+                User
+```
+
+통합 경계는 Web과 진단 모듈이 서로의 내부 구현을 알지 않게 하는 역할을 한다.
+실제 구현은 Pipeline Runner, adapter, 별도 process, CLI orchestration, service
+layer 등의 형태가 될 수 있다. 현재는 이 중 하나를 최종 구조로 고정하지 않는다.
+
+### Pipeline Runner 후보
+
+여러 독립 진단 모듈을 순서대로 연결하는 통합 계층은 필요하다. Pipeline Runner는
+그 구현 후보 중 하나이며, 실제 구조는 각 모듈의 공개 인터페이스가 안정화된 뒤
+확정한다.
+
+현재 예상 흐름은 개념적으로 다음과 같다.
+
+```text
+collector
+  ↓
+semantic_analyzer
+  ↓
+knowledge_graph
+  ↓
+access_analyzer
+  ↓
+scenario_generator
+  ↓
+safety_policy
+  ↓
+verifier
+  ↓
+knowledge_graph result update
+  ↓
+reporter
+```
+
+이 순서는 제품 흐름을 이해하기 위한 현재 초안이다. 정확한 operation 이름, 호출
+인자, 제어 응답, 중단·재개 방식, artifact 경로를 Web의 확정 계약으로 간주하지
+않는다.
+
+## 7. 사용자 입력과 인증정보
+
+### 7.1 입력 방향
+
+최종 제품에서는 사용자가 로컬 웹에서 다음 정보를 입력할 수 있는 방향을
+고려한다.
+
+```text
+대상 URL
+
+테스트 계정
+- Role
+- username 또는 account identifier
+- password 등 로그인에 필요한 인증정보
+```
+
+Guest, User, Admin처럼 여러 역할의 테스트 계정을 받을 수 있어야 한다. 정확한
+계정 Schema, 로그인 방식, 전달 단위는 아직 확정하지 않는다.
+
+### 7.2 비밀정보 보안 경계
+
+인증정보 전달 구현은 미정이지만 다음 원칙은 지금부터 고정한다.
+
+- 비밀번호를 일반 진단 artifact에 저장하지 않는다.
+- 로그에 비밀번호, 쿠키, 토큰 원문을 출력하지 않는다.
+- API 응답과 진행 event에 비밀값을 포함하지 않는다.
+- 브라우저 `localStorage`와 `sessionStorage`에 비밀값을 저장하지 않는다.
+- URL query parameter에 비밀값을 넣지 않는다.
+- 진단 리포트와 평가 결과에 비밀값을 포함하지 않는다.
+- 오류 화면에 계정 원문이나 내부 secret 위치를 노출하지 않는다.
+
+구체적인 secret 전달·보관·폐기 방식은 실제 모듈 입력과 process 경계를 확인한 뒤
+별도로 설계한다.
+
+### 7.3 인증과 session 재사용 방향
+
+수집 단계에서 테스트 계정으로 인증하고 session context가 만들어지는 경우, 이후
+검증 단계에서 이를 재사용할 수 있는 방향을 유지한다.
+
+```text
+Test Account
+     ↓
+Collector
+     ↓
+Authentication / Session Context
+     ↓
+Later Verification
+```
+
+session의 생성, 소유, 대여·반납, 만료, 전달은 `local_web`의 책임이 아니다.
+Web은 사용자 입력을 합의된 통합 경계에 전달하고 공개 상태만 표현한다.
+
+## 8. 주요 화면 방향
+
+요구사항 명세서의 주요 화면 예시는 UI 목적과 사용자 흐름을 결정하는 기준으로
+사용한다. 화면 예시가 모듈 Schema나 내부 아키텍처를 강제해서는 안 된다.
+
+### 8.1 새 진단
+
+목적:
+
+- 대상 URL 입력
+- 역할별 테스트 계정 입력
+- 진단 시작
+
+입력 화면의 정확한 필드와 validation protocol은 계정·통합 계약이 정해진 뒤
+확정한다.
+
+### 8.2 진단 진행
+
+목적:
+
+- 진단 실행 여부 확인
+- 대략적인 진행 단계 확인
+- 실패·중단·승인 필요 여부 확인
+- 허용되는 범위에서 취소·재개 요청
+
+최종 단계 이름, 상태 enum, event 형식, 실시간 전달 방식은 아직 미정이다.
+
+### 8.3 Knowledge Graph
+
+목적:
+
+- 시스템이 파악한 웹 구조 확인
+- Role·Resource 접근 관계 확인
+- 주요 업무 Flow와 검증된 관계 확인
+
+Graph library, node·edge DTO, filtering과 layout 형식은 향후 확정한다.
+
+### 8.4 Safety Policy 승인
+
+목적:
+
+- 위험 가능성이 있는 검증과 그 이유를 사용자에게 알림
+- 사용자의 승인 또는 거절 입력 전달
+
+`local_web`은 Safety Policy의 판단을 생성하거나 변경하지 않는다. 승인 입력이
+어떻게 검증되고 기록되며 재평가로 이어지는지는 Safety Policy와 통합 경계의 공개
+계약이 확정된 뒤 설계한다.
+
+### 8.5 취약점 결과와 리포트
+
+목적:
+
+- 발견된 후보와 검증 결과 확인
+- 관련 Evidence 확인
+- 최종 진단 리포트 확인
+
+`local_web`은 후보를 확정 취약점으로 바꾸거나 검증 결과를 다시 판정하지 않는다.
+미실행·판단불가를 취약점 없음이나 접근 실패로 바꾸어 표시하지 않는다.
+
+### 8.6 Development 성능 평가
+
+개발 단계에서는 Ground Truth 기반으로 다음과 같은 평가를 표시할 수 있다.
+
+- Page·Endpoint·Parameter 발견율
+- 구조와 관계 정확도
+- 후보 탐지와 검증 성능
+- Precision, Recall, Coverage
+
+일반 사용자 기능과 development 평가를 분리한다.
+
+```text
+Normal Mode
+    ↓
+진단 결과와 리포트
+
+Development Mode
+    ↓
+진단 결과
+    +
+성능 평가
+```
+
+평가 화면은 제품 UI에 강하게 결합하지 않는다. 성능이 안정화된 뒤 일반 사용자
+화면에서 제거하거나 내부 개발·CI 기능으로만 유지할 수 있다.
+
+테이블·카드, dashboard, navigation, Graph library, 상세 화면 구성은 바뀔 수
+있으며 이런 변경은 가능한 한 `local_web` 안에서 해결한다.
+
+## 9. 진단 결과와 Presentation
+
+최종 진단 결과의 생성 책임은 Reporter와 진단 엔진에 있다.
+
+```text
+Diagnosis Engine
+       ↓
+Reporter
+       ↓
+Diagnosis Result
+       ↓
+Presentation Boundary
+       ↓
+local_web
+```
+
+`local_web`은 Reporter 또는 통합 계층이 제공하는 결과를 사용자에게 표현한다.
+최종 취약점 상태를 자체적으로 재판정하지 않는다. Reporter 출력과 Web 화면의
+구체적인 매핑은 Reporter의 공개 계약이 안정화된 이후 확정한다.
+
+## 10. Knowledge Graph 경계
+
+사용자는 최종적으로 웹 구조와 접근 관계를 시각적으로 확인할 수 있어야 한다.
+표시 대상은 다음과 같은 개념을 포함할 수 있다.
+
+```text
+User
+Role
+Page
+Action
+Endpoint
+Parameter
+Resource
+```
+
+관계 표현은 탐색된 웹 구조, Page와 Endpoint 관계, Role별 접근 관계, Resource
+접근 관계, 주요 업무 Flow, 검증된 관계 등을 고려한다. 정확한 Graph 화면
+데이터 포맷은 현재 확정하지 않는다.
+
+Frontend가 Neo4j에 직접 접근하거나 Cypher를 생성하는 구조는 금지한다.
+
+```text
+금지
+
+Frontend
+   ↓
+Neo4j 직접 접근
+```
+
+```text
+목표 경계
+
+Knowledge Graph
+      ↓
+Integration / Presentation Boundary
+      ↓
+local_web
+```
+
+Knowledge Graph의 저장 방식이나 repository가 바뀌어도 화면 경계가 유지되는
+구조를 목표로 한다.
+
+## 11. Local LLM 방향
+
+ABC2LAB은 온프레미스 동작을 목표로 하므로 의미 분석과 시나리오 생성에 필요한
+LLM도 사용자 환경 내부에서 실행할 수 있는 방향을 고려한다.
+
+```text
+semantic_analyzer        scenario_generator
+       ↓                         ↓
+   Local LLM                 Local LLM
+```
+
+다음 구현은 현재 확정하지 않는다.
+
+- Ollama 또는 llama.cpp
+- 특정 모델과 quantization
+- inference server와 port
+- 특정 API 형식
+
+Ollama 등의 이름은 후보 예시일 뿐 확정 기술이 아니다. 책임 경계는 다음과 같다.
+
+- `local_web`은 LLM을 직접 호출하지 않는다.
+- `local_web`은 prompt를 생성하거나 수정하지 않는다.
+- 추론은 각 진단 모듈의 LLM adapter가 담당한다.
+- Local LLM 구현 변경이 Web 변경으로 이어지지 않아야 한다.
+
+## 12. Safety Policy 경계
+
+실행 허용 여부는 `local_web`, 통합 계층, LLM이 아니라 Safety Policy가 결정한다.
+
+- Web은 승인 필요 상태와 이유를 표시한다.
+- Web은 사용자 입력을 합의된 공개 경계로 전달한다.
+- Web은 Safety 결과 파일이나 판정값을 직접 수정하지 않는다.
+- 승인 입력만으로 `block` 또는 판단불가 상태를 우회하지 않는다.
+- 허용 여부와 검증 대상의 일치 확인은 진단 엔진의 책임으로 유지한다.
+
+승인자의 식별, 승인 기록의 진위·만료·범위, 재개 방식은 향후 확정한다. 이 계약이
+정해지기 전에는 실제 승인 동작을 구현 완료로 간주하지 않는다.
+
+## 13. 공개 계약과 Presentation 모델
+
+내부 모듈 변경이 Web에 직접 전파되지 않도록 다음 구조를 목표로 한다.
+
+```text
+Module Output
+     ↓
+Integration Boundary
+     ↓
+Stable UI-facing Model
+     ↓
+local_web
+```
+
+`Stable UI-facing Model`은 필요한 최소 정보만 제공하는 경계를 뜻한다. 현재
+단계에서는 그 Schema, 버전, 파일 위치, 전송 형식을 정의하지 않는다.
+
+통합 시 다음 원칙을 지킨다.
+
+- Web에서 모듈 내부 코드와 저장소에 직접 의존하지 않는다.
+- 모듈 공개 결과를 임의로 수정하지 않는다.
+- 화면 편의를 위해 모듈 Schema를 복제하거나 확장하지 않는다.
+- 여러 결과의 조합은 진단 판단과 분리된 통합·Presentation 경계에서 검토한다.
+- `completed`, `partial`, `failed`, 미실행, 판단불가의 의미를 보존한다.
+- 공개 계약 변경이 정말 필요하면 생산자와 모든 직접 소비자가 별도로 합의한다.
+
+## 14. 기술과 디렉터리 선택
+
+### 14.1 지금 확정하지 않는 기술
+
+다음 항목은 모듈 구현과 통합 경계를 확인한 뒤 결정한다.
+
+```text
+Frontend framework
+Backend framework
+Runner 구현 방식
+Process 모델
+Web API와 DTO
+SSE / WebSocket / polling
+Graph visualization library
+Secret 관리 방식
+Local LLM provider
+Web 상태 저장 방식
+```
+
+정적 HTML·JavaScript, React·Vue, FastAPI·Uvicorn, SQLite, SSE, subprocess 등은
+모두 검토 가능한 초기 후보 예시다. 현재 채택된 기술이나 필수 의존성으로
+간주하지 않는다.
+
+### 14.2 디렉터리 구조 초안
+
+현재는 정확한 파일과 폴더를 확정하지 않고 책임 분리만 표현한다.
 
 ```text
 local_web/
-├── README.md
-├── requirements.txt          # 실제 채택 후 직접 의존성만 선언
-├── backend/
-│   ├── app.py                # HTTP 앱 생성·정적 파일 mount
-│   ├── api/
-│   │   ├── runs.py           # 실행 생성·조회·시작·취소
-│   │   ├── approvals.py      # 승인 대기 조회·승인 제출
-│   │   └── reports.py        # 리포트·평가 조회
-│   ├── application/
-│   │   ├── run_coordinator.py
-│   │   └── state_machine.py
-│   ├── adapters/
-│   │   ├── runner_gateway.py
-│   │   ├── safety_presenter.py
-│   │   └── reporter_presenter.py
-│   ├── infrastructure/
-│   │   ├── process_executor.py
-│   │   ├── event_stream.py
-│   │   ├── state_store.py
-│   │   └── path_guard.py
-│   └── schemas/              # 웹 API DTO만. 모듈 Schema를 복사하지 않음
-├── frontend/
-│   ├── index.html
-│   ├── app.js
-│   └── styles.css
-└── tests/
-    ├── fixtures/
-    ├── test_api_*.py
-    ├── test_runner_gateway.py
-    ├── test_state_machine.py
-    └── test_security.py
+├── frontend/ or UI layer
+├── backend/ or interface layer
+├── presentation/
+└── integration boundary
 ```
 
-루트 `README.md`, `pipeline.py`, `requirements.txt`, `requirements.lock.txt`는 GitHub
-관리자 수정 범위다. 웹 구현에서 이 파일의 변경이 필요하면 관리자 PR에서
-반영한다. `local_web`은 8개 모듈의 내부 공통 라이브러리가 되어서는 안 된다.
+이 구조는 참고용 초안이다. 정확한 디렉터리명, adapter 클래스, 파일 배치,
+dependency 선언은 구현 방식을 선택한 뒤 정한다. `local_web`을 `modules/*`의
+공통 라이브러리로 만들지 않는다.
 
-## 5. 기술 선택
+## 15. 보안 원칙
 
-### 5.1 프론트엔드
+구체적인 구현과 무관하게 다음 경계는 유지한다.
 
-1차 구현은 정적 HTML, CSS, 브라우저 표준 JavaScript ES module을 권장한다.
+### 로컬 접근
 
-- Node·번들러 없이 폐쇄망 배포 가능
-- 화면 수가 적은 1차 범위에 충분
-- 백엔드가 만든 화면 DTO만 렌더링
-- 상태는 URL과 메모리에만 두고 비밀값을 localStorage에 저장하지 않음
+- 기본 제품은 사용자 컴퓨터 안에서 동작하는 것을 전제로 한다.
+- 외부 네트워크 공개를 기본값으로 삼지 않는다.
+- bind 주소, 인증, TLS, Host·Origin 검증은 배포 방식과 함께 확정한다.
 
-진단 그래프 시각화나 복잡한 비교 화면이 실제로 필요해질 때 React/Vue 등의 도입을
-별도 결정한다. 프레임워크 도입 자체를 1차 통합의 선행 조건으로 두지 않는다.
+### 파일과 결과
 
-### 5.2 백엔드
+- 브라우저가 임의의 로컬 경로나 artifact 경로를 지정하게 하지 않는다.
+- 신뢰된 실행 범위 밖 파일을 화면 요청만으로 읽지 않는다.
+- 전체 실행 디렉터리를 그대로 정적 공개하지 않는다.
+- Evidence와 리포트는 합의된 공개 경계를 통해 필요한 범위만 제공한다.
 
-HTTP API와 SSE 구현에는 FastAPI + Uvicorn이 적합하다. 다만 현재 팀 공통 잠금
-환경에는 웹 앱 의존성이 없으므로 실제 버전은 관리자와 합의한 뒤
-`local_web/requirements.txt`와 루트 lock에 함께 반영한다.
+### 비밀값과 로그
 
-- REST: 사용자 명령과 조회
-- SSE(Server-Sent Events): 서버에서 브라우저로 보내는 단방향 진행 상태
-- SQLite: 실행 메타데이터와 이벤트 cursor 저장
-- `subprocess`: runner 프로세스 격리
-
-WebSocket은 1차 범위에서 쓰지 않는다. 진행 상태는 단방향이고, 승인·취소는 일반
-POST 요청으로 충분하다. SSE 연결이 끊기면 마지막 event ID 이후를 다시 받거나
-상태 API를 polling한다.
-
-### 5.3 상태 저장
-
-웹 상태 DB에는 다음 메타데이터만 저장한다.
-
-- web job ID와 `run_id`
-- mode, iteration, 대상 origin의 비밀값 없는 표시 정보
-- 현재 파이프라인 단계와 상태
-- runner PID·시작/종료 시각·종료 코드
-- 공개 제어 응답의 status, artifact ID, 상대 경로, SHA-256
-- 승인 요청의 공개 ID·상태·감사 메타데이터
-
-모듈 산출물 본문, Evidence 본문, 쿠키, 토큰, 비밀번호는 복사하지 않는다. DB 위치는
-배포 설정으로 지정하고 Git에서 제외한다. 실행 결과의 원본은 계속
-`runs/<run_id>/`가 소유한다.
-
-## 6. Runner와 웹 사이의 규약
-
-모듈별 공개 응답은 현재 조금씩 다르므로 웹이 각 응답을 직접 해석하지 않는다.
-관리자 소유 runner가 모듈 공개 응답을 다음의 웹 전용 이벤트로 정규화한다.
-이 이벤트는 모듈 JSON 계약이 아니라 runner↔web 통합 계약이다.
-
-```json
-{
-  "protocol_version": "1",
-  "event_id": 12,
-  "event": "step_finished",
-  "run_id": "run_20261007_001",
-  "iteration": 0,
-  "module_id": "semantic_analyzer",
-  "operation": "analyze",
-  "status": "completed",
-  "artifact_id": "semantic_analysis_run_20261007_001_000",
-  "output_path": "artifacts/iteration-000/semantic_analyzer/semantic_analysis.json",
-  "sha256": "<64자리 SHA-256>",
-  "errors": [],
-  "occurred_at": "2026-10-07T12:00:00Z"
-}
-```
-
-지원할 이벤트는 최소한 다음과 같다.
-
-| event | 의미 |
-| --- | --- |
-| `pipeline_started` | runner가 실행 요청을 검증하고 시작함 |
-| `step_started` | 모듈 operation 호출 직전 |
-| `step_finished` | 공개 제어 응답을 수신함 |
-| `approval_required` | Safety 결과로 사용자 입력을 기다림 |
-| `pipeline_paused` | 재시작 가능한 지점에서 종료함 |
-| `pipeline_finished` | 전체 호출 완료 |
-| `pipeline_failed` | 다음 단계를 시작할 수 없는 제어 실패 |
-
-stdout에는 JSON Lines 이벤트만 쓰고 사람용 로그는 stderr로 분리한다. 이벤트에는
-모듈 출력의 `data`, 헤더, 쿠키, 토큰, 비밀번호, 요청·응답 본문을 넣지 않는다.
-
-### 실행 요청
-
-웹은 runner에 비밀값 없는 요청만 전달한다.
-
-```json
-{
-  "protocol_version": "1",
-  "command": "start",
-  "run_id": "run_20261007_001",
-  "mode": "diagnosis",
-  "iteration": 0,
-  "target_url": "http://target.internal",
-  "collector_profile": "internal_shop",
-  "policy_profile": "default_safe",
-  "dataset_id": null
-}
-```
-
-프로필 ID는 서버 설정의 allowlist에서 신뢰 경로로 변환한다. 브라우저가 임의의
-파일 경로를 runner에 전달할 수 없게 한다. 계정 비밀번호와 모델 키는 환경변수나
-모듈 소유 private 설정으로 준비하고 요청 JSON에는 넣지 않는다.
-
-## 7. 파이프라인 실행 순서
-
-runner는 업무 내용을 판정하지 않고 다음 공개 operation을 순서대로 연결한다.
-
-```text
-collector.collect
-  → semantic_analyzer.analyze
-  → knowledge_graph.ingest
-  → access_analyzer.prepare_queries
-  → knowledge_graph.query
-  → access_analyzer.analyze
-  → scenario_generator.generate
-  → safety_policy.evaluate
-  → [승인 대기 시 pause / 승인 입력 후 safety_policy.evaluate 재발행]
-  → verifier.verify
-  → knowledge_graph.apply_verification
-  → reporter.report
-  → reporter.evaluate (development 모드만)
-```
-
-연결 시 runner가 보는 값은 공개 제어 응답의 상태·경로·해시와 KG의
-`graph_id/revision`뿐이다. 산출물의 업무 필드는 해당 소비 모듈이 자기 입력
-adapter에서 검증한다.
-
-- `completed`: 다음 의존 단계 실행
-- `partial`이며 출력 경로가 있음: 다음 소비자가 처리하도록 그대로 전달
-- `failed`이며 실패 artifact가 있음: 계약상 해당 파일을 읽는 소비자에게 전달 가능
-- 출력이 발행되지 않음: 그 파일에 의존하는 분기를 중단
-- 재실행: 기존 완료 파일을 덮지 않고 새 iteration으로 시작
-
-정확한 계속/중단 표는 각 공개 entrypoint의 완료 응답이 확정된 후 runner
-테스트 fixture로 고정한다. runner가 빈 기본 JSON을 만들어 실패를 숨기면 안 된다.
-
-## 8. 승인 흐름
-
-`require_approval`은 장시간 runner 프로세스를 열린 채 기다리지 않는다.
-
-1. `safety_policy.evaluate`가 판정 파일을 발행한다.
-2. runner가 `approval_required`와 `pipeline_paused` 이벤트를 내고 정상 종료한다.
-3. 웹은 `safety_decisions.json`의 공개된 승인 대기 정보만 화면 DTO로 변환한다.
-4. 사용자가 승인 또는 거절한다.
-5. 백엔드는 승인 기록을 Safety Policy의 합의된 공개 창구로 제출한다.
-6. runner를 `resume` 명령으로 새로 실행한다.
-7. `safety_policy`가 계획 해시·Policy 버전·승인 범위를 재검증하고 새 판정을 발행한다.
-8. `allow`인 시나리오만 verifier로 전달한다.
-
-웹은 `safety_decisions.json`을 수정하거나 `require_approval`을 `allow`로 바꾸지 않는다.
-승인으로도 `block`이나 `unknown`을 우회하지 않는다.
-
-승인자의 신원 확인, 승인 기록 생성 주체, 서명·만료, 승인 후 iteration 발행 방식은
-현재 열린 결정이다. 이 규약이 합의되기 전에는 UI를 읽기 전용 승인 대기 화면으로
-구현하고 실제 승인 버튼은 활성화하지 않는다.
-
-## 9. Web API 초안
-
-### 실행
-
-| Method | Path | 역할 |
-| --- | --- | --- |
-| `POST` | `/api/runs` | 비밀값 없는 실행 설정으로 job 생성 |
-| `GET` | `/api/runs` | 실행 목록 조회 |
-| `GET` | `/api/runs/{run_id}` | 현재 상태와 단계 목록 조회 |
-| `POST` | `/api/runs/{run_id}/start` | runner 시작 |
-| `POST` | `/api/runs/{run_id}/resume` | 승인 후 중단 지점부터 재개 |
-| `POST` | `/api/runs/{run_id}/cancel` | 다음 안전한 단계 경계에서 취소 요청 |
-| `GET` | `/api/runs/{run_id}/events` | SSE 진행 이벤트 |
-
-1차 취소는 현재 모듈을 강제 종료하지 않고 단계 사이에서만 적용한다. DB transaction,
-브라우저 세션, 원자 저장 중 process kill로 상태가 모호해지는 것을 피하기 위해서다.
-
-### 승인·결과
-
-| Method | Path | 역할 |
-| --- | --- | --- |
-| `GET` | `/api/runs/{run_id}/approvals` | 승인 대기 화면 DTO 조회 |
-| `POST` | `/api/runs/{run_id}/approvals` | 합의된 승인 기록 제출 |
-| `GET` | `/api/runs/{run_id}/artifacts` | 공개 artifact 메타데이터 조회 |
-| `GET` | `/api/runs/{run_id}/report` | reporter가 만든 로컬 HTML 제공 |
-| `GET` | `/api/runs/{run_id}/evaluation` | 개발 평가 화면 DTO 조회 |
-| `GET` | `/api/runs/{run_id}/evidence/{evidence_id}` | 허용된 EvidenceRef만 제공 |
-
-Frontend는 `runs/` 경로나 JSON 파일을 직접 열지 않는다. Backend presenter가
-`diagnosis_report`, `evaluation_results`, 승인 대기용 `safety_decisions`의 합의된
-필드만 읽어 웹 DTO로 만든다. 이 세 파일의 계약이 바뀌면 local web도 직접
-소비자로서 변경 검토에 참여한다.
-
-## 10. 화면 구성
-
-### 10.1 실행 목록
-
-- run ID, mode, 대상 origin, 생성 시각, 현재 상태
-- `queued`, `running`, `waiting_approval`, `completed`, `partial`, `failed`,
-  `cancelled` 필터
-- 새 진단 버튼
-
-### 10.2 새 진단
-
-- 대상 URL
-- 진단/development mode
-- collector 설정 프로필
-- Safety Policy 프로필
-- development일 때 dataset ID와 matching profile
-- 예상 대상 origin과 실행 제한 최종 확인
-
-계정 비밀번호·토큰 입력은 1차 화면에서 받지 않는다. 서버에 미리 준비한 비밀 설정
-프로필을 선택하게 한다.
-
-### 10.3 실행 상세
-
-- 8개 모듈 timeline과 operation별 상태
-- 시작·종료 시각, partial/failed 오류 요약
-- 승인 대기 banner
-- 진단 리포트·평가 결과 링크
-- 개발 모드에서만 artifact 메타데이터와 SHA-256 표시
-
-### 10.4 승인
-
-- scenario ID, 차단/승인 이유, 예상 영향, 요청 수 제한
-- 계획 SHA-256과 Policy 버전
-- 승인 범위·만료 시각 확인
-- 승인/거절 동작과 감사 기록
-
-### 10.5 결과
-
-- Reporter HTML을 sandboxed iframe 또는 별도 로컬 경로로 표시
-- 진단 상태 6종과 limitations 표시
-- development 모드에서는 원시 분자·분모와 미검증 수 표시
-- 미실행·판단불가를 취약점 없음으로 표시하지 않음
-
-## 11. 보안 기준
-
-### 네트워크
-
-- 기본 bind는 `127.0.0.1`만 허용
-- 기본 포트는 설정으로 받고 코드에 고정하지 않음
-- Host와 Origin allowlist 검증
-- 상태 변경 API에 CSRF 방어 적용
-- LAN 공개가 필요하면 앱 자체 임시 기능 대신 인증·TLS reverse proxy를 먼저 구성
-
-### 파일
-
-- API의 `run_id`, artifact path, Evidence path를 그대로 `Path`에 붙이지 않음
-- 신뢰 루트 아래 상대 경로만 허용
-- `..`, 절대경로, 다른 run, 루트 밖 symlink 거절
-- `runs/` 전체를 static directory로 노출하지 않음
-- control response로 받은 경로와 합의된 reporter/EvidenceRef만 개별 제공
-- HTML 리포트는 CSP와 iframe sandbox를 유지
-
-### 비밀값·로그
-
-- 요청 body와 환경변수 전체를 로그로 남기지 않음
-- Authorization, Cookie, Set-Cookie, token, password 값 필터링
-- 프론트 localStorage/sessionStorage에 비밀값 저장 금지
-- 오류 응답에 내부 절대경로·stack trace·계정 원문을 포함하지 않음
-- runner stderr는 비밀값 필터 후 실행별 로그에 저장
+- 비밀번호·쿠키·토큰·인증 헤더를 화면 상태와 결과에 남기지 않는다.
+- 요청 전체, process 환경 전체, secret 원문을 로그로 남기지 않는다.
+- 사용자에게 보여줄 오류와 내부 진단 로그를 분리한다.
+- UI와 통합 event에는 공개 상태와 비밀값 없는 식별 정보만 포함한다.
 
 ### 실행 권한
 
-- module ID와 operation은 서버 allowlist만 사용
-- 사용자가 Python import 경로·shell command·Cypher를 전달할 수 없음
-- shell 문자열 조합 대신 고정 argv 배열로 subprocess 실행
-- Safety `allow`와 정확한 scenario SHA-256이 없으면 verifier 호출 금지
-- 상태 변경 허용 시 테스트 DB reset 완료 이벤트를 확인한 뒤 verifier 실행
+- 사용자가 임의의 Python import, shell command, Cypher를 전달할 수 없게 한다.
+- 진단 실행과 상태 변경은 Safety Policy와 모듈 공개 경계를 우회하지 않는다.
+- `local_web`은 verifier 요청을 직접 구성하거나 실행하지 않는다.
 
-## 12. 오류와 재시작
+## 16. 강하게 고정할 것과 느슨하게 둘 것
 
-웹의 job 상태와 모듈 artifact 상태를 합치지 않는다.
+### 강하게 고정할 경계
 
-- 웹 job `failed`: runner를 계속할 수 없음
-- artifact `failed`: 모듈이 유효한 failed 파일을 발행했을 수 있음
-- artifact `partial`: 일부 결과와 errors를 함께 보존
-- vulnerability result: 취약점 재현 결과이며 위 상태와 별개
+```text
+local_web은 UI다.
 
-웹 서버 재시작 시 SQLite의 마지막 event ID와 실제 runner process 상태를 대조한다.
-이미 종료된 runner를 `running`으로 두지 않는다. 완료 파일이 있는 단계를 다시
-실행하지 않고, resume 가능한 명시적 단계에서만 재개한다.
+진단 로직은 modules/*가 담당한다.
 
-같은 iteration의 완료 파일은 덮어쓰지 않는다. 사용자가 다시 시도하면 새
-iteration을 만들고 기존 실행 이력을 보존한다.
+local_web은 modules/*의 내부 구현에 의존하지 않는다.
 
-## 13. 테스트 전략
+modules/*는 local_web에 의존하지 않는다.
 
-### Backend 단위 테스트
+UI 요구 때문에 진단 모듈을 직접 변경하지 않는다.
 
-- 가짜 runner로 상태 전이 검증
-- completed/partial/failed/미발행 응답 처리
-- SSE 재연결과 event ID 순서
-- start 중복 호출·동시 실행 제한
-- 승인 전 resume 거절
-- cancel은 단계 경계에서만 적용
+Safety Policy 판단은 Safety Policy가 담당한다.
 
-### 경계 테스트
+최종 취약점 결과는 진단 엔진과 Reporter가 담당한다.
 
-- runner JSONL protocol의 필수 필드·버전·중복 event ID 검증
-- 모듈 control response 변화에 대한 module adapter 테스트
-- Reporter HTML·평가 DTO·Safety 승인 DTO fixture 수신 테스트
-- 다른 모듈 실제 소스 없이 공개 응답 fixture로 실행 가능해야 함
+비밀정보는 사용자 화면이나 일반 결과물에 노출하지 않는다.
+```
 
-### 보안 테스트
+### 지금 고정하지 않을 구현
 
-- path traversal, 절대경로, 외부 symlink
-- 임의 module/operation/command 실행 시도
-- Host/Origin/CSRF 검증
-- 로그·API·SSE·SQLite의 비밀값 누출 검사
-- HTML 문자열 escape와 CSP 확인
-- 동일 run 동시 start와 불변 파일 overwrite 방지
+```text
+API
+DTO
+JSON protocol
+event 이름
+artifact path
+Runner 구현
+framework
+Graph format
+secret 전달 방식
+Local LLM provider
+구체적인 process 구성
+```
 
-### 실제 통합 테스트
+경계를 강하게 정한다는 것은 역할과 금지 방향을 명확히 한다는 뜻이다. 구현을
+느슨하게 둔다는 것은 미확정 인터페이스를 가상의 세부 설계로 먼저 고정하지
+않는다는 뜻이다.
 
-- secure/vulnerable 테스트 앱 각각 end-to-end 실행
-- Neo4j·브라우저·로컬 LLM 의존성 실패
-- 승인 대기 → 승인 → 재평가 → verifier 실행
-- server clock regression 시 결과 폐기와 재실행
-- reporter report와 development evaluate까지 실제 산출물로 확인
+## 17. 향후 구체화 순서
 
-## 14. 구현 단계
+모듈 구현이 충분히 진행되면 다음 순서로 설계를 구체화한다.
 
-### 0단계 — 통합 계약 확정
+```text
+1. 각 모듈의 실제 공개 인터페이스 확인
 
-- [ ] 8개 모듈 공개 entrypoint의 인자와 제어 응답 목록 작성
-- [ ] `access_analyzer`, `verifier` 공개 실행 구현 완료 확인
-- [ ] collector↔verifier 세션 창구 합의
-- [ ] runner의 KG `graph_id/revision` 전달 규약 확인
-- [ ] 승인 기록 생성·신원·만료·resume 규약 합의
-- [ ] runner↔web JSONL protocol v1 확정
+2. 실제 producer/consumer artifact 확인
 
-이 단계에서는 모듈 출력 Schema를 웹 편의를 위해 변경하지 않는다.
+3. 전체 pipeline 실행 흐름 확정
 
-### 1단계 — UI shell과 가짜 runner
+4. Integration Layer 역할 확정
 
-- [ ] 정적 frontend와 REST/SSE backend 골격
-- [ ] SQLite job/event 저장
-- [ ] 가짜 runner로 실행 목록·상세·진행 timeline 구현
-- [ ] 읽기 전용 승인 대기 화면과 결과 화면 구현
-- [ ] path/origin/secret logging 보안 테스트
+5. UI에 필요한 최소 데이터 정의
 
-### 2단계 — 실제 runner 연결
+6. Web-facing contract 정의
 
-- [ ] backend가 `pipeline.py`를 고정 argv로 실행
-- [ ] stdout JSONL·stderr 분리 수집
-- [ ] 모듈별 제어 응답 adapter 구현
-- [ ] completed/partial/failed/미발행 분기 검증
-- [ ] 한 번에 한 run 제한으로 실제 모듈 연결
+7. 실제 Web API 설계
 
-### 3단계 — 승인·resume
+8. UI 구현
+```
 
-- [ ] 합의된 승인 기록 writer/public endpoint 연결
-- [ ] waiting_approval 상태와 감사 로그
-- [ ] Safety Policy 재평가 후 allow만 verifier로 전달
-- [ ] 상태 변경 허용 시 DB reset gate 구현
+구체화할 때는 다음을 실제 산출물과 테스트로 확인한다.
 
-### 4단계 — 리포트·개발 평가
+- 모듈별 공개 호출과 제어 응답
+- 성공·부분 성공·실패·미실행 처리
+- 승인 대기와 재개 책임
+- 인증/session context의 소유와 전달 경계
+- Knowledge Graph와 Reporter 결과의 최소 화면 모델
+- development 평가의 제품 UI 분리 방식
+- 비밀정보가 process·저장소·로그를 통과하는 방식
+- 전체 pipeline과 테스트 앱의 end-to-end 실행
 
-- [ ] Reporter HTML 안전 제공
-- [ ] evaluation_results 화면 DTO
-- [ ] artifact/Evidence 개별 다운로드와 경로 방어
-- [ ] secure/vulnerable 전체 실행 비교
+현재 문서에서 이 항목의 세부 계약을 미리 만들지 않는다.
 
-### 5단계 — 배포
+## 18. 문서 기준
 
-- [ ] 관리자 승인 의존성과 공통 lock 반영
-- [ ] 폐쇄망용 frontend asset·Python wheel·Chromium·Neo4j·모델 준비
-- [ ] 단일 시작 명령과 health check
-- [ ] 백업·보존 기간·로그 rotation
-- [ ] Ubuntu 24.04 x86_64 설치본 검증
+향후 설계와 구현은 다음 질문으로 책임 침범 여부를 확인한다.
 
-## 15. 완료 기준
+1. 이 코드는 사용자 입력과 표현을 담당하는가, 진단 판단을 담당하는가?
+2. 모듈 내부 구현 변경이 Web 변경으로 직접 이어지는가?
+3. Web 요구 때문에 모듈 Schema나 business logic을 바꾸려 하는가?
+4. Safety Policy 또는 Reporter의 판단을 UI가 다시 계산하는가?
+5. 비밀정보가 브라우저 상태, event, 로그, 일반 artifact에 남는가?
+6. 아직 확인하지 않은 공개 계약을 확정된 것처럼 문서화하고 있는가?
 
-- [ ] frontend가 모듈 JSON·경로·Safety 규칙을 해석하지 않는다.
-- [ ] backend가 모듈 내부 구현을 import하지 않고 runner 프로세스만 제어한다.
-- [ ] runner는 공개 entrypoint와 제어 응답만 연결한다.
-- [ ] 기존 8개 모듈 코드와 v0.1 출력 Schema 변경 없이 전체 진단이 실행된다.
-- [ ] partial·failed·미발행·승인 대기가 화면에서 서로 구분된다.
-- [ ] 미실행·판단불가가 취약점 없음으로 표시되지 않는다.
-- [ ] 승인 없이 verifier 요청이 발생하지 않는다.
-- [ ] 비밀값이 API·SSE·로그·DB·HTML에 남지 않는다.
-- [ ] 대상 origin 밖 요청과 신뢰 루트 밖 파일 접근이 차단된다.
-- [ ] 실제 테스트 앱에서 report까지, development 모드에서는 evaluate까지 완료된다.
-- [ ] 웹을 제거해도 각 모듈과 CLI 독립 실행이 그대로 유지된다.
+핵심 목표는 다음과 같다.
 
-## 16. 구현 전에 확정할 결정
-
-1. 로컬 웹과 `pipeline.py`의 담당자·리뷰어
-2. runner JSONL protocol과 exit code
-3. 승인자의 신원 확인·승인 기록 생성 주체·서명·만료
-4. backend가 읽기 전용 직접 소비자가 될 파일 범위
-5. 단일 사용자 이후 동시 실행 수와 Neo4j graph·브라우저·LLM 자원 격리
-6. 웹 상태 DB 위치, 보존 기간, 삭제·백업 정책
-7. FastAPI/Uvicorn 버전과 공통 lock 반영 주체
-8. LAN 공개 여부와 인증·TLS 배치 방식
-
-이 결정이 필요한 이유는 UI 편의가 기존 모듈의 실행 허용·계약·비밀값 경계를
-우회하지 않도록 하기 위해서다.
+> 현재 단계에서는 책임 경계만 강하게 고정하고, 구체적인 구현 방식은 모듈
+> 구현과 공개 계약을 확인한 이후 결정한다.
