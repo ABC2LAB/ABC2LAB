@@ -19,6 +19,9 @@ from jsonschema import Draft202012Validator, ValidationError
 SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schemas"
 GRAPH_QUERY_SCHEMA_NAME = "output/graph_query.schema.json"
 GRAPH_QUERY_FILE_NAME = "graph_query.json"
+GRAPH_QUERY_RESULT_SCHEMA_NAME = "input/graph_query_result.schema.json"
+CANDIDATES_SCHEMA_NAME = "output/vulnerability_candidates.schema.json"
+CANDIDATES_FILE_NAME = "vulnerability_candidates.json"
 ROOT_LOCATION = "$"
 UTC_TIMESTAMP_PATTERN = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|\+00:00)"
@@ -33,6 +36,7 @@ class IssueCode(StrEnum):
     TIME_INVALID = "TIME_INVALID"
     DUPLICATE_ID = "DUPLICATE_ID"
     QUERIES_EMPTY = "QUERIES_EMPTY"
+    RESULT_STATUS_INVALID = "RESULT_STATUS_INVALID"
 
 
 @dataclass(frozen=True)
@@ -70,6 +74,63 @@ def validate_graph_query_bytes(raw: bytes) -> list[ValidationIssue]:
 def validate_graph_query_file(artifact_path: Path) -> list[ValidationIssue]:
     """공개된 graph_query.json 하나를 검사한다."""
     return validate_graph_query_bytes(artifact_path.read_bytes())
+
+
+def validate_graph_query_result_bytes(raw: bytes) -> list[ValidationIssue]:
+    """입력 graph_query_result.json을 우리 입력 사본 Schema와 의미로 검사한다(KG 출력 계약과 같은 모양)."""
+    report = _Report()
+    document = _parse_strict_json(report, ROOT_LOCATION, raw)
+    if document is None or not _check_schema(report, ROOT_LOCATION, document, GRAPH_QUERY_RESULT_SCHEMA_NAME):
+        return report.issues
+    _check_utc_timestamp(report, f"{ROOT_LOCATION}.created_at", document["created_at"])
+    if document["data"] is not None:
+        _check_result_semantics(report, document["data"])
+    return report.issues
+
+
+def validate_graph_query_result_file(artifact_path: Path) -> list[ValidationIssue]:
+    return validate_graph_query_result_bytes(artifact_path.read_bytes())
+
+
+def validate_vulnerability_candidates_bytes(raw: bytes) -> list[ValidationIssue]:
+    """자기 출력 vulnerability_candidates.json을 Schema와 의미로 검사한다."""
+    report = _Report()
+    document = _parse_strict_json(report, ROOT_LOCATION, raw)
+    if document is None or not _check_schema(report, ROOT_LOCATION, document, CANDIDATES_SCHEMA_NAME):
+        return report.issues
+    _check_utc_timestamp(report, f"{ROOT_LOCATION}.created_at", document["created_at"])
+    if document["data"] is not None:
+        _check_candidate_semantics(report, document["data"])
+    return report.issues
+
+
+def _check_result_semantics(report: _Report, data: dict[str, Any]) -> None:
+    """Schema를 통과한 결과의 query_id 유일성과 completed/failed-errors 대응을 확인한다."""
+    seen: set[str] = set()
+    for index, result in enumerate(data["results"]):
+        location = f"{ROOT_LOCATION}.data.results[{index}]"
+        query_id = result["query_id"]
+        if query_id in seen:
+            report.add(IssueCode.DUPLICATE_ID, f"{location}.query_id", f"result query_id가 중복됨: {query_id}")
+        seen.add(query_id)
+        if result["status"] == "completed" and result["errors"]:
+            report.add(IssueCode.RESULT_STATUS_INVALID, location, "completed 질의 결과의 errors는 비어 있어야 함")
+        if result["status"] == "failed" and not result["errors"]:
+            report.add(IssueCode.RESULT_STATUS_INVALID, location, "failed 질의 결과에는 error가 있어야 함")
+
+
+def _check_candidate_semantics(report: _Report, data: dict[str, Any]) -> None:
+    """후보 candidate_id 유일성을 확인한다."""
+    seen: set[str] = set()
+    for index, candidate in enumerate(data["candidates"]):
+        candidate_id = candidate["candidate_id"]
+        if candidate_id in seen:
+            report.add(
+                IssueCode.DUPLICATE_ID,
+                f"{ROOT_LOCATION}.data.candidates[{index}].candidate_id",
+                f"candidate_id가 중복됨: {candidate_id}",
+            )
+        seen.add(candidate_id)
 
 
 def _check_query_semantics(report: _Report, data: dict[str, Any]) -> None:
