@@ -27,6 +27,14 @@ class ErrorItem:
             retryable=value["retryable"],
         )
 
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "item_ref": self.item_ref,
+            "retryable": self.retryable,
+        }
+
 
 @dataclass(frozen=True)
 class EvidenceReference:
@@ -45,6 +53,15 @@ class EvidenceReference:
             sha256=value["sha256"],
             redacted=value["redacted"],
         )
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "evidence_id": self.evidence_id,
+            "kind": self.kind,
+            "path": self.path,
+            "sha256": self.sha256,
+            "redacted": self.redacted,
+        }
 
 
 @dataclass(frozen=True)
@@ -186,10 +203,23 @@ class VerificationResult:
     result: str
     reason: str
     evidence_refs: tuple[EvidenceReference, ...]
+    step_evidence_refs: tuple[EvidenceReference, ...]
     errors: tuple[ErrorItem, ...]
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> VerificationResult:
+        step_evidence_refs: list[EvidenceReference] = []
+        for step in value["steps"]:
+            step_evidence_refs.extend(
+                EvidenceReference.from_mapping(item)
+                for item in step["evidence_refs"]
+            )
+            for reference_name in ("request_ref", "response_ref"):
+                reference = step[reference_name]
+                if reference is not None:
+                    step_evidence_refs.append(
+                        EvidenceReference.from_mapping(reference)
+                    )
         return cls(
             verification_id=value["verification_id"],
             candidate_id=value["candidate_id"],
@@ -203,10 +233,106 @@ class VerificationResult:
                 EvidenceReference.from_mapping(item)
                 for item in value["evidence_refs"]
             ),
+            step_evidence_refs=tuple(step_evidence_refs),
             errors=tuple(
                 ErrorItem.from_mapping(item) for item in value["errors"]
             ),
         )
+
+    @property
+    def all_evidence_refs(self) -> tuple[EvidenceReference, ...]:
+        return (*self.evidence_refs, *self.step_evidence_refs)
+
+
+@dataclass(frozen=True)
+class Finding:
+    finding_id: str
+    candidate_id: str
+    scenario_id: str | None
+    verification_id: str | None
+    category: str
+    vulnerability_type: str
+    status: str
+    title: str
+    description: str
+    evidence_refs: tuple[EvidenceReference, ...]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "finding_id": self.finding_id,
+            "candidate_id": self.candidate_id,
+            "scenario_id": self.scenario_id,
+            "verification_id": self.verification_id,
+            "category": self.category,
+            "vulnerability_type": self.vulnerability_type,
+            "status": self.status,
+            "title": self.title,
+            "description": self.description,
+            "evidence_refs": [item.to_mapping() for item in self.evidence_refs],
+        }
+
+
+@dataclass(frozen=True)
+class ReportSummary:
+    candidate_count: int
+    confirmed_count: int
+    not_confirmed_count: int
+    suspected_count: int
+    indeterminate_count: int
+    policy_blocked_count: int
+    approval_pending_count: int
+
+    def to_mapping(self) -> dict[str, int]:
+        return {
+            "candidate_count": self.candidate_count,
+            "confirmed_count": self.confirmed_count,
+            "not_confirmed_count": self.not_confirmed_count,
+            "suspected_count": self.suspected_count,
+            "indeterminate_count": self.indeterminate_count,
+            "policy_blocked_count": self.policy_blocked_count,
+            "approval_pending_count": self.approval_pending_count,
+        }
+
+
+@dataclass(frozen=True)
+class DiagnosisReportData:
+    target_url: str
+    summary: ReportSummary
+    findings: tuple[Finding, ...]
+    limitations: tuple[str, ...]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "target_url": self.target_url,
+            "summary": self.summary.to_mapping(),
+            "findings": [item.to_mapping() for item in self.findings],
+            "limitations": list(self.limitations),
+        }
+
+
+@dataclass(frozen=True)
+class DiagnosisBuildResult:
+    status: str
+    errors: tuple[ErrorItem, ...]
+    data: DiagnosisReportData | None
+
+
+@dataclass(frozen=True)
+class ReportControlResponse:
+    status: str
+    artifact_id: str
+    output_path: str
+    sha256: str
+    errors: tuple[ErrorItem, ...]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "artifact_id": self.artifact_id,
+            "output_path": self.output_path,
+            "sha256": self.sha256,
+            "errors": [item.to_mapping() for item in self.errors],
+        }
 
 
 @dataclass(frozen=True)

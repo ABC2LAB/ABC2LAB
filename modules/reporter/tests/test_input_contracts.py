@@ -256,6 +256,29 @@ def test_prepare_report_inputs_rejects_wrong_verification_link(
         prepare_report_inputs(request)
 
 
+def test_prepare_report_inputs_rejects_duplicate_verification_scenario(
+    report_arguments: Arguments,
+) -> None:
+    input_paths, output_dir, context = report_arguments
+
+    def duplicate_scenario_result(value: dict[str, Any]) -> None:
+        original = value["data"]["results"][0]
+        duplicate = json.loads(json.dumps(original))
+        duplicate["verification_id"] = "verification_idor_duplicate"
+        value["data"]["results"].append(duplicate)
+
+    _mutate_artifact(
+        input_paths,
+        context,
+        "verification_results",
+        duplicate_scenario_result,
+    )
+    request = parse_report_request(input_paths, output_dir, context)
+
+    with pytest.raises(ReporterError, match="verification scenario_id"):
+        prepare_report_inputs(request)
+
+
 def test_prepare_report_inputs_rejects_scenario_hash_mismatch(
     report_arguments: Arguments,
 ) -> None:

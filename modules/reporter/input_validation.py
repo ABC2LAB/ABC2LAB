@@ -354,6 +354,10 @@ def _build_verification_results(
         (item["verification_id"] for item in values),
         "verification_id",
     )
+    require_unique(
+        (item["scenario_id"] for item in values),
+        "verification scenario_id",
+    )
     for item in values:
         _validate_verification_state(item)
     _validate_graph_updates(data, values)
