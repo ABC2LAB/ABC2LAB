@@ -25,7 +25,7 @@ from playwright.sync_api import BrowserContext, Locator, Page, Route
 from playwright.sync_api import Error as PlaywrightError
 
 from modules.collector.core.capture import RequestCapture
-from modules.collector.core.config import CrawlerConfig, is_request_allowed
+from modules.collector.core.config import AccountSettings, CrawlerConfig, is_request_allowed
 from modules.collector.core.normalize import normalize_path
 from modules.collector.core.models import DiscoveredPage, FormField, PageAction, PageLink
 
@@ -173,11 +173,16 @@ class _ActionStep:
     perform: Callable[[Locator], None]
 
 
-def crawl(context: BrowserContext, config: CrawlerConfig, role: str, capture: RequestCapture) -> list[DiscoveredPage]:
-    """로그인된 context로 config.start_url부터 BFS 탐색해 방문한 페이지를 순서대로 돌려준다. context는 닫지 않는다."""
+def crawl(
+    context: BrowserContext, config: CrawlerConfig, account: AccountSettings, capture: RequestCapture
+) -> list[DiscoveredPage]:
+    """로그인된 context로 config.start_url부터 BFS 탐색해 방문한 페이지를 순서대로 돌려준다. context는 닫지 않는다.
+
+    자기 화면에서 만난 링크·행동만 따라간다. 다른 계정의 자원을 일부러 요청하지 않는다(규칙 5).
+    """
     page = context.new_page()
     page.set_default_timeout(NAVIGATION_TIMEOUT_MS)
-    explorer = _Explorer(config=config, role=role, capture=capture, page=page)
+    explorer = _Explorer(config=config, account=account, capture=capture, page=page)
     guard = explorer.guard_state_change
     context.route(ALL_URLS_PATTERN, guard)
     try:
@@ -186,14 +191,14 @@ def crawl(context: BrowserContext, config: CrawlerConfig, role: str, capture: Re
         capture.set_source(None, None)
         context.unroute(ALL_URLS_PATTERN, guard)
         page.close()
-    logger.info("%s 탐색 끝: 페이지 %d개", role, len(pages))
+    logger.info("%s 탐색 끝: 페이지 %d개", account.alias, len(pages))
     return pages
 
 
 @dataclass
 class _Explorer:
     config: CrawlerConfig
-    role: str
+    account: AccountSettings
     capture: RequestCapture
     page: Page
     queue: deque[_QueueEntry] = field(default_factory=deque)
@@ -413,7 +418,8 @@ class _Explorer:
         self, entry: _QueueEntry, current: _CurrentPage, status: int | None, findings: _PageFindings = EMPTY_FINDINGS
     ) -> DiscoveredPage:
         return DiscoveredPage(
-            role=self.role,
+            role=self.account.role,
+            account_id=self.account.account_id,
             url=current.masked_url,
             endpoint=current.endpoint,
             title=findings.title,

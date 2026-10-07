@@ -12,7 +12,7 @@ from pydantic import JsonValue
 
 from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
 from modules.collector.core.models import CapturedRequest, DiscoveredPage, FormField, PageAction, PageLink
-from modules.collector.service import CollectOutcome, RoleCrawl
+from modules.collector.service import AccountCrawl, CollectOutcome
 from modules.collector.utils import export
 from modules.collector.utils.envelope import Mode, RunContext, Status, WorkResult, build_envelope
 from modules.collector.utils.evidence import EvidenceWriter
@@ -33,14 +33,16 @@ REDACTED = "[REDACTED]"
 
 
 def make_config() -> CrawlerConfig:
-    return load_config({"CRAWLER_TARGET_URL": TARGET_URL})
+    return load_config({"target_url": TARGET_URL})
 
 
 def make_page(
-    role: str, url: str, links: list[PageLink] | None = None, actions: list[PageAction] | None = None
+    alias: str, url: str, links: list[PageLink] | None = None, actions: list[PageAction] | None = None
 ) -> DiscoveredPage:
+    """이 파일의 탐색 결과는 별칭과 역할 이름이 같다(guest·user·admin). 같은 역할 여러 계정은 따로 만든다."""
     return DiscoveredPage(
-        role=role,
+        role=alias,
+        account_id=f"account:{alias}",
         url=url,
         endpoint=urlsplit(url).path,
         title=None,
@@ -72,9 +74,10 @@ def make_action(action_id: str, kind: str, label: str | None) -> PageAction:
     )
 
 
-def make_record(role: str, url: str, offset_s: float = 0, **overrides: Any) -> CapturedRequest:
+def make_record(alias: str, url: str, offset_s: float = 0, **overrides: Any) -> CapturedRequest:
     fields: dict[str, Any] = {
-        "role": role,
+        "role": alias,
+        "account_id": f"account:{alias}",
         "method": "GET",
         "resource_type": "fetch",
         "url": url,
@@ -96,15 +99,25 @@ def make_record(role: str, url: str, offset_s: float = 0, **overrides: Any) -> C
     return CapturedRequest.model_validate(fields)
 
 
-def make_outcome(*role_crawls: RoleCrawl) -> CollectOutcome:
-    return CollectOutcome(BASE_TIME, BASE_TIME + timedelta(minutes=1), tuple(role_crawls))
+def make_outcome(*account_crawls: AccountCrawl) -> CollectOutcome:
+    return CollectOutcome(BASE_TIME, BASE_TIME + timedelta(minutes=1), tuple(account_crawls))
 
 
 def make_crawl(
-    role: str, pages: tuple[DiscoveredPage, ...], records: tuple[CapturedRequest, ...], **overrides: Any
-) -> RoleCrawl:
+    alias: str, pages: tuple[DiscoveredPage, ...], records: tuple[CapturedRequest, ...], **overrides: Any
+) -> AccountCrawl:
+    role = overrides.pop("role", alias)
     session_ref = overrides.pop("session_ref", None if role == GUEST_ROLE else USER_SESSION_REF)
-    return RoleCrawl(role, pages, records, overrides.pop("error", None), session_ref, **overrides)
+    return AccountCrawl(
+        account_id=f"account:{alias}",
+        alias=alias,
+        role=role,
+        pages=pages,
+        records=records,
+        error=overrides.pop("error", None),
+        session_ref=session_ref,
+        **overrides,
+    )
 
 
 @pytest.fixture
@@ -228,6 +241,25 @@ def test_session_ref_copied_to_account_and_requests(writer: EvidenceWriter) -> N
     assert [(request["account_id"], request["role_id"], request["session_ref"]) for request in data["requests"]] == [
         ("account:guest", "role:guest", None),
         ("account:user", "role:user", USER_SESSION_REF),
+    ]
+
+
+def test_same_role_accounts_kept_apart(writer: EvidenceWriter) -> None:
+    first_ref, second_ref = "session:aaaaaaaaaaaaaaaa", "session:bbbbbbbbbbbbbbbb"
+    user_a = make_crawl("user_a", (), (make_record("user_a", PAGE_A, 1),), role=USER_ROLE, session_ref=first_ref)
+    user_b = make_crawl("user_b", (), (make_record("user_b", PAGE_B, 2),), role=USER_ROLE, session_ref=second_ref)
+
+    data = build_data(writer, make_outcome(make_crawl(GUEST_ROLE, (), ()), user_a, user_b))
+
+    assert data["roles"] == [{"role_id": "role:guest", "name": "guest"}, {"role_id": "role:user", "name": "user"}]
+    assert [(account["account_id"], account["alias"], account["role_id"]) for account in data["accounts"]] == [
+        ("account:guest", "guest", "role:guest"),
+        ("account:user_a", "user_a", "role:user"),
+        ("account:user_b", "user_b", "role:user"),
+    ]
+    assert [(request["account_id"], request["session_ref"], request["url"]) for request in data["requests"]] == [
+        ("account:user_a", first_ref, PAGE_A),
+        ("account:user_b", second_ref, PAGE_B),
     ]
 
 
@@ -423,7 +455,7 @@ def test_exported_data_passes_contract(tmp_path: Path, writer: EvidenceWriter) -
     outcome = make_outcome(make_crawl(GUEST_ROLE, (), ()), make_crawl(USER_ROLE, (page,), (api_record, link_record)))
     data = build_data(writer, outcome)
     run_root = tmp_path / RUN_ID
-    run_context = RunContext(RUN_ID, 0, Mode.DEVELOPMENT, run_root, Path(".env"))
+    run_context = RunContext(RUN_ID, 0, Mode.DEVELOPMENT, run_root, Path("collector.toml"), Path(".env"))
     document = build_envelope(run_context, WorkResult(Status.COMPLETED, [], data, 10))
     raw = json.dumps(document, ensure_ascii=False).encode("utf-8")
 

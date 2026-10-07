@@ -1,10 +1,10 @@
 """탐색 결과(service.CollectOutcome)를 crawl_result.json의 data 객체로 바꾼다.
 
 공개 계약(schemas/output/crawl_result.schema.json·README)과 내부 모델의 대응은 이 파일에서만 맞춘다.
-- 지금은 역할당 계정 하나(account:<role>)다.
+- 계정마다 따로 탐색한 결과를 계정 순서대로 잇는다. 같은 역할에 계정이 여럿일 수 있다.
 - 근거 파일은 EvidenceWriter가 쓴다. JSON 응답은 응답 근거(response.body_ref), 링크·폼·버튼이 있는 페이지는
   DOM 근거(Page·그 페이지 Action의 evidence_refs). 요청 근거는 만들지 않는다(body_ref=null, evidence_refs=[]).
-- ID는 실행 전체에서 1부터 붙인다. 요청은 역할 안에서 나간 순서대로 정렬한 뒤 번호를 매긴다.
+- ID는 실행 전체에서 1부터 붙인다. 요청은 계정 안에서 나간 순서대로 정렬한 뒤 번호를 매긴다.
 """
 
 from collections.abc import Iterator, Mapping
@@ -27,12 +27,11 @@ from modules.collector.core.config import CrawlerConfig
 from modules.collector.core.explorer import BUTTON_KIND, FORM_KIND, LOAD_ACTION, REVISIT_ACTION, START_ACTION
 from modules.collector.core.models import CapturedRequest, DiscoveredPage
 from modules.collector.core.normalize import ID_SEGMENT_PATTERNS, PATH_SEPARATOR
-from modules.collector.service import CollectOutcome, RoleCrawl
+from modules.collector.service import AccountCrawl, CollectOutcome
 from modules.collector.utils.envelope import ErrorCode, format_utc, make_error_item
 from modules.collector.utils.evidence import EvidenceWriter
 
 ROLE_ID_FORMAT = "role:{}"
-ACCOUNT_ID_FORMAT = "account:{}"
 PAGE_ID_FORMAT = "page:{}"
 ACTION_ID_FORMAT = "action:{}"
 REQUEST_ID_FORMAT = "request:{}"
@@ -55,19 +54,14 @@ def role_id_of(role: str) -> str:
     return ROLE_ID_FORMAT.format(role)
 
 
-def account_id_of(role: str) -> str:
-    # 역할당 계정 하나인 동안은 역할 이름을 별칭으로 쓴다. 로그인 ID는 넣지 않는다.
-    return ACCOUNT_ID_FORMAT.format(role)
-
-
 def build_data(config: CrawlerConfig, outcome: CollectOutcome, evidence_writer: EvidenceWriter) -> dict[str, Any]:
     """근거 파일을 먼저 쓰고 그 참조를 담은 data를 돌려준다. 근거를 못 쓰면 storage 예외·OSError가 그대로 난다."""
     builder = _DataBuilder(evidence_writer)
-    for role_crawl in outcome.role_crawls:
-        builder.add_role(role_crawl)
+    for account_crawl in outcome.account_crawls:
+        builder.add_account(account_crawl)
     return {
         "target_url": config.start_url,
-        "roles": [{"role_id": role_id_of(crawl.role), "name": crawl.role} for crawl in outcome.role_crawls],
+        "roles": [{"role_id": role_id_of(role), "name": role} for role in _list_roles(outcome)],
         "accounts": builder.accounts,
         "pages": builder.pages,
         "actions": builder.actions,
@@ -79,11 +73,16 @@ def list_account_errors(outcome: CollectOutcome) -> list[dict[str, Any]]:
     """실패한 계정마다 ErrorItem 하나. 같은 조건으로 다시 돌리면 될 수 있어 retryable=true."""
     return [
         make_error_item(
-            ErrorCode.ACCOUNT_CRAWL_FAILED, role_crawl.error, item_ref=account_id_of(role_crawl.role), is_retryable=True
+            ErrorCode.ACCOUNT_CRAWL_FAILED, account_crawl.error, item_ref=account_crawl.account_id, is_retryable=True
         )
-        for role_crawl in outcome.role_crawls
-        if role_crawl.error is not None
+        for account_crawl in outcome.account_crawls
+        if account_crawl.error is not None
     ]
+
+
+def _list_roles(outcome: CollectOutcome) -> list[str]:
+    """계정에 나온 역할을 처음 나온 순서대로 한 번씩."""
+    return list(dict.fromkeys(account_crawl.role for account_crawl in outcome.account_crawls))
 
 
 def has_observations(data: Mapping[str, Any]) -> bool:
@@ -91,8 +90,8 @@ def has_observations(data: Mapping[str, Any]) -> bool:
 
 
 @dataclass
-class _RoleLinks:
-    """한 역할 안에서 요청을 페이지·행동에 잇는 표. 다른 역할의 같은 URL과는 잇지 않는다."""
+class _AccountLinks:
+    """한 계정 안에서 요청을 페이지·행동에 잇는 표. 다른 계정의 같은 URL과는 잇지 않는다."""
 
     page_id_by_url: dict[str, str] = field(default_factory=dict)
     # (page_id, 페이지 안 순번 "link:0" 등) → 전역 action_id
@@ -107,22 +106,22 @@ class _DataBuilder:
     actions: list[dict[str, Any]] = field(default_factory=list)
     requests: list[dict[str, Any]] = field(default_factory=list)
 
-    def add_role(self, role_crawl: RoleCrawl) -> None:
+    def add_account(self, account_crawl: AccountCrawl) -> None:
         account = {
-            "account_id": account_id_of(role_crawl.role),
-            "role_id": role_id_of(role_crawl.role),
-            "alias": role_crawl.role,
-            "session_ref": role_crawl.session_ref,
+            "account_id": account_crawl.account_id,
+            "role_id": role_id_of(account_crawl.role),
+            "alias": account_crawl.alias,
+            "session_ref": account_crawl.session_ref,
         }
         self.accounts.append(account)
-        links = _RoleLinks()
-        for page in role_crawl.pages:
+        links = _AccountLinks()
+        for page in account_crawl.pages:
             self._add_page(page, links)
         # capture는 응답이 끝난 순서로 쌓으므로 요청이 나간 순서로 바꾼다. 같은 시각이면 원래 순서를 지킨다.
-        for record in sorted(role_crawl.records, key=lambda record: record.captured_at):
+        for record in sorted(account_crawl.records, key=lambda record: record.captured_at):
             self.requests.append(self._build_request(record, account, links))
 
-    def _add_page(self, page: DiscoveredPage, links: _RoleLinks) -> None:
+    def _add_page(self, page: DiscoveredPage, links: _AccountLinks) -> None:
         page_id = PAGE_ID_FORMAT.format(len(self.pages) + 1)
         # 리다이렉트로 이미 본 페이지에 다시 오면 같은 URL이 또 생긴다. 뒤의 것은 추출을 건너뛴 페이지라 처음 것에 잇는다.
         links.page_id_by_url.setdefault(page.url, page_id)
@@ -149,7 +148,7 @@ class _DataBuilder:
                 action_record["evidence_refs"] = [dict(dom_ref)]
 
     def _add_action(
-        self, page_id: str, local_action_id: str, kind: str, label: str | None, links: _RoleLinks
+        self, page_id: str, local_action_id: str, kind: str, label: str | None, links: _AccountLinks
     ) -> dict[str, Any]:
         action_id = ACTION_ID_FORMAT.format(len(self.actions) + 1)
         links.action_id_by_key[(page_id, local_action_id)] = action_id
@@ -158,7 +157,7 @@ class _DataBuilder:
         return action_record
 
     def _build_request(
-        self, record: CapturedRequest, account: Mapping[str, Any], links: _RoleLinks
+        self, record: CapturedRequest, account: Mapping[str, Any], links: _AccountLinks
     ) -> dict[str, Any]:
         page_id = links.page_id_by_url.get(record.source_page) if record.source_page is not None else None
         action_id = None

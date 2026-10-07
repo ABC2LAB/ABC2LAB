@@ -10,8 +10,14 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from playwright.sync_api import Browser, BrowserContext, sync_playwright
 
-from modules.collector.core.auth import LoginError, open_role_context
-from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
+from modules.collector.core.auth import LoginError, open_account_context
+from modules.collector.core.config import (
+    GUEST_ACCOUNT,
+    AccountSettings,
+    CrawlerConfig,
+    load_config,
+    secret_key_names,
+)
 from modules.collector.tests.helpers import LOCALHOST, make_counting_handler, run_server
 
 # 테스트 앱과 일부러 다른 경로·필드명을 써서 auth.py에 앱 전용 값이 없는지 확인한다.
@@ -22,6 +28,8 @@ PASSWORD_FIELD = "login_pw"
 USERNAME = "alice"
 PASSWORD = "s3cret-value-do-not-log"
 ROLE = "user"
+ALIAS = "user_a"
+LOGIN_ID_KEY, PASSWORD_KEY = secret_key_names(ALIAS)
 SESSION_COOKIE = "sid"
 SESSION_VALUE = "session-token-1"
 WELCOME_TEXT = "Welcome alice"
@@ -125,28 +133,27 @@ def outside() -> Iterator[OutsideServer]:
         yield OutsideServer(url=url, requested_paths=requested_paths)
 
 
-def make_env(site_url: str) -> dict[str, str]:
-    return {
-        "CRAWLER_TARGET_URL": site_url,
-        "CRAWLER_ROLES": ROLE,
-        "CRAWLER_ROLE_USER_USERNAME": USERNAME,
-        "CRAWLER_ROLE_USER_PASSWORD": PASSWORD,
-        "CRAWLER_LOGIN_PATH": LOGIN_PATH,
-        "CRAWLER_LOGIN_USERNAME_FIELD": USERNAME_FIELD,
-        "CRAWLER_LOGIN_PASSWORD_FIELD": PASSWORD_FIELD,
-        "CRAWLER_LOGIN_SUCCESS_CHECK": "left_login_page",
+def make_config(
+    site_url: str, login_overrides: dict[str, str] | None = None, secrets: dict[str, str] | None = None
+) -> CrawlerConfig:
+    login = {
+        "path": LOGIN_PATH,
+        "username_field": USERNAME_FIELD,
+        "password_field": PASSWORD_FIELD,
+        "success_check": "left_login_page",
+        **(login_overrides or {}),
     }
+    settings = {"target_url": site_url, "roles": [ROLE], "login": login, "accounts": [{"alias": ALIAS, "role": ROLE}]}
+    return load_config(settings, {LOGIN_ID_KEY: USERNAME, PASSWORD_KEY: PASSWORD} if secrets is None else secrets)
 
 
-def make_config(site_url: str, **overrides: str) -> CrawlerConfig:
-    env = make_env(site_url)
-    env.update(overrides)
-    return load_config(env)
+def account_of(config: CrawlerConfig) -> AccountSettings:
+    return next(account for account in config.accounts if account.alias == ALIAS)
 
 
 @contextmanager
-def open_context(browser: Browser, config: CrawlerConfig, role: str) -> Iterator[BrowserContext]:
-    context = open_role_context(browser, config, role)
+def open_context(browser: Browser, config: CrawlerConfig, account: AccountSettings) -> Iterator[BrowserContext]:
+    context = open_account_context(browser, config, account)
     try:
         yield context
     finally:
@@ -162,7 +169,7 @@ def assert_password_hidden(error: LoginError, caplog: pytest.LogCaptureFixture) 
 def test_guest_gets_empty_context_without_requests(browser: Browser, site: FakeSite, site_url: str) -> None:
     config = make_config(site_url)
 
-    with open_context(browser, config, GUEST_ROLE) as context:
+    with open_context(browser, config, GUEST_ACCOUNT) as context:
         assert context.cookies() == []
     assert site.received_requests == []
 
@@ -179,9 +186,9 @@ def test_guest_gets_empty_context_without_requests(browser: Browser, site: FakeS
 def test_login_succeeds_for_each_success_check(
     browser: Browser, site: FakeSite, site_url: str, check: str, value: str
 ) -> None:
-    config = make_config(site_url, CRAWLER_LOGIN_SUCCESS_CHECK=check, CRAWLER_LOGIN_SUCCESS_VALUE=value)
+    config = make_config(site_url, {"success_check": check, "success_value": value})
 
-    with open_context(browser, config, ROLE) as context:
+    with open_context(browser, config, account_of(config)) as context:
         cookie_names = {cookie["name"] for cookie in context.cookies(site_url)}
         assert SESSION_COOKIE in cookie_names
     assert f"POST {LOGIN_PATH}" in site.received_requests
@@ -190,7 +197,7 @@ def test_login_succeeds_for_each_success_check(
 def test_returned_context_stays_logged_in(browser: Browser, site_url: str) -> None:
     config = make_config(site_url)
 
-    with open_context(browser, config, ROLE) as context:
+    with open_context(browser, config, account_of(config)) as context:
         page = context.new_page()
         page.goto(f"{site_url}{HOME_PATH}")
         assert WELCOME_TEXT in page.locator("body").inner_text()
@@ -201,13 +208,14 @@ def test_wrong_password_raises_without_leaking_password(
 ) -> None:
     caplog.set_level(logging.DEBUG)
     wrong_password = f"{PASSWORD}-wrong"
-    config = make_config(site_url, CRAWLER_ROLE_USER_PASSWORD=wrong_password)
+    config = make_config(site_url, secrets={LOGIN_ID_KEY: USERNAME, PASSWORD_KEY: wrong_password})
 
     with pytest.raises(LoginError) as error_info:
-        open_role_context(browser, config, ROLE)
+        open_account_context(browser, config, account_of(config))
 
-    assert error_info.value.role == ROLE
-    assert ROLE in str(error_info.value)
+    assert error_info.value.alias == ALIAS
+    assert ALIAS in str(error_info.value)
+    assert USERNAME not in str(error_info.value)
     assert "left_login_page" in str(error_info.value)
     formatted = "".join(traceback.format_exception(error_info.value))
     assert wrong_password not in formatted
@@ -226,24 +234,24 @@ def test_unmet_success_check_raises(
     browser: Browser, site_url: str, caplog: pytest.LogCaptureFixture, check: str, value: str
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    config = make_config(site_url, CRAWLER_LOGIN_SUCCESS_CHECK=check, CRAWLER_LOGIN_SUCCESS_VALUE=value)
+    config = make_config(site_url, {"success_check": check, "success_value": value})
 
     with pytest.raises(LoginError) as error_info:
-        open_role_context(browser, config, ROLE)
+        open_account_context(browser, config, account_of(config))
 
     assert check in str(error_info.value)
     assert_password_hidden(error_info.value, caplog)
 
 
-@pytest.mark.parametrize("field_key", ["CRAWLER_LOGIN_USERNAME_FIELD", "CRAWLER_LOGIN_PASSWORD_FIELD"])
+@pytest.mark.parametrize("field_key", ["username_field", "password_field"])
 def test_missing_form_field_raises(
     browser: Browser, site_url: str, caplog: pytest.LogCaptureFixture, field_key: str
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    config = make_config(site_url, **{field_key: "no_such_field"})
+    config = make_config(site_url, {field_key: "no_such_field"})
 
     with pytest.raises(LoginError) as error_info:
-        open_role_context(browser, config, ROLE)
+        open_account_context(browser, config, account_of(config))
 
     assert "no_such_field" in str(error_info.value)
     assert_password_hidden(error_info.value, caplog)
@@ -257,7 +265,7 @@ def test_form_action_outside_allowed_origin_is_not_submitted(
     config = make_config(site_url)
 
     with pytest.raises(LoginError) as error_info:
-        open_role_context(browser, config, ROLE)
+        open_account_context(browser, config, account_of(config))
 
     assert outside.requested_paths == []
     assert_password_hidden(error_info.value, caplog)
@@ -269,19 +277,32 @@ def test_requests_outside_allowed_origin_are_blocked(
     site.extra_html = f'<img src="{outside.url}/pixel.png">'
     config = make_config(site_url)
 
-    with open_context(browser, config, ROLE):
+    with open_context(browser, config, account_of(config)):
         pass
 
     assert outside.requested_paths == []
 
 
-def test_unknown_role_raises(browser: Browser, site_url: str) -> None:
+def test_unknown_account_raises(browser: Browser, site_url: str) -> None:
     config = make_config(site_url)
+    stranger = AccountSettings(alias="manager_a", role=ROLE, login_id=USERNAME, password=PASSWORD)
 
     with pytest.raises(LoginError) as error_info:
-        open_role_context(browser, config, "manager")
+        open_account_context(browser, config, stranger)
 
-    assert error_info.value.role == "manager"
+    assert error_info.value.alias == "manager_a"
+
+
+def test_account_without_secrets_fails_before_any_request(browser: Browser, site: FakeSite, site_url: str) -> None:
+    config = make_config(site_url, secrets={LOGIN_ID_KEY: USERNAME})
+
+    with pytest.raises(LoginError) as error_info:
+        open_account_context(browser, config, account_of(config))
+
+    # 어떤 값이 빠졌는지 키 이름으로 알린다. 값은 넣지 않는다.
+    assert PASSWORD_KEY in str(error_info.value)
+    assert USERNAME not in str(error_info.value)
+    assert site.received_requests == []
 
 
 def test_unreachable_server_raises(browser: Browser, caplog: pytest.LogCaptureFixture) -> None:
@@ -292,6 +313,6 @@ def test_unreachable_server_raises(browser: Browser, caplog: pytest.LogCaptureFi
     config = make_config(f"http://{LOCALHOST}:{closed_port}")
 
     with pytest.raises(LoginError) as error_info:
-        open_role_context(browser, config, ROLE)
+        open_account_context(browser, config, account_of(config))
 
     assert_password_hidden(error_info.value, caplog)

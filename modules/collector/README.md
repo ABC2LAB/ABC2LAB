@@ -11,7 +11,7 @@
 **지금 상태**
 - `entrypoint.py`가 아래 계약대로 `crawl_result.json`을 공개한다.
 - 근거 파일도 같이 쓴다. JSON 응답은 응답 근거(shape + 식별자), 링크·폼·버튼이 있는 페이지는 DOM 근거.
-- 계정은 역할당 하나(`account:<역할>`)다. 복수 계정은 그 다음 PR에서 붙인다.
+- 같은 역할에 계정을 여럿 둘 수 있다. 계정마다 브라우저 context를 따로 열어 쿠키가 섞이지 않고, 각자 자기 화면만 탐색한다.
 - 이 문서와 Schema는 소비자 합의용 기준본이다.
 
 **구조**
@@ -19,11 +19,13 @@
 |---|---|
 | `entrypoint.py` | 공개 창구 `run()`과 CLI |
 | `service.py` | 역할별 탐색과 시계 역행 집계 |
-| `core/` | 기존 탐색 core: 로그인·탐색·캡처·마스킹 |
+| `core/` | 기존 탐색 core: 설정·로그인·탐색·캡처·마스킹 |
 | `core/identifiers.py` | 응답 JSON에서 식별자 추출(capture 안에서 호출, 본문 원문은 capture 밖으로 안 나감) |
 | `utils/export.py` | 내부 결과를 계약 형식으로 바꾼다 |
 | `utils/envelope.py` | 공통 envelope·ErrorItem |
 | `utils/evidence.py` | 응답·DOM 근거 파일 작성 |
+| `configs/collector.example.toml` | 설정 예시. 실제 설정 `configs/collector.toml`은 로컬 파일(git 제외) |
+| `.env.example` | 계정 비밀값 예시 |
 | `utils/storage.py` | 경로 검증·원자적 공개 |
 | `utils/validation.py` | 자기 출력 검증 |
 
@@ -33,7 +35,7 @@
 
 ```bash
 .venv/bin/python -m modules.collector.entrypoint collect --mode development
-# 선택: --run-id <ID>(없으면 시각+난수) --iteration 0 --runs-dir runs --config <설정 파일>
+# 선택: --run-id <ID>(없으면 시각+난수) --iteration 0 --runs-dir runs --config <설정.toml> --secrets <.env>
 ```
 
 - 결과 파일: `runs/<run_id>/artifacts/iteration-<NNN>/collector/crawl_result.json`.
@@ -76,7 +78,7 @@
 | 코드 | 언제 | 파일 | retryable |
 |---|---|---|---|
 | `ACCOUNT_CRAWL_FAILED` | 계정 하나의 로그인·탐색 실패. `item_ref`는 그 계정 ID | partial(다른 결과가 있으면) / failed | true |
-| `CONFIG_INVALID` | 설정 키가 빠졌거나 형식이 틀림 | failed | false |
+| `CONFIG_INVALID` | 설정 파일 없음·TOML 형식 오류·키 누락·정의 안 된 키·별칭=로그인 ID 등 | failed | false |
 | `BROWSER_LAUNCH_FAILED` | 브라우저를 띄우지 못함 | failed | true |
 | `SERVER_CLOCK_REGRESSION` | 대상 서버 시계 역행 | failed | true |
 | `OPERATION_UNSUPPORTED` / `INPUT_UNEXPECTED` | `collect`가 아님 / 입력 경로가 있음 | failed | false |
@@ -86,10 +88,32 @@
 
 ## 입력
 
-**입력 JSON 없음.** `schemas/input/`도 없다. 대상 URL·역할·계정·로그인 방식은 사용자 설정으로 받는다.
-- 지금: 설정 파일의 `CRAWLER_*`. 같은 이름의 프로세스 환경변수가 있으면 그 값이 우선한다. 키 설명은 루트 `.env.example`에 있다.
-- 설정 파일 위치: CLI `--config` > 환경변수 `COLLECTOR_CONFIG_PATH` > 기본 `.env`(실행 폴더 기준). `run()`을 직접 부르면 `--config`가 없으니 환경변수나 기본값을 쓴다.
-- 복수 계정부터: `configs/collector.toml` + `.env`(아이디·비밀번호만).
+**입력 JSON 없음.** `schemas/input/`도 없다. 대상과 계정은 사용자 설정 두 파일로 받는다.
+
+| 파일 | 내용 | 위치(우선순위) |
+|---|---|---|
+| 설정 TOML (비밀 아님) | 대상 URL·허용 origin·탐색 제한·로그인 폼·역할 목록·계정 별칭↔역할 | `--config` > `COLLECTOR_CONFIG_PATH` > `modules/collector/configs/collector.toml` |
+| 비밀값 .env | 계정 별칭마다 `COLLECTOR_ACCOUNT_<별칭 대문자>_LOGIN_ID` / `_PASSWORD` | `--secrets` > `COLLECTOR_SECRETS_PATH` > `.env` |
+
+- 처음 쓸 때: `configs/collector.example.toml`을 `configs/collector.toml`로 복사해 고치고, `.env.example`의 키를 루트 `.env`에 채운다.
+- 같은 이름의 `COLLECTOR_ACCOUNT_*` 환경변수가 있으면 .env보다 우선한다. `run()`을 직접 부르면 CLI 옵션이 없으니 환경변수나 기본값을 쓴다.
+- guest(익명)는 설정하지 않아도 늘 첫 번째 계정(`account:guest`)으로 들어간다. `guest`는 역할·별칭으로 쓸 수 없다.
+
+**계정 규칙**
+- 별칭(alias)은 소문자로 시작하는 소문자·숫자·`_`. `account_id`는 `account:<별칭>`이다.
+- 별칭은 `crawl_result.json`에 그대로 나간다. 로그인 ID와 같으면(대소문자 무시) 설정 오류다.
+- 역할마다 계정이 하나 이상 있어야 한다. 별칭은 겹치면 안 된다. TOML에 정의되지 않은 키(오타 포함)는 거절한다.
+- 한 계정의 로그인 ID·비밀번호가 비었으면 그 계정만 실패(`ACCOUNT_CRAWL_FAILED`, partial)하고 나머지 계정은 계속 탐색한다.
+
+**옛 `CRAWLER_*` 단일 계정 .env에서 옮기기** (옛 형식은 더 읽지 않는다)
+
+| 옛 키 | 새 위치 |
+|---|---|
+| `CRAWLER_TARGET_URL` · `CRAWLER_EXTRA_ALLOWED_ORIGINS`(쉼표 구분) | TOML `target_url` · `extra_allowed_origins = [...]` |
+| `CRAWLER_MAX_DEPTH` · `CRAWLER_ALLOW_STATE_CHANGING` · `CRAWLER_STATE_CHANGING_KEYWORDS` | TOML `max_depth`(정수) · `allow_state_changing`(true/false) · `state_changing_keywords = [...]` |
+| `CRAWLER_ROLES=user,admin` | TOML `roles = ["user", "admin"]` + 역할마다 `[[accounts]] alias=... role=...` |
+| `CRAWLER_LOGIN_PATH` · `_USERNAME_FIELD` · `_PASSWORD_FIELD` · `_SUCCESS_CHECK` · `_SUCCESS_VALUE` | TOML `[login]`의 `path` · `username_field` · `password_field` · `success_check` · `success_value` |
+| `CRAWLER_ROLE_<역할>_USERNAME` · `_PASSWORD` | .env `COLLECTOR_ACCOUNT_<별칭>_LOGIN_ID` · `_PASSWORD` |
 
 계정 원문·비밀번호는 어떤 출력에도 넣지 않는다.
 
