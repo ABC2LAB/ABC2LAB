@@ -31,8 +31,9 @@ from modules.scenario_generator.output_adapter import (
     build_output_document,
     decide_status,
 )
+from modules.scenario_generator.ollama_drafter import OllamaDrafterConfig, OllamaScenarioDrafter
 from modules.scenario_generator.replay_drafter import ReplayScenarioDrafter
-from modules.scenario_generator.scenario_drafter import ScenarioDrafter
+from modules.scenario_generator.scenario_drafter import DrafterError, ScenarioDrafter
 from modules.scenario_generator.service import GenerationOutcome, generate_scenarios
 from modules.scenario_generator.utils.atomic_io import write_json_atomically
 
@@ -236,9 +237,28 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidates", required=True, type=Path, help="vulnerability_candidates.json 경로")
     parser.add_argument("--crawl-result", required=True, type=Path, help="crawl_result.json 경로")
     parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument("--drafts", type=Path, help="미리 적어 둔 초안 파일(LLM 대신 재생)")
+    parser.add_argument("--drafts", type=Path, help="미리 적어 둔 초안 파일(replay용)")
+    parser.add_argument("--llm-provider", choices=("replay", "ollama"), default="replay",
+                        help="초안 생성기 선택. replay(기본)=--drafts 파일, ollama=로컬 Ollama")
+    parser.add_argument("--model-id", help="--llm-provider ollama일 때 실제 설치한 모델 태그")
+    parser.add_argument("--base-url", default="http://localhost:11434")
+    parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--timeout", type=float, default=60.0, help="Ollama 호출 타임아웃(초)")
     parser.add_argument("--expected-sha256", action="append", default=[], metavar="TYPE=HEX")
     return parser
+
+
+def _build_drafter(args: argparse.Namespace) -> ScenarioDrafter | None:
+    if args.llm_provider == "ollama":
+        return OllamaScenarioDrafter(OllamaDrafterConfig(
+            model_id=args.model_id or "",
+            base_url=args.base_url,
+            temperature=args.temperature,
+            seed=args.seed,
+            timeout_seconds=args.timeout,
+        ))
+    return ReplayScenarioDrafter.from_file(args.drafts) if args.drafts else None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -246,7 +266,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(levelname)s %(name)s: %(message)s")
     args = _build_argument_parser().parse_args(argv)
     try:
-        drafter = ReplayScenarioDrafter.from_file(args.drafts) if args.drafts else None
+        drafter = _build_drafter(args)
         response = run(
             args.operation,
             {"vulnerability_candidates": args.candidates, "crawl_result": args.crawl_result},
@@ -260,7 +280,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "drafter": drafter,
             },
         )
-    except (ValueError, OutputWriteError, OutputContractError, OSError) as error:
+    except (ValueError, DrafterError, OutputWriteError, OutputContractError, OSError) as error:
         logger.error("실행하지 못했다: %s", error)
         return EXIT_NO_FILE_WRITTEN
     sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")

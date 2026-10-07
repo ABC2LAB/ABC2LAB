@@ -44,6 +44,13 @@ class RequestMeaning:
     resource_keys: tuple[str, ...] = field(default=())
 
 
+class LlmError(Exception):
+    """LLM 호출·응답 파싱 실패. 비밀값·프롬프트 원문을 메시지에 넣지 않는다.
+
+    service는 이 예외를 잡아 '추론 실패'로 기록한다(가짜 정상 의미로 대체하지 않는다).
+    """
+
+
 class LlmClient(Protocol):
     def infer_request_meaning(self, features: RequestFeatures) -> RequestMeaning: ...
 
