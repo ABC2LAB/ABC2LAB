@@ -34,6 +34,8 @@ class CapturedRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     role: str
+    # 요청을 낸 계정(account:<별칭>). 같은 역할에 계정이 여럿일 수 있다.
+    account_id: str
     method: str
     # "document"(문서 이동) | "fetch" | "xhr"
     resource_type: str
@@ -113,6 +115,8 @@ class DiscoveredPage(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     role: str
+    # 이 페이지를 본 계정(account:<별칭>)
+    account_id: str
     # 리다이렉트까지 따라간 최종 URL, capture와 같은 규칙으로 마스킹
     url: str
     endpoint: str

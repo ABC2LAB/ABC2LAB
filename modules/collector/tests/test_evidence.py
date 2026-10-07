@@ -27,6 +27,7 @@ def load_schema(name: str) -> Draft202012Validator:
 def make_record(**overrides: Any) -> CapturedRequest:
     fields: dict[str, Any] = {
         "role": "user",
+        "account_id": "account:user_a",
         "method": "GET",
         "resource_type": "fetch",
         "url": f"{PAGE_URL}/api",
@@ -51,6 +52,7 @@ def make_record(**overrides: Any) -> CapturedRequest:
 def make_page(links: list[PageLink], actions: list[PageAction]) -> DiscoveredPage:
     return DiscoveredPage(
         role="user",
+        account_id="account:user_a",
         url=PAGE_URL,
         endpoint="/mine",
         title="Mine",
