@@ -1,0 +1,127 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "evaluation_results",
+  "artifact_id": "evaluation_partial_001",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "reporter",
+  "mode": "development",
+  "created_at": "2026-10-07T02:00:00Z",
+  "status": "partial",
+  "input_refs": [
+    {
+      "artifact_id": "candidates_demo_001",
+      "artifact_type": "vulnerability_candidates",
+      "iteration": 0,
+      "path": "artifacts/iteration-000/access_analyzer/vulnerability_candidates.json",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "artifact_id": "scenarios_demo_001",
+      "artifact_type": "test_scenarios",
+      "iteration": 0,
+      "path": "artifacts/iteration-000/scenario_generator/test_scenarios.json",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "artifact_id": "decisions_demo_001",
+      "artifact_type": "safety_decisions",
+      "iteration": 0,
+      "path": "artifacts/iteration-000/safety_policy/safety_decisions.json",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    {
+      "artifact_id": "verification_demo_001",
+      "artifact_type": "verification_results",
+      "iteration": 0,
+      "path": "artifacts/iteration-000/verifier/verification_results.json",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  ],
+  "errors": [
+    {
+      "code": "ITEM_UNPROCESSED",
+      "message": "일부 항목을 처리하지 못함",
+      "item_ref": "candidate_unplanned_001",
+      "retryable": false
+    }
+  ],
+  "runtime_metrics": {
+    "duration_ms": 10,
+    "llm_calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "peak_memory_mb": 32
+  },
+  "data": {
+    "ground_truth_ref": {
+      "dataset_id": "shop_demo",
+      "dataset_version": "1",
+      "path": "datasets/shop_demo/ground_truth.json",
+      "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "source_graph_revision": 1,
+    "matching_profile": "default-v1",
+    "metrics": [
+      {
+        "metric_id": "endpoint_recall",
+        "value": 1,
+        "numerator": 1,
+        "denominator": 1
+      },
+      {
+        "metric_id": "confirmed_precision",
+        "value": 1,
+        "numerator": 1,
+        "denominator": 1
+      },
+      {
+        "metric_id": "unmeasured_example",
+        "value": null,
+        "numerator": 0,
+        "denominator": 0
+      }
+    ],
+    "candidate_counts": {
+      "tp": 1,
+      "fp": 1,
+      "fn": 0
+    },
+    "confirmed_counts": {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0
+    },
+    "unverified_counts": {
+      "policy_blocked": 0,
+      "approval_pending": 1,
+      "indeterminate": 1
+    },
+    "models": {
+      "semantic_analyzer": {
+        "model_id": "local-semantic",
+        "model_version": "1",
+        "prompt_version": "1",
+        "temperature": 0,
+        "seed": 7
+      },
+      "scenario_generator": {
+        "model_id": "local-scenario",
+        "model_version": "1",
+        "prompt_version": "1",
+        "temperature": 0,
+        "seed": 7
+      }
+    },
+    "run_metrics": {
+      "duration_ms": 10,
+      "llm_calls": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "peak_memory_mb": 32
+    },
+    "notes": [
+      "미검증 항목을 정답 양성 분모에서 제외하지 않음"
+    ]
+  }
+}

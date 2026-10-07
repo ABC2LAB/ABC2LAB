@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ground_truth.schema.json",
+  "title": "ground_truth.json input contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "dataset_id",
+    "dataset_version",
+    "producer",
+    "created_at",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "artifact_type": {
+      "const": "ground_truth"
+    },
+    "dataset_id": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "dataset_version": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "producer": {
+      "const": "test_fixture"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "data": {
+      "$ref": "#/$defs/groundTruthData"
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "jsonValue": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
+      ]
+    },
+    "groundTruthEntity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gt_id",
+        "entity_type",
+        "match_key"
+      ],
+      "properties": {
+        "gt_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "entity_type": {
+          "enum": [
+            "User",
+            "Role",
+            "Page",
+            "Action",
+            "Endpoint",
+            "Parameter",
+            "Resource"
+          ]
+        },
+        "match_key": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
+      }
+    },
+    "groundTruthRelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gt_relation_id",
+        "source_gt_id",
+        "target_gt_id",
+        "relation_type"
+      ],
+      "properties": {
+        "gt_relation_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "source_gt_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "target_gt_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "relation_type": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "groundTruthFlow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gt_workflow_id",
+        "name",
+        "ordered_actions",
+        "constraints"
+      ],
+      "properties": {
+        "gt_workflow_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "ordered_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "groundTruthCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "category",
+        "vulnerability_type",
+        "actor_alias",
+        "resource_match_key",
+        "is_vulnerable",
+        "expected_behavior"
+      ],
+      "properties": {
+        "case_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "category": {
+          "enum": [
+            "authorization",
+            "business_logic"
+          ]
+        },
+        "vulnerability_type": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "actor_alias": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "resource_match_key": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        "is_vulnerable": {
+          "type": "boolean"
+        },
+        "expected_behavior": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "groundTruthData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entities",
+        "relationships",
+        "workflows",
+        "cases"
+      ],
+      "properties": {
+        "entities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/groundTruthEntity"
+          }
+        },
+        "relationships": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/groundTruthRelation"
+          }
+        },
+        "workflows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/groundTruthFlow"
+          }
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/groundTruthCase"
+          }
+        }
+      }
+    }
+  }
+}
