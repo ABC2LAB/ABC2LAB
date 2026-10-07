@@ -336,6 +336,106 @@ class ReportControlResponse:
 
 
 @dataclass(frozen=True)
+class Metric:
+    metric_id: str
+    value: float | None
+    numerator: int
+    denominator: int
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "metric_id": self.metric_id,
+            "value": self.value,
+            "numerator": self.numerator,
+            "denominator": self.denominator,
+        }
+
+
+@dataclass(frozen=True)
+class CountTriple:
+    tp: int
+    fp: int
+    fn: int
+
+    def to_mapping(self) -> dict[str, int]:
+        return {"tp": self.tp, "fp": self.fp, "fn": self.fn}
+
+
+@dataclass(frozen=True)
+class UnverifiedCounts:
+    policy_blocked: int
+    approval_pending: int
+    indeterminate: int
+
+    def to_mapping(self) -> dict[str, int]:
+        return {
+            "policy_blocked": self.policy_blocked,
+            "approval_pending": self.approval_pending,
+            "indeterminate": self.indeterminate,
+        }
+
+
+@dataclass(frozen=True)
+class EvaluationData:
+    ground_truth: GroundTruth
+    source_graph_revision: int
+    matching_profile: str
+    metrics: tuple[Metric, ...]
+    candidate_counts: CountTriple
+    confirmed_counts: CountTriple
+    unverified_counts: UnverifiedCounts
+    models: Mapping[str, Mapping[str, JsonValue]]
+    run_metrics: Mapping[str, JsonValue]
+    notes: tuple[str, ...]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "ground_truth_ref": {
+                "dataset_id": self.ground_truth.dataset_id,
+                "dataset_version": self.ground_truth.dataset_version,
+                "path": self.ground_truth.relative_path,
+                "sha256": self.ground_truth.sha256,
+            },
+            "source_graph_revision": self.source_graph_revision,
+            "matching_profile": self.matching_profile,
+            "metrics": [item.to_mapping() for item in self.metrics],
+            "candidate_counts": self.candidate_counts.to_mapping(),
+            "confirmed_counts": self.confirmed_counts.to_mapping(),
+            "unverified_counts": self.unverified_counts.to_mapping(),
+            "models": {
+                name: dict(model) for name, model in self.models.items()
+            },
+            "run_metrics": dict(self.run_metrics),
+            "notes": list(self.notes),
+        }
+
+
+@dataclass(frozen=True)
+class EvaluationBuildResult:
+    status: str
+    errors: tuple[ErrorItem, ...]
+    data: EvaluationData | None
+
+
+@dataclass(frozen=True)
+class EvaluationControlResponse:
+    status: str
+    artifact_id: str
+    output_path: str
+    sha256: str
+    errors: tuple[ErrorItem, ...]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "artifact_id": self.artifact_id,
+            "output_path": self.output_path,
+            "sha256": self.sha256,
+            "errors": [item.to_mapping() for item in self.errors],
+        }
+
+
+@dataclass(frozen=True)
 class GraphSnapshot:
     graph_id: str
     graph_revision: int
@@ -419,3 +519,12 @@ class EvaluationInputs:
     graph_query_result: InputArtifact
     graph_snapshot: GraphSnapshot | None
     ground_truth: GroundTruth
+
+    @property
+    def artifacts(self) -> tuple[InputArtifact, ...]:
+        return (
+            self.crawl_result,
+            self.semantic_analysis,
+            self.graph_query_result,
+            *self.report_inputs.artifacts,
+        )
