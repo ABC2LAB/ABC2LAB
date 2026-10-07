@@ -116,16 +116,23 @@ class _DataBuilder:
         self.accounts.append(account)
         links = _AccountLinks()
         for page in account_crawl.pages:
-            self._add_page(page, links)
+            self._add_page(page, account_crawl.account_id, links)
         # capture는 응답이 끝난 순서로 쌓으므로 요청이 나간 순서로 바꾼다. 같은 시각이면 원래 순서를 지킨다.
         for record in sorted(account_crawl.records, key=lambda record: record.captured_at):
             self.requests.append(self._build_request(record, account, links))
 
-    def _add_page(self, page: DiscoveredPage, links: _AccountLinks) -> None:
+    def _add_page(self, page: DiscoveredPage, account_id: str, links: _AccountLinks) -> None:
         page_id = PAGE_ID_FORMAT.format(len(self.pages) + 1)
         # 리다이렉트로 이미 본 페이지에 다시 오면 같은 URL이 또 생긴다. 뒤의 것은 추출을 건너뛴 페이지라 처음 것에 잇는다.
         links.page_id_by_url.setdefault(page.url, page_id)
-        page_record: dict[str, Any] = {"page_id": page_id, "url": page.url, "title": page.title, "evidence_refs": []}
+        # 페이지는 계정 하나의 방문이다. 같은 URL도 계정마다 따로 기록하고 그 계정을 적는다.
+        page_record: dict[str, Any] = {
+            "page_id": page_id,
+            "account_id": account_id,
+            "url": page.url,
+            "title": page.title,
+            "evidence_refs": [],
+        }
         self.pages.append(page_record)
         # (페이지 안 순번, 전역 행동 레코드)
         page_actions = [

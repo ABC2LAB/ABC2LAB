@@ -105,9 +105,13 @@
     "Page": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["page_id", "url", "title", "evidence_refs"],
+      "required": ["page_id", "account_id", "url", "title", "evidence_refs"],
       "properties": {
         "page_id": { "type": "string" },
+        "account_id": {
+          "description": "이 페이지를 관찰한 계정 ID. 명세 v0.1 대비 추가(2026-10-07, collector README '명세(v0.1) 대비 변경')",
+          "type": "string"
+        },
         "url": { "type": "string" },
         "title": { "type": ["string", "null"] },
         "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }

@@ -192,6 +192,8 @@ class _DataChecker:
     def check(self) -> None:
         for index, account in enumerate(self._data["accounts"]):
             self._check_reference(f"$.data.accounts[{index}].role_id", account["role_id"], self._roles)
+        for index, page in enumerate(self._data["pages"]):
+            self._check_reference(f"$.data.pages[{index}].account_id", page["account_id"], self._accounts)
         for index, action in enumerate(self._data["actions"]):
             self._check_reference(f"$.data.actions[{index}].page_id", action["page_id"], self._pages)
         for index, request in enumerate(self._data["requests"]):
@@ -207,7 +209,7 @@ class _DataChecker:
         self._check_request_account(location, request)
         page_id = request["page_id"]
         if page_id is not None:
-            self._check_reference(f"{location}.page_id", page_id, self._pages)
+            self._check_request_page(location, request, page_id)
         action_id = request["action_id"]
         if action_id is not None:
             action = self._actions.get(action_id)
@@ -223,6 +225,16 @@ class _DataChecker:
         self._check_parameters(f"{location}.parameters", request["parameters"])
         self._check_headers(f"{location}.headers", request["headers"])
         self._check_headers(f"{location}.response.headers", request["response"]["headers"])
+
+    def _check_request_page(self, location: str, request: Mapping[str, Any], page_id: str) -> None:
+        page = self._pages.get(page_id)
+        if page is None:
+            self._check_reference(f"{location}.page_id", page_id, self._pages)
+        elif page["account_id"] != request["account_id"]:
+            # 페이지는 계정 하나의 방문이라, 그 페이지에서 난 요청은 같은 계정이어야 한다.
+            self._report.add(
+                IssueCode.ACCOUNT_MISMATCH, f"{location}.page_id", "page_id가 가리키는 페이지의 계정이 요청 계정과 다름"
+            )
 
     def _check_request_account(self, location: str, request: Mapping[str, Any]) -> None:
         account = self._accounts.get(request["account_id"])
