@@ -15,7 +15,8 @@ import json
 import logging
 from pathlib import Path
 
-from modules.semantic_analyzer.llm.adapter import FakeClient, LlmClient
+from modules.semantic_analyzer.llm.adapter import LlmClient, LlmError
+from modules.semantic_analyzer.llm.factory import build_llm_client
 from modules.semantic_analyzer.service import analyze_data
 from modules.semantic_analyzer.utils import envelope as env
 from modules.semantic_analyzer.utils.io import read_json, write_json_atomic
@@ -40,7 +41,7 @@ def run(operation: str, input_paths: dict | list | str, output_dir: str | Path,
     if operation != OPERATION_ANALYZE:
         raise ValueError(f"지원하지 않는 operation: {operation!r} (지원: {OPERATION_ANALYZE})")
     context = context or {}
-    client = client or FakeClient()
+    client = client or build_llm_client()  # 설정(configs/default.toml)의 provider. 기본 fake
     output_path = Path(output_dir) / OUTPUT_FILENAME
 
     crawl_path = _select_input_path(input_paths)
@@ -48,7 +49,12 @@ def run(operation: str, input_paths: dict | list | str, output_dir: str | Path,
     if input_errors:
         return _publish(output_path, _failed_envelope(context, crawl, input_errors))
 
-    data = analyze_data(crawl["data"], client)
+    try:
+        data = analyze_data(crawl["data"], client)
+    except LlmError as error:
+        # LLM 추론 실패는 가짜 정상으로 숨기지 않고 failed로 공개한다(절대 규칙 9).
+        return _publish(output_path, _failed_envelope(
+            context, crawl, [_error("LLM_INFERENCE_FAILED", f"LLM 추론 실패: {error}")]))
     output_errors = _validate_output_data(data)
     if output_errors:
         return _publish(output_path, _failed_envelope(context, crawl, output_errors))

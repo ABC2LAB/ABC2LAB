@@ -33,6 +33,24 @@ def test_completed_run_writes_valid_output(tmp_path):
     assert result["summary"]["normalized_requests"] == 6
 
 
+def test_llm_failure_produces_failed(tmp_path):
+    # LLM(의미 추론) 실패는 가짜 정상으로 숨기지 않고 failed/data=null로 공개한다.
+    from modules.semantic_analyzer.llm.adapter import LlmError
+
+    class _FailingClient:
+        def infer_request_meaning(self, features):
+            raise LlmError("추론 실패(테스트)")
+
+        def model_info(self):
+            return None
+
+    result = run("analyze", {"crawl_result": str(_FIXTURE)}, tmp_path, client=_FailingClient())
+    assert result["status"] == "failed"
+    payload = _read_output(tmp_path)
+    assert payload["data"] is None
+    assert any(e["code"] == "LLM_INFERENCE_FAILED" for e in payload["errors"])
+
+
 def test_unsupported_operation_raises(tmp_path):
     with pytest.raises(ValueError):
         run("verify", {"crawl_result": str(_FIXTURE)}, tmp_path)

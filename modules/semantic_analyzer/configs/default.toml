@@ -1,9 +1,15 @@
 # semantic_analyzer 실행 설정. 실제 비밀값은 .env로 받고 커밋하지 않는다.
-# 이번 PR은 fake LLM 기본이라 provider 설정은 자리만 둔다.
+# LLM은 의미 추론에만 쓴다. 정규화·구조 그래프는 service의 규칙이 만든다.
 
 [llm]
-# provider = "fake" | "ollama" | "openai"  (이번 PR은 fake 고정)
+# provider = "fake"  : 네트워크 0 결정적 추론(기본, 테스트용)
+# provider = "ollama": 로컬 Ollama HTTP API(/api/generate) 호출, 의존성 0(stdlib urllib)
 provider = "fake"
-# model_id = ""          # 다음 PR에서 실제 provider 붙일 때 사용
-# prompt_version = "fake-v1"
-# temperature = 0.0
+
+# provider = "ollama"일 때만 사용한다. model_id는 예시가 아니라 실제 설치한 모델 태그를 넣는다.
+model_id = ""
+base_url = "http://localhost:11434"
+temperature = 0.0
+timeout_seconds = 30.0
+# seed = 0           # 재현용. 지원 안 하면 생략
+# model_version = "" # 비우면 model_id를 그대로 기록
