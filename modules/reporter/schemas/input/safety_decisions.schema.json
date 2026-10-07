@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "safety_decisions.schema.json",
+  "title": "safety_decisions.json input contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_id",
+    "run_id",
+    "iteration",
+    "producer",
+    "mode",
+    "created_at",
+    "status",
+    "input_refs",
+    "errors",
+    "runtime_metrics",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "artifact_type": {"const": "safety_decisions"},
+    "artifact_id": {"$ref": "#/$defs/nonEmptyString"},
+    "run_id": {"$ref": "#/$defs/nonEmptyString"},
+    "iteration": {"type": "integer", "minimum": 0},
+    "producer": {"const": "safety_policy"},
+    "mode": {"enum": ["diagnosis", "development"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["completed", "partial", "failed"]},
+    "input_refs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifactRef"}
+    },
+    "errors": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/errorItem"}
+    },
+    "runtime_metrics": {
+      "oneOf": [
+        {"$ref": "#/$defs/runtimeMetrics"},
+        {"type": "null"}
+      ]
+    },
+    "data": {
+      "oneOf": [
+        {"$ref": "#/$defs/decisionData"},
+        {"type": "null"}
+      ]
+    }
+  },
+  "allOf": [{"$ref": "#/$defs/statusRules"}],
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_type", "iteration", "path", "sha256"],
+      "properties": {
+        "artifact_id": {"$ref": "#/$defs/nonEmptyString"},
+        "artifact_type": {"$ref": "#/$defs/nonEmptyString"},
+        "iteration": {"type": "integer", "minimum": 0},
+        "path": {"$ref": "#/$defs/nonEmptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "errorItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "item_ref", "retryable"],
+      "properties": {
+        "code": {"$ref": "#/$defs/nonEmptyString"},
+        "message": {"$ref": "#/$defs/nonEmptyString"},
+        "item_ref": {"type": ["string", "null"]},
+        "retryable": {"type": "boolean"}
+      }
+    },
+    "runtimeMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duration_ms", "llm_calls", "input_tokens", "output_tokens", "peak_memory_mb"],
+      "properties": {
+        "duration_ms": {"type": ["integer", "null"], "minimum": 0},
+        "llm_calls": {"type": ["integer", "null"], "minimum": 0},
+        "input_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "output_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "peak_memory_mb": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "assessmentItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "rule_id", "reason"],
+      "properties": {
+        "status": {"enum": ["pass", "block", "require_approval", "unknown"]},
+        "rule_id": {"$ref": "#/$defs/nonEmptyString"},
+        "reason": {"$ref": "#/$defs/nonEmptyString"}
+      }
+    },
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_scope", "test_accounts", "request_budget", "state_change", "data_impact", "service_impact"],
+      "properties": {
+        "target_scope": {"$ref": "#/$defs/assessmentItem"},
+        "test_accounts": {"$ref": "#/$defs/assessmentItem"},
+        "request_budget": {"$ref": "#/$defs/assessmentItem"},
+        "state_change": {"$ref": "#/$defs/assessmentItem"},
+        "data_impact": {"$ref": "#/$defs/assessmentItem"},
+        "service_impact": {"$ref": "#/$defs/assessmentItem"}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_requests", "max_duration_ms", "allow_state_change"],
+      "properties": {
+        "max_requests": {"type": "integer", "minimum": 0},
+        "max_duration_ms": {"type": "integer", "minimum": 0},
+        "allow_state_change": {"type": "boolean"}
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision_id", "scenario_id", "decision", "reason_codes", "reason", "assessment", "effective_origins", "effective_account_ids", "limits", "approval_ref"],
+      "properties": {
+        "decision_id": {"$ref": "#/$defs/nonEmptyString"},
+        "scenario_id": {"$ref": "#/$defs/nonEmptyString"},
+        "decision": {"enum": ["allow", "block", "require_approval"]},
+        "reason_codes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/nonEmptyString"}
+        },
+        "reason": {"$ref": "#/$defs/nonEmptyString"},
+        "assessment": {"$ref": "#/$defs/assessment"},
+        "effective_origins": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/nonEmptyString"}
+        },
+        "effective_account_ids": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/nonEmptyString"}
+        },
+        "limits": {"$ref": "#/$defs/limits"},
+        "approval_ref": {
+          "oneOf": [
+            {"$ref": "#/$defs/nonEmptyString"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "decisionData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_id", "policy_version", "scenarios_sha256", "decisions"],
+      "properties": {
+        "policy_id": {"$ref": "#/$defs/nonEmptyString"},
+        "policy_version": {"$ref": "#/$defs/nonEmptyString"},
+        "scenarios_sha256": {"$ref": "#/$defs/sha256"},
+        "decisions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/decision"}
+        }
+      }
+    },
+    "statusRules": {
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "completed"}}},
+          "then": {
+            "properties": {
+              "errors": {"maxItems": 0},
+              "data": {"$ref": "#/$defs/decisionData"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "partial"}}},
+          "then": {
+            "properties": {
+              "errors": {"minItems": 1},
+              "data": {"$ref": "#/$defs/decisionData"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "failed"}}},
+          "then": {
+            "properties": {
+              "errors": {"minItems": 1},
+              "data": {"type": "null"}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

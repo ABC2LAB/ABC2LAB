@@ -1,0 +1,111 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "crawl_result",
+  "artifact_id": "crawl_demo_001",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "collector",
+  "mode": "development",
+  "created_at": "2026-10-07T02:00:00Z",
+  "status": "completed",
+  "input_refs": [],
+  "errors": [],
+  "runtime_metrics": {
+    "duration_ms": 10,
+    "llm_calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "peak_memory_mb": 32
+  },
+  "data": {
+    "target_url": "http://127.0.0.1:8001/",
+    "roles": [
+      {
+        "role_id": "role_user",
+        "name": "User"
+      }
+    ],
+    "accounts": [
+      {
+        "account_id": "account_user_a",
+        "role_id": "role_user",
+        "alias": "user_a",
+        "session_ref": "session_account_user_a"
+      },
+      {
+        "account_id": "account_user_b",
+        "role_id": "role_user",
+        "alias": "user_b",
+        "session_ref": "session_account_user_b"
+      }
+    ],
+    "pages": [
+      {
+        "page_id": "page_orders",
+        "url": "http://127.0.0.1:8001/orders",
+        "title": "Orders",
+        "evidence_refs": []
+      }
+    ],
+    "actions": [
+      {
+        "action_id": "action_read_order",
+        "page_id": "page_orders",
+        "kind": "click",
+        "label": "주문 조회",
+        "evidence_refs": []
+      },
+      {
+        "action_id": "action_update_order",
+        "page_id": "page_orders",
+        "kind": "submit",
+        "label": "주문 상태 변경",
+        "evidence_refs": []
+      }
+    ],
+    "requests": [
+      {
+        "request_id": "request_read_order",
+        "account_id": "account_user_a",
+        "role_id": "role_user",
+        "session_ref": "session_account_user_a",
+        "page_id": "page_orders",
+        "action_id": "action_read_order",
+        "method": "GET",
+        "url": "http://127.0.0.1:8001/api/orders/order-b",
+        "observed_at": "2026-10-07T02:00:00Z",
+        "parameters": [],
+        "headers": [],
+        "body_ref": null,
+        "response": {
+          "status_code": 200,
+          "content_type": "application/json",
+          "headers": [],
+          "body_ref": null
+        },
+        "evidence_refs": []
+      },
+      {
+        "request_id": "request_update_order",
+        "account_id": "account_user_a",
+        "role_id": "role_user",
+        "session_ref": "session_account_user_a",
+        "page_id": "page_orders",
+        "action_id": "action_update_order",
+        "method": "POST",
+        "url": "http://127.0.0.1:8001/api/orders/order-b/status",
+        "observed_at": "2026-10-07T02:00:00Z",
+        "parameters": [],
+        "headers": [],
+        "body_ref": null,
+        "response": {
+          "status_code": 200,
+          "content_type": "application/json",
+          "headers": [],
+          "body_ref": null
+        },
+        "evidence_refs": []
+      }
+    ]
+  }
+}

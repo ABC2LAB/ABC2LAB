@@ -1,0 +1,129 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "safety_decisions",
+  "artifact_id": "decisions_demo_001",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "safety_policy",
+  "mode": "development",
+  "created_at": "2026-10-07T02:00:00Z",
+  "status": "completed",
+  "input_refs": [],
+  "errors": [],
+  "runtime_metrics": {
+    "duration_ms": 10,
+    "llm_calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "peak_memory_mb": 32
+  },
+  "data": {
+    "policy_id": "policy_demo",
+    "policy_version": "1",
+    "scenarios_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "decisions": [
+      {
+        "decision_id": "decision_idor_001",
+        "scenario_id": "scenario_idor_001",
+        "decision": "allow",
+        "reason_codes": [
+          "ALL_CHECKS_PASSED"
+        ],
+        "reason": "모든 평가 항목 통과",
+        "assessment": {
+          "target_scope": {
+            "status": "pass",
+            "rule_id": "policy_target_scope",
+            "reason": "target_scope 평가 결과"
+          },
+          "test_accounts": {
+            "status": "pass",
+            "rule_id": "policy_test_accounts",
+            "reason": "test_accounts 평가 결과"
+          },
+          "request_budget": {
+            "status": "pass",
+            "rule_id": "policy_request_budget",
+            "reason": "request_budget 평가 결과"
+          },
+          "state_change": {
+            "status": "pass",
+            "rule_id": "policy_state_change",
+            "reason": "state_change 평가 결과"
+          },
+          "data_impact": {
+            "status": "pass",
+            "rule_id": "policy_data_impact",
+            "reason": "data_impact 평가 결과"
+          },
+          "service_impact": {
+            "status": "pass",
+            "rule_id": "policy_service_impact",
+            "reason": "service_impact 평가 결과"
+          }
+        },
+        "effective_origins": [
+          "http://127.0.0.1:8001"
+        ],
+        "effective_account_ids": [
+          "account_user_a"
+        ],
+        "limits": {
+          "max_requests": 1,
+          "max_duration_ms": 5000,
+          "allow_state_change": false
+        },
+        "approval_ref": null
+      },
+      {
+        "decision_id": "decision_workflow_001",
+        "scenario_id": "scenario_workflow_001",
+        "decision": "require_approval",
+        "reason_codes": [
+          "STATE_CHANGE_APPROVAL_REQUIRED"
+        ],
+        "reason": "상태 변경 승인이 필요함",
+        "assessment": {
+          "target_scope": {
+            "status": "pass",
+            "rule_id": "policy_target_scope",
+            "reason": "target_scope 평가 결과"
+          },
+          "test_accounts": {
+            "status": "pass",
+            "rule_id": "policy_test_accounts",
+            "reason": "test_accounts 평가 결과"
+          },
+          "request_budget": {
+            "status": "pass",
+            "rule_id": "policy_request_budget",
+            "reason": "request_budget 평가 결과"
+          },
+          "state_change": {
+            "status": "require_approval",
+            "rule_id": "policy_state_change",
+            "reason": "상태 변경 가능성이 있음"
+          },
+          "data_impact": {
+            "status": "pass",
+            "rule_id": "policy_data_impact",
+            "reason": "data_impact 평가 결과"
+          },
+          "service_impact": {
+            "status": "pass",
+            "rule_id": "policy_service_impact",
+            "reason": "service_impact 평가 결과"
+          }
+        },
+        "effective_origins": [],
+        "effective_account_ids": [],
+        "limits": {
+          "max_requests": 0,
+          "max_duration_ms": 0,
+          "allow_state_change": false
+        },
+        "approval_ref": null
+      }
+    ]
+  }
+}
