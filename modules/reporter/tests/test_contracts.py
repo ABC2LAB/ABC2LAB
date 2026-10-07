@@ -213,3 +213,18 @@ def test_graph_query_access_row_rejects_invalid_request_ids(
 
     with pytest.raises(ValidationError):
         validate_fixture(artifact, schema_root)
+        
+def test_crawl_page_requires_account_id(
+    fixture_root: Path,
+    schema_root: Path,
+) -> None:
+    path = (
+        fixture_root
+        / "runs/run_demo_001/artifacts/iteration-000/"
+        "collector/crawl_result.json"
+    )
+    artifact = copy.deepcopy(load_json(path))
+    artifact["data"]["pages"][0].pop("account_id")
+
+    with pytest.raises(ValidationError):
+        validate_fixture(artifact, schema_root)
