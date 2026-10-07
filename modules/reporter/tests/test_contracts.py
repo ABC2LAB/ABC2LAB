@@ -163,3 +163,53 @@ def test_finding_rejects_unknown_status(
 
     with pytest.raises(ValidationError):
         validate_fixture(artifact, schema_root)
+        
+def test_graph_query_access_row_requires_request_ids(
+    fixture_root: Path,
+    schema_root: Path,
+) -> None:
+    path = (
+        fixture_root
+        / "runs/run_demo_001/artifacts/iteration-000/"
+        "knowledge_graph/graph_query_result.json"
+    )
+    artifact = copy.deepcopy(load_json(path))
+    access_result = next(
+        item
+        for item in artifact["data"]["results"]
+        if item["query_key"] == "role_resource_access"
+    )
+    access_result["rows"][0].pop("request_ids")
+
+    with pytest.raises(ValidationError):
+        validate_fixture(artifact, schema_root)
+
+
+@pytest.mark.parametrize(
+    "request_ids",
+    [
+        [],
+        [""],
+        ["request_read_order", "request_read_order"],
+    ],
+)
+def test_graph_query_access_row_rejects_invalid_request_ids(
+    request_ids: list[str],
+    fixture_root: Path,
+    schema_root: Path,
+) -> None:
+    path = (
+        fixture_root
+        / "runs/run_demo_001/artifacts/iteration-000/"
+        "knowledge_graph/graph_query_result.json"
+    )
+    artifact = copy.deepcopy(load_json(path))
+    access_result = next(
+        item
+        for item in artifact["data"]["results"]
+        if item["query_key"] == "role_resource_access"
+    )
+    access_result["rows"][0]["request_ids"] = request_ids
+
+    with pytest.raises(ValidationError):
+        validate_fixture(artifact, schema_root)
