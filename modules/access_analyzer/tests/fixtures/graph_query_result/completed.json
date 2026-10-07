@@ -29,7 +29,7 @@
         "query_key": "role_resource_access",
         "status": "completed",
         "rows": [
-          {"account_id": "acc_alice", "role_id": "role_user", "endpoint_id": "endpoint:GET:/orders/{id}", "resource_id": "resource:order", "action": "read_order", "access_observed": true, "evidence_refs": []}
+          {"account_id": "acc_alice", "role_id": "role_user", "endpoint_id": "endpoint:GET:/orders/{id}", "resource_id": "resource:order", "action": "read_order", "request_ids": ["req_alice_order"], "access_observed": true, "evidence_refs": []}
         ],
         "errors": []
       },

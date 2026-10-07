@@ -107,4 +107,5 @@ CLI:
 모듈 완성 후 파이프라인 연결 때 맞춘다. 그 전까지는 명세 의미대로 만든 fixture로 독립 개발한다.
 
 - **A2 (결과 row의 계정·역할 ID 형식) → #29(이동찬)로 해결.** ownership `owner_account_id`·access `account_id`·`role_id`가 이제 crawl 원본 ID로 나온다(KG observation 기반). resource_id는 `resource:<key>`, endpoint_id는 `endpoint:<METHOD>:<path>`.
-- **A3 (상대: knowledge_graph)**: 후보 `source_request_ids`를 채우려면 `AccessRow`에 수집 요청 ID가 필요하다(현재 row에 없음). KG observation에는 request_id가 있어 `AccessRow`에 추가하는 계약 변경(A3(b))은 쉽다. 합의 전에는 못 채우는 후보를 발행하지 않고 errors로 둔다.
+- **A3 (후보 `source_request_ids`의 출처) → #32(이동찬)로 해결.** `AccessRow`에 `request_ids`(원본 수집 요청 ID, `minItems:1`·`uniqueItems`)가 추가됐다. 우리 입력 사본 Schema에 그대로 미러링했다. Rule A는 이 값으로 `source_request_ids`를 채운다. 매칭되는 AccessRow가 없으면 그 후보는 발행하지 않고 errors로 둔다(안전장치).
+- 남은 연결 항목: reporter의 crawl_result 입력에 Page.account_id 반영(#23 이후) 확인 — 우리 모듈 무관, 연결 때.
