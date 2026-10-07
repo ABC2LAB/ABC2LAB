@@ -241,6 +241,32 @@ python -m pytest modules/reporter/tests/test_contracts.py -q
 
 ## 변경 이력
 
+### 2026-10-07 — collector Page.account_id 계약 동기화
+
+collector의 `crawl_result.json`에서 `Page.account_id`가 필수 필드로 추가됨에 따라 reporter의 `crawl_result` 입력 계약과 fixture를 최신 상태로 동기화했다.
+
+변경 내용:
+
+```text
+Page.account_id
+- required
+- type: string
+```
+
+reporter의 collector fixture에도 `account_id`를 반영하고, 해당 필드가 누락된 `Page`를 입력 계약에서 거절하는 테스트를 추가했다.
+
+검증 결과:
+
+```text
+test_contracts.py
+24 passed
+
+reporter 전체
+124 passed
+```
+
+이번 변경은 reporter의 진단·평가 로직을 변경하지 않고 collector 입력 계약만 최신 상태로 맞춘다.
+
 ### 2026-10-07 — KG AccessRow 계약 동기화
 
 knowledge_graph의 `role_resource_access` 출력에 원본 요청 추적을 위한 `request_ids`가 추가됨에 따라 reporter의 `graph_query_result` 입력 계약을 동기화했다.

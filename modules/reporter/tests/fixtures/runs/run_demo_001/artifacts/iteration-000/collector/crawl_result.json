@@ -42,6 +42,7 @@
     "pages": [
       {
         "page_id": "page_orders",
+        "account_id": "account_user_a",
         "url": "http://127.0.0.1:8001/orders",
         "title": "Orders",
         "evidence_refs": []
