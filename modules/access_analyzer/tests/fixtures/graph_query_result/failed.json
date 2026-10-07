@@ -1,0 +1,17 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_type": "graph_query_result",
+  "artifact_id": "graph_query_result-run_demo_001-000-feed0003",
+  "run_id": "run_demo_001",
+  "iteration": 0,
+  "producer": "knowledge_graph",
+  "mode": "development",
+  "created_at": "2026-10-07T00:03:00.000000Z",
+  "status": "failed",
+  "input_refs": [],
+  "errors": [
+    {"code": "GRAPH_REVISION_MISMATCH", "message": "요청 revision과 실제 graph revision이 다름", "item_ref": null, "retryable": false}
+  ],
+  "runtime_metrics": null,
+  "data": null
+}
