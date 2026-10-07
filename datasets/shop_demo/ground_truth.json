@@ -4,7 +4,7 @@
   "dataset_id": "shop_demo",
   "dataset_version": "1.0.0",
   "producer": "test_fixture",
-  "created_at": "2026-10-07T05:49:13Z",
+  "created_at": "2026-10-07T06:41:14Z",
   "data": {
     "entities": [
       {
@@ -941,8 +941,7 @@
         "vulnerability_type": "horizontal_access",
         "actor_alias": "bob",
         "resource_match_key": {
-          "method": "GET",
-          "path_template": "/orders/{id}"
+          "name": "order"
         },
         "is_vulnerable": true,
         "expected_behavior": "요청자가 주문의 소유자이거나 admin일 때만 200, 그 외에는 403"
@@ -953,8 +952,7 @@
         "vulnerability_type": "horizontal_access",
         "actor_alias": "bob",
         "resource_match_key": {
-          "method": "GET",
-          "path_template": "/api/users/{id}"
+          "name": "user"
         },
         "is_vulnerable": true,
         "expected_behavior": "요청자 본인이거나 admin일 때만 200, 그 외에는 403"
@@ -965,8 +963,7 @@
         "vulnerability_type": "function_level_access",
         "actor_alias": "alice",
         "resource_match_key": {
-          "method": "GET",
-          "path_template": "/admin/api/users"
+          "name": "user"
         },
         "is_vulnerable": true,
         "expected_behavior": "role == admin 인 경우에만 200, user 권한이면 403"
@@ -977,8 +974,7 @@
         "vulnerability_type": "forced_browsing",
         "actor_alias": "guest",
         "resource_match_key": {
-          "method": "GET",
-          "path_template": "/admin/export/orders"
+          "name": "order"
         },
         "is_vulnerable": true,
         "expected_behavior": "admin이 아니면 403 (비로그인 포함)"
@@ -986,11 +982,10 @@
       {
         "case_id": "V5",
         "category": "business_logic",
-        "vulnerability_type": "price_tampering",
+        "vulnerability_type": "workflow_step_bypass",
         "actor_alias": "alice",
         "resource_match_key": {
-          "method": "POST",
-          "path_template": "/cart/add"
+          "name": "cart"
         },
         "is_vulnerable": true,
         "expected_behavior": "요청에 price 파라미터가 포함되어 있어도 무시하고 항상 서버(DB)의 상품 가격을 사용"
@@ -1001,11 +996,7 @@
         "vulnerability_type": "horizontal_access",
         "actor_alias": "bob",
         "resource_match_key": {
-          "method": "POST",
-          "path_templates": [
-            "/cart/update",
-            "/cart/remove"
-          ]
+          "name": "cart"
         },
         "is_vulnerable": false,
         "expected_behavior": "두 모드 모두 item.user_id != user.id 이면 항상 403 - 취약점 아님"
@@ -1014,27 +1005,42 @@
         "case_id": "D2",
         "category": "authorization",
         "vulnerability_type": "horizontal_access",
-        "actor_alias": "bob",
+        "actor_alias": "alice",
         "resource_match_key": {
-          "method": "POST",
-          "path_template": "/mypage"
+          "name": "user"
         },
         "is_vulnerable": false,
         "expected_behavior": "대상 사용자를 URL/파라미터가 아닌 세션에서만 가져오므로 애초에 다른 사용자를 지정할 방법이 없음 - 취약점 아님"
       },
       {
-        "case_id": "D3",
+        "case_id": "D3a",
         "category": "authorization",
         "vulnerability_type": "function_level_access",
         "actor_alias": "bob",
         "resource_match_key": {
-          "method": "GET",
-          "path_templates": [
-            "/admin",
-            "/admin/users",
-            "/admin/products",
-            "/admin/orders"
-          ]
+          "name": "user"
+        },
+        "is_vulnerable": false,
+        "expected_behavior": "이 HTML 페이지 라우트들은 VULN_MODE와 무관하게 항상 role == admin 검사를 강제함 (V3/V4는 이 페이지들이 호출하는 별도의 API/엔드포인트에서만 발생)"
+      },
+      {
+        "case_id": "D3b",
+        "category": "authorization",
+        "vulnerability_type": "function_level_access",
+        "actor_alias": "bob",
+        "resource_match_key": {
+          "name": "product"
+        },
+        "is_vulnerable": false,
+        "expected_behavior": "이 HTML 페이지 라우트들은 VULN_MODE와 무관하게 항상 role == admin 검사를 강제함 (V3/V4는 이 페이지들이 호출하는 별도의 API/엔드포인트에서만 발생)"
+      },
+      {
+        "case_id": "D3c",
+        "category": "authorization",
+        "vulnerability_type": "function_level_access",
+        "actor_alias": "bob",
+        "resource_match_key": {
+          "name": "order"
         },
         "is_vulnerable": false,
         "expected_behavior": "이 HTML 페이지 라우트들은 VULN_MODE와 무관하게 항상 role == admin 검사를 강제함 (V3/V4는 이 페이지들이 호출하는 별도의 API/엔드포인트에서만 발생)"
