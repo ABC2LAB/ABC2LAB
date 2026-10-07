@@ -363,7 +363,8 @@ class Neo4jGraphRepository:
                 "WHERE access.graph_id = $graph_id AND access.run_id = $run_id "
                 "AND type(access) IN ['ACCESS', 'VERIFIED_ACCESS'] "
                 "} "
-                "RETURN observation.account_id AS account_id, "
+                "RETURN observation.request_id AS request_id, "
+                "observation.account_id AS account_id, "
                 "observation.role_id AS role_id, endpoint.node_id AS endpoint_id, "
                 "observation.action AS action, "
                 "observation.resource_ids_json AS resource_ids_json, "
@@ -422,10 +423,19 @@ class Neo4jGraphRepository:
                     existing["evidence_refs"],
                     row["evidence_refs"],
                 )
+                
+                for request_id in row["request_ids"]:
+                    if request_id not in existing["request_ids"]:
+                        existing["request_ids"].append(request_id)
         return list(row_by_identity.values())
 
     @staticmethod
     def _access_rows_for_record(record: Any) -> list[dict[str, Any]]:
+        request_id = record["request_id"]
+        if not isinstance(request_id, str) or not request_id:
+            raise QueryResultValidationError(
+                "요청 관찰 레코드의 request_id가 올바르지 않음"
+            )
         action = record["action"]
         if not isinstance(action, str) or not action:
             raise QueryResultValidationError("요청 관찰 레코드의 action이 올바르지 않음")
@@ -439,6 +449,7 @@ class Neo4jGraphRepository:
                 "endpoint_id": record["endpoint_id"],
                 "resource_id": resource_id,
                 "action": action,
+                "request_ids": [request_id],
                 "access_observed": True,
                 "evidence_refs": list(evidence_refs),
             }

@@ -232,6 +232,7 @@ def test_public_query_returns_all_typed_rows_with_real_neo4j(
     assert access_row["account_id"] == "acc_alice"
     assert access_row["role_id"] == "role_user"
     assert access_row["action"] == "read_order"
+    assert access_row["request_ids"] == ["request_order_alice"]
     assert access_row["resource_id"] == "resource:order"
     assert results_by_key["workflow_dependencies"]["rows"] == []
     snapshot = results_by_key["structure_snapshot"]["rows"][0]

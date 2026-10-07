@@ -1,435 +1,493 @@
 # knowledge_graph
 
-`semantic_analysis.json`을 Neo4j에 적재하고, 허용된 정형 질의를 실행하며,
-`verification_results.json`의 검증된 변경만 그래프에 반영한다.
+`semantic_analysis.json`을 Neo4j 기반 Knowledge Graph로 저장하고, 허용된 정형 질의를 실행하며, 검증 결과를 그래프에 반영하는 모듈이다.
 
-## 공개 operation
+## 역할
 
-- `ingest`: 의미 분석 요청 관찰·노드·관계·업무 흐름 적재
-- `query`: `graph_query.json`을 처리해 `graph_query_result.json` 생성
-- `apply_verification`: 검증된 graph update 반영
+knowledge_graph는 다음 세 가지 공개 operation을 제공한다.
 
-## 현재 구현 범위
+| operation | 역할 |
+|---|---|
+| `ingest` | semantic analyzer 결과를 검증하고 Neo4j에 적재 |
+| `query` | `graph_query.json`의 허용된 질의를 실행하고 `graph_query_result.json` 생성 |
+| `apply_verification` | verifier가 확인한 graph update를 검증 후 반영 |
 
-계약 기반, Neo4j 저장 계층과 공개 연산 3개가 구현되어 있다.
+Neo4j 직접 접근과 Cypher 실행은 knowledge_graph 내부에서만 수행한다. 외부 모듈은 정해진 JSON 계약과 `query_key`만 사용한다.
 
-- 입력 Schema: semantic analysis, graph query, verification results
-- 출력 Schema: graph query result
-- JSON·Schema·교차 ID 검증
-- 신뢰 경로 검증
-- SHA-256 계산과 원자적 JSON 저장
-- 환경변수 기반 Neo4j 연결 설정
-- 그래프 메타데이터·노드·관계·workflow 트랜잭션 적재
-- normalized request 내부 관찰 레코드 적재
-- Neo4j 제약조건과 run_id·graph_id 격리
-- 중첩 JSON 직렬화·복원
-- semantic artifact ID·SHA-256 기반 멱등 적재
-- 적재 트랜잭션 내부 건수 검증
-- 허용된 `query_key`별 파라미터 검증과 읽기 전용 Cypher 템플릿
-- 질의 전후 revision 검증과 질의별 completed/failed 처리
-- 실제 Neo4j 적재 구조 기반 snapshot 복원
-- `graph_query_result.json` 출력 검증·원자적 저장·불변 경로 보호
-- 검증 실행 근거와 graph update의 EvidenceRef 대응 검증
-- verification ID별 중복·충돌 방지와 stale revision 차단
-- 검증 노드·관계 upsert와 revision 증가를 묶은 단일 트랜잭션
-- `entrypoint.run("ingest" | "query" | "apply_verification", ...)`과 CLI
+---
 
-## ingest 공개 호출
+## 주요 구현
 
-```python
-from modules.knowledge_graph.entrypoint import run
+- JSON Schema 및 교차 ID 검증
+- `run_id`, `graph_id` 단위 그래프 격리
+- semantic artifact ID + SHA-256 기반 멱등 적재
+- Neo4j 트랜잭션 기반 노드·관계·workflow 저장
+- normalized request를 내부 `RequestObservation`으로 보존
+- 허용된 `query_key` 기반 읽기 전용 질의
+- graph revision 검증
+- 실제 저장 상태 기반 `structure_snapshot`
+- verification 결과 기반 노드·관계 갱신
+- 검증 결과 반영 시 graph revision 증가
+- 원자적 JSON 산출물 저장 및 기존 완료 파일 덮어쓰기 방지
 
-response = run(
-    operation="ingest",
-    input_paths={
-        "semantic_analysis": {
-            "path": (
-                "artifacts/iteration-000/semantic_analyzer/"
-                "semantic_analysis.json"
-            ),
-            "sha256": "<64자리 SHA-256>",
-        }
-    },
-    output_dir="artifacts/iteration-000/knowledge_graph",
-    context={
-        "run_id": "run_example",
-        "iteration": 0,
-        "mode": "diagnosis",
-        "run_root": "/trusted/runs/run_example",
-    },
-)
+`RequestObservation`은 KG 내부 조회를 위한 저장 구조이며 공개 `GraphNode`가 아니다. 따라서 `structure_snapshot`에는 포함하지 않는다.
+
+---
+
+## 입력·출력
+
+### ingest
+
+입력:
+
+```text
+semantic_analyzer/semantic_analysis.json
 ```
 
-제어 응답 필드는 다음과 같다.
+주요 저장 대상:
 
-- `operation`: `ingest`
-- `status`: `completed`, `partial`, `failed`
-- `graph_id`: 실패 시 null
-- `graph_revision`: 최초 적재는 1, 실패 시 null
-- `is_ready`: query 가능 여부
-- `errors`: 공통 ErrorItem 형식
+```text
+normalized_requests
+        ↓
+RequestObservation
 
-동일한 `run_id`, semantic artifact ID, SHA-256 재호출은 기존 graph 상태를
-반환한다. 동일 artifact ID를 다른 SHA-256으로 다시 사용하면 실패한다.
-
-CLI:
-
-```bash
-.venv/bin/python -m modules.knowledge_graph.entrypoint ingest \
-  --input-path artifacts/iteration-000/semantic_analyzer/semantic_analysis.json \
-  --input-sha256 '<64자리 SHA-256>' \
-  --output-dir artifacts/iteration-000/knowledge_graph \
-  --run-root /trusted/runs/run_example \
-  --run-id run_example \
-  --iteration 0 \
-  --mode diagnosis
+nodes
+relationships
+workflows
+        ↓
+Neo4j
 ```
 
-## query 공개 호출
+동일한 `run_id`, artifact ID, SHA-256으로 다시 호출하면 기존 graph 상태를 반환한다.
 
-```python
-from modules.knowledge_graph.entrypoint import run
+동일 artifact ID를 다른 SHA-256으로 다시 사용하면 충돌로 처리한다.
 
-response = run(
-    operation="query",
-    input_paths={
-        "graph_query": {
-            "path": (
-                "artifacts/iteration-000/access_analyzer/"
-                "graph_query.json"
-            ),
-            "sha256": "<64자리 SHA-256>",
-        }
-    },
-    output_dir="artifacts/iteration-000/knowledge_graph",
-    context={
-        "run_id": "run_example",
-        "iteration": 0,
-        "mode": "diagnosis",
-        "run_root": "/trusted/runs/run_example",
-    },
-)
+### query
+
+입력:
+
+```text
+access_analyzer/graph_query.json
 ```
 
-지원하는 고정 질의 키는 다음과 같다.
+출력:
 
-- `resource_ownership`: 계정·자원 필터로 소유 관계 조회
-- `role_resource_access`: 역할 필터로 계정·역할·Endpoint·자원 접근 관계 조회
-- `workflow_dependencies`: workflow 필터로 단계 의존 관계 조회
-- `structure_snapshot`: 실제 적재된 노드·관계·workflow 반환
-
-`role_resource_access`는 normalized request 내부 관찰 레코드를 기준으로
-User→Role과 User→Endpoint 접근 관계가 모두 존재할 때만 row를 반환한다.
-계정·역할은 원본 ID, action·Resource는 해당 요청의 의미를 사용한다. 같은
-계정·역할·Endpoint·Resource·action의 반복 관찰은 한 row로 합치고 근거만
-중복 없이 누적하며, action이나 Resource가 다르면 별도 row로 유지한다.
-`resource_ownership`의 계정 필터와 `owner_account_id`도 같은 관찰 레코드를 통해
-prefixed User node ID가 아닌 원본 계정 ID를 사용한다.
-
-`expected_graph_revision`이 현재 revision과 다르거나 질의 실행 중 revision이
-바뀌면 failed 산출물을 기록한다. 일부 질의만 실패하면 정상 질의 결과와
-오류를 함께 담은 partial 산출물을 기록한다. 기존 완료 파일은 덮어쓰지 않는다.
-
-query 제어 응답은 `artifact_id`, `output_path`, `sha256`, `graph_id`,
-`graph_revision`, `errors`를 반환한다.
-
-CLI:
-
-```bash
-.venv/bin/python -m modules.knowledge_graph.entrypoint query \
-  --input-path artifacts/iteration-000/access_analyzer/graph_query.json \
-  --input-sha256 '<64자리 SHA-256>' \
-  --output-dir artifacts/iteration-000/knowledge_graph \
-  --run-root /trusted/runs/run_example \
-  --run-id run_example \
-  --iteration 0 \
-  --mode diagnosis
+```text
+knowledge_graph/graph_query_result.json
 ```
 
-## apply_verification 공개 호출
+지원하는 `query_key`는 다음 네 개다.
 
-```python
-from modules.knowledge_graph.entrypoint import run
+| query_key | 역할 |
+|---|---|
+| `resource_ownership` | 계정과 Resource 소유 관계 조회 |
+| `role_resource_access` | 계정·역할·Endpoint·Resource 접근 관찰 조회 |
+| `workflow_dependencies` | workflow 단계 의존 관계 조회 |
+| `structure_snapshot` | 실제 저장된 노드·관계·workflow 조회 |
 
-response = run(
-    operation="apply_verification",
-    input_paths={
-        "verification_results": {
-            "path": (
-                "artifacts/iteration-000/verifier/"
-                "verification_results.json"
-            ),
-            "sha256": "<64자리 SHA-256>",
-        }
-    },
-    output_dir="artifacts/iteration-000/knowledge_graph",
-    context={
-        "run_id": "run_example",
-        "iteration": 0,
-        "mode": "diagnosis",
-        "run_root": "/trusted/runs/run_example",
-        "graph_id": "graph_example",
-    },
-)
+임의 Cypher는 외부에서 전달받지 않는다.
+
+### apply_verification
+
+입력:
+
+```text
+verifier/verification_results.json
 ```
 
-반영 조건은 다음과 같다.
+검증된 graph update만 기존 그래프에 반영한다.
 
-- graph update의 source verification이 `allow`, `completed`, `success|failure`
-- 갱신 노드·관계가 `basis=verified`이고 실제 실행 EvidenceRef를 사용
-- 입력 `source_graph_revision`과 현재 revision 일치
-- 노드·관계 ID가 기존 그래프 구조와 충돌하지 않음
-- 관계의 source·target 노드가 기존 그래프 또는 같은 갱신에 존재
+주요 조건:
 
-새 verification ID를 반영하면 revision을 1 증가시킨다. 동일 산출물의 동일
-verification ID를 다시 호출하면 `is_applied=false`로 현재 revision을 반환한다.
-같은 ID를 다른 산출물이 재사용하거나 일부 ID만 이미 반영된 입력은 거절한다.
-graph update가 비어 있으면 revision을 변경하지 않는다. 이 operation은 별도 JSON
-파일을 만들지 않는다.
+- source verification이 실행 가능한 결정이어야 함
+- verification 실행이 완료되어야 함
+- update의 `basis`는 `verified`
+- 실제 실행 EvidenceRef와 연결되어야 함
+- `source_graph_revision`이 현재 revision과 일치해야 함
+- 관계 source/target이 유효해야 함
 
-제어 응답 필드는 다음과 같다.
+새로운 verification을 반영하면 graph revision이 증가한다.
 
-- `operation`: `apply_verification`
-- `status`: `completed`, `partial`, `failed`
-- `graph_id`
-- `previous_graph_revision`, `graph_revision`
-- `applied_verification_ids`
-- `is_applied`
-- `errors`
+---
 
-CLI:
+## `role_resource_access`
 
-```bash
-.venv/bin/python -m modules.knowledge_graph.entrypoint apply_verification \
-  --input-path artifacts/iteration-000/verifier/verification_results.json \
-  --input-sha256 '<64자리 SHA-256>' \
-  --output-dir artifacts/iteration-000/knowledge_graph \
-  --run-root /trusted/runs/run_example \
-  --run-id run_example \
-  --iteration 0 \
-  --mode diagnosis \
-  --graph-id graph_example
+접근 row는 개별 `RequestObservation`을 기준으로 생성한다.
+
+다음 조건을 모두 만족해야 한다.
+
+```text
+RequestObservation
+      +
+User ──HAS_ROLE──> Role
+      +
+User ──ACCESS|VERIFIED_ACCESS──> Endpoint
 ```
+
+반환되는 주요 값은 다음과 같다.
+
+```json
+{
+  "account_id": "acc_alice",
+  "role_id": "role_user",
+  "endpoint_id": "endpoint:GET:/orders/{id}",
+  "resource_id": "resource:order",
+  "action": "read_order",
+  "request_ids": [
+    "request_order_alice"
+  ],
+  "access_observed": true,
+  "evidence_refs": []
+}
+```
+
+`account_id`, `role_id`는 prefixed Graph Node ID가 아니라 semantic analyzer에서 전달된 **원본 ID**를 사용한다.
+
+`action`은 `normalized_requests.action_meaning`을 사용한다.
+
+Resource가 여러 개이면 Resource별 AccessRow를 생성하며, Resource가 없으면 `resource_id=null`인 row를 생성한다.
+
+동일한
+
+```text
+account
+role
+endpoint
+resource
+action
+```
+
+관찰이 반복되면 하나의 AccessRow로 병합한다.
+
+이때 다음 provenance 정보는 중복 없이 누적한다.
+
+```text
+request_ids
+evidence_refs
+```
+
+따라서 access_analyzer는 `request_ids`를 이용해 취약점 후보의 `source_request_ids`를 구성할 수 있다.
+
+---
+
+## 원본 ID 처리
+
+semantic analyzer의 다음 값은 Graph Node ID가 아니라 원본 ID다.
+
+```text
+NormalizedRequest.account_id
+NormalizedRequest.role_id
+Workflow.role_ids
+```
+
+KG는 User와 Role 노드의 속성을 이용해 원본 ID와 Graph Node ID를 연결한다.
+
+예:
+
+```text
+account_id = acc_alice
+        ↓
+User node
+user:acc_alice
+```
+
+```text
+role_id = role_user
+        ↓
+Role node
+role:role_user
+```
+
+Endpoint와 Resource는 기존 Graph Node ID를 사용한다.
+
+---
+
+## graph revision
+
+모든 query는 graph revision을 기준으로 수행한다.
+
+`expected_graph_revision`이 현재 graph revision과 다르면 질의를 거절한다.
+
+질의 실행 중 revision이 변경된 경우에도 결과를 정상 완료로 처리하지 않는다.
+
+일부 query만 실패하면 `partial`, 전체가 실패하면 `failed` 상태를 반환한다.
+
+---
 
 ## Neo4j 설정
 
-- `NEO4J_URI`
-- `NEO4J_USERNAME`
-- `NEO4J_PASSWORD`
-- `NEO4J_DATABASE`
+다음 환경변수를 사용한다.
 
-실제 비밀번호는 `.env`에만 보관한다.
+```text
+NEO4J_URI
+NEO4J_USERNAME
+NEO4J_PASSWORD
+NEO4J_DATABASE
+```
+
+실제 인증 정보는 `.env`에만 저장하고 Git에 커밋하지 않는다.
+
+---
 
 ## 테스트
 
 저장소 루트에서 실행한다.
 
 ```bash
-.venv/bin/python -m pytest modules/knowledge_graph/
+python -m pytest modules/knowledge_graph/ -q
 ```
 
-실제 Neo4j 통합 테스트는 Neo4j가 실행 중일 때 명시적으로 활성화한다.
+현재 기본 테스트 결과:
 
-```bash
-KG_RUN_NEO4J_INTEGRATION=1 .venv/bin/python -m pytest \
-  modules/knowledge_graph/tests/test_neo4j_integration.py
+```text
+121 passed, 4 skipped
 ```
 
-실행 결과물과 인증 정보는 커밋하지 않는다.
+skip 4건은 실제 Neo4j가 필요한 통합 테스트다.
 
-## semantic_analyzer 변경 영향 확인 (2026-10-07)
-
-`semantic_analysis.json` 생산자인 `semantic_analyzer`의 1차 구현과 후속 변경을
-현재 KG 입력 검증·적재·질의 동작에 대조했다. 확인 범위는 다음 커밋이다.
-
-| 커밋 | 변경 | KG 영향 |
-| --- | --- | --- |
-| `66557db` | semantic_analyzer 1차 구현 | 실제 생산자 산출물로 KG 호환성을 검증할 수 있게 됨 |
-| `953e6c2` | collector Page 입력에 `account_id`를 필수로 추가 | 현재 semantic 출력의 Page 속성에는 전달하지 않아 KG 직접 입력은 바뀌지 않음 |
-| `721edf9` | Schema 오류 메시지에서 입력값 노출 차단 | 오류 메시지 처리만 바뀌며 KG 데이터 계약 영향 없음 |
-| `d145195` | 기존 Role→Endpoint에 User→Endpoint `ACCESS` 추가 | `role_resource_access`가 사용하는 계정 접근 엣지가 실제 출력에 생김 |
-
-최신 semantic fixture로 `analyze`를 실행하면 normalized request 6건, 노드 26건,
-관계 32건, workflow 3건이 생성된다. 이 산출물은 KG의 JSON Schema 검증은
-통과하지만 2단계 수정 전 KG 구현과 다음 차이가 있었다.
-
-- 명세에서 `NormalizedRequest.account_id`와 `role_id`는 원본 ID다. 실제 노드
-  ID는 각각 `user:<account_id>`, `role:<role_id>` 형식인데, KG가 원본 ID를
-  곧바로 노드 ID로 간주해 6개 요청을 모두 교차 참조 오류로 거절한다.
-- workflow의 `role_ids`도 원본 역할 ID 3건을 담지만, KG가 Role 노드 ID와
-  직접 비교해 거절한다.
-- 최신 출력의 `ACCESS` 관계 11건은 `properties={}`이고 Endpoint에도 action
-  속성이 없다. 현재 `role_resource_access`는 관계 또는 Endpoint 속성에서
-  action을 찾으므로, 입력 참조 검증을 통과시킨 뒤에도 해당 질의가 실패한다.
-- 현재 질의는 `AccessRow.account_id`와 `role_id`에 User·Role의 노드 ID를
-  반환한다. 명세가 요구하는 원본 실행 계정·역할 ID를 반환하려면 노드
-  `properties.account_id`와 `properties.role_id`를 사용해야 한다.
-- `Page.account_id`는 semantic 입력 검증에는 추가됐지만 Page 노드 속성에는
-  전달되지 않는다. 현재 KG 질의에는 필요하지 않으므로 이번 호환 작업 범위에는
-  넣지 않고, Page별 계정 연결이 필요해질 때 생산자와 별도로 합의한다.
-- 생산자 출력 Schema와 KG 입력 Schema는 모두 `0.1.0`이고 필드 구조는 같지만,
-  KG 사본이 빈 문자열·SHA-256 형식·상태별 data/errors 조건 등을 더 엄격하게
-  검사한다. 이번 실제 completed 산출물은 통과했지만 계약 사본의 장기 드리프트
-  가능성은 남아 있다.
-
-수정 전 기본 KG fixture에는 User→Endpoint `ACCESS`가 없어 접근 질의가 빈 결과로
-끝난다. query 단위 테스트와 실제 Neo4j query 테스트도 action을 넣은 record나
-관계를 실행 직전에 수동 추가하므로 이 차이를 잡지 못했다. 따라서 현재 상태는
-1단계 조사 당시 **Schema 형식 호환, 실제 ingest·접근 질의는 비호환**으로
-판단했다. 아래 진행 이력의 2단계에서 ingest 호환은 해결했고 접근 질의 호환은
-3·4단계에 남아 있다.
-
-### 변경 계획
-
-계약 필드나 `schema_version`은 바꾸지 않고 KG 내부만 수정하는 것을 기본으로 한다.
-
-1. **실제 생산자 fixture 고정**
-   - 최신 semantic_analyzer 실제 출력의 핵심 구조를 축약한 completed fixture를
-     KG 테스트에 추가한다.
-   - KG 테스트는 semantic_analyzer 코드를 import하지 않고 고정 산출물만 소비해
-     모듈 독립성을 유지한다.
-   - producer Schema 통과, KG Schema 통과, KG 의미 검증 결과를 각각 검사해
-     계약 형식 문제와 소비자 해석 문제를 분리한다.
-2. **원본 ID와 그래프 노드 ID 검증 분리**
-   - Endpoint·Resource 참조는 지금처럼 `node_id`로 검증한다.
-   - request의 원본 `account_id`·`role_id`는 User·Role 노드의
-     `properties.account_id`·`properties.role_id` 인덱스로 검증한다.
-   - workflow의 `role_ids`도 같은 Role 원본 ID 인덱스로 검증한다.
-   - 원본 ID 중복, 누락, User↔Role의 `HAS_ROLE` 연결 불일치는 명시적으로
-     거절한다.
-3. **normalized request를 KG 내부 관찰 레코드로 보존**
-   - 현재 적재에서 버리는 `normalized_requests`의 request ID, 원본 계정·역할 ID,
-     Endpoint ID, `action_meaning`, Resource ID를 내부 저장 모델에 추가한다.
-   - 이 레코드는 KG의 공개 노드·관계가 아니므로 `structure_snapshot`에는 넣지
-     않고, run_id·graph_id 범위와 적재 트랜잭션·멱등성 검증에는 포함한다.
-   - action을 `ACCESS.properties`에 새로 요구하지 않아 semantic_analyzer와 다른
-     소비자의 계약 변경을 피한다.
-4. **`role_resource_access` 질의 수정**
-   - 관찰 레코드와 User→Role·User→Endpoint 관계를 함께 확인해 접근 row를 만든다.
-   - `action`은 `normalized_requests.action_meaning`, 계정·역할은 원본 ID를
-     반환한다.
-   - Role→Endpoint `ACCESS`는 역할 단위 집계 근거로 보존하되 계정별 row를
-     중복 생성하는 기준으로 사용하지 않는다.
-   - Resource가 여러 개이거나 없는 요청, 같은 계정·Endpoint의 반복 요청,
-     `role_ids` 필터를 각각 테스트한다.
-5. **회귀·통합 확인**
-   - 실제 semantic 산출물의 ingest가 completed이고 snapshot의 노드·관계·workflow
-     건수가 원본과 일치하는지 확인한다.
-   - `role_resource_access`가 failed나 빈 결과가 아니라 원본 계정·역할·action을
-     가진 row를 반환하는지 실제 Neo4j 통합 테스트로 확인한다.
-   - KG 전체 테스트와 전체 레포 테스트를 실행하고, 실제 Neo4j 테스트는
-     `KG_RUN_NEO4J_INTEGRATION=1`로 별도 확인한다.
-
-위 계획은 공개 JSON 계약 변경을 포함하지 않는다. 진행 중 semantic 출력 필드나
-의미 변경이 필요해지면 생산자 담당자와 직접 소비자인 reporter 담당자까지 먼저
-합의하고, 별도의 스키마 변경 PR로 분리한다.
-
-### 진행 이력
-
-#### 2026-10-07 — 1단계: 호환 fixture와 실패 기준선
-
-- `tests/fixtures/semantic_analyzer_current/semantic_analysis.json`에 원본
-  account·role ID, prefixed User·Role 노드 ID, Role/User 양쪽 `ACCESS`, 빈
-  ACCESS properties와 `normalized_requests.action_meaning`을 함께 고정했다.
-- KG 입력 JSON Schema 통과와 최신 ID·ACCESS 형태를 확인하는 테스트 2건을
-  추가했다.
-- fixture 작성 시 semantic_analyzer 출력 검증기로도 Schema 오류 0건을 확인했다.
-  KG 테스트 실행 경로에서는 다른 모듈을 import하지 않는다.
-- 실제 ingest 수용 테스트는 2단계 전까지 `ContractValidationError`가 발생해야
-  하는 strict xfail로 두었다. 다른 예외나 조기 성공은 테스트 실패로 처리된다.
-- 운영 코드와 공개 출력 계약은 변경하지 않았다.
-- KG 전체 결과: `105 passed, 4 skipped, 1 xfailed`. skip 4건은 실제 Neo4j
-  활성화가 필요한 기존 통합 테스트다.
-
-#### 2026-10-07 — 2단계: 원본 ID 의미 검증
-
-- User의 `properties.account_id`와 Role의 `properties.role_id`로 원본 ID
-  인덱스를 만들고, 누락되거나 중복된 원본 ID를 ingest 전에 거절한다.
-- normalized request의 account·role은 원본 ID로, Endpoint·Resource는 그래프
-  `node_id`로 나누어 검증한다. 요청의 계정과 역할이 User 속성에서 선언한
-  연결과 다른 경우도 거절한다.
-- workflow의 `role_ids`를 Role 노드 ID가 아닌 원본 역할 ID로 해석하도록
-  수정했다.
-- User의 원본 `role_id`, Role 노드, `HAS_ROLE` 관계가 서로 일치하는지 확인하고
-  누락·잘못된 방향·중복 연결을 거절한다.
-- 기존 KG demo fixture에도 원본 ID 속성과 `HAS_ROLE`를 반영해 이전 fixture만
-  통과하는 별도 해석 경로를 두지 않았다.
-- 1단계의 strict xfail을 정상 ingest 테스트로 전환하고 원본 ID 누락·중복,
-  없는 요청 계정, 계정-역할 불일치, `HAS_ROLE` 누락, 없는 workflow 역할에 대한
-  거절 테스트 10건을 추가했다.
-- 공개 JSON Schema·출력·Neo4j 저장 구조는 바꾸지 않았다. normalized request
-  저장과 접근 질의 수정은 각각 3·4단계에 남아 있다.
-- KG 전체 결과: `116 passed, 4 skipped`. skip 4건은 실제 Neo4j 활성화가 필요한
-  기존 통합 테스트다.
-
-#### 2026-10-07 — 3단계: normalized request 내부 저장
-
-- `normalized_requests`를 공개 GraphNode가 아닌 내부 `RequestObservation` 모델로
-  변환한다. request ID, 원본 account·role ID, Endpoint, action, Resource 목록,
-  basis와 EvidenceRef를 보존한다.
-- 2단계에서 검증한 원본 ID 인덱스를 사용해 User·Role node ID도 함께 보존한다.
-  따라서 다음 접근 질의는 `user:`·`role:` 같은 문자열 규칙에 의존하지 않는다.
-- Neo4j에는 `ABC2RequestObservation` 전용 label과
-  `(run_id, graph_id, request_id)` 유일성 제약으로 저장한다. 기존
-  노드·관계·workflow와 같은 ingest 트랜잭션과 graph·run 범위에 묶는다.
-- 내부 관찰 레코드 건수를 적재 검증과 동일 semantic artifact 멱등 재호출 검증에
-  포함했다. 저장·복원 시 Resource 배열과 EvidenceRef도 손실 없이 유지한다.
-- `structure_snapshot`은 계속 공개 nodes·relationships·workflows만 반환하며 내부
-  관찰 레코드를 노출하지 않는다. 공개 JSON Schema와 KG 출력 계약은 바뀌지 않았다.
-- 실제 접근 row 생성은 4단계에 남아 있다.
-- KG 전체 결과: `117 passed, 4 skipped`. skip 4건은 실제 Neo4j 활성화가 필요한
-  기존 통합 테스트다.
-
-#### 2026-10-07 — 4단계: `role_resource_access` 호환 수정
-
-- 접근 row의 기준을 Endpoint에 연결된 전체 Resource가 아니라 개별
-  `ABC2RequestObservation`으로 변경했다. 이로써 요청별 action·Resource 연결을
-  유지하고 같은 Endpoint의 다른 요청 의미가 섞이지 않는다.
-- 내부에 저장한 resolved User·Role node ID로 공개 Entity를 찾고, 실제
-  User→Role `HAS_ROLE`과 User→Endpoint `ACCESS|VERIFIED_ACCESS`가 모두 존재할
-  때만 row를 만든다.
-- Role→Endpoint `ACCESS`는 semantic 그래프에 그대로 보존하지만 계정별 접근
-  row를 만들거나 중복시키는 기준으로 사용하지 않는다.
-- `account_id`와 `role_id`는 prefixed node ID가 아닌 normalized request의 원본
-  ID를 반환하며 `role_ids` 필터도 원본 역할 ID에 적용한다.
-- `resource_ownership`도 User node ID 대신 원본 account ID로 필터링하고
-  `owner_account_id`를 반환하도록 함께 맞췄다.
-- action은 빈 `ACCESS.properties`나 Endpoint 속성이 아니라
-  `normalized_requests.action_meaning`에서 가져온 내부 관찰값을 사용한다.
-- Resource가 여러 개면 Resource별 row를 만들고 없으면 `resource_id=null` 한
-  건을 반환한다. 같은 account·role·Endpoint·Resource·action 반복 관찰은 한
-  row로 합치고 서로 다른 EvidenceRef를 누적한다. action이 다르면 별도 row다.
-- 잘못 저장된 Resource 배열은 정상 빈 결과로 숨기지 않고 질의 실패로 처리한다.
-- 공개 JSON Schema와 AccessRow 필드·의미는 변경하지 않았다.
-- KG 전체 결과: `120 passed, 4 skipped`. skip 4건은 실제 Neo4j 활성화가 필요한
-  기존 통합 테스트다.
-
-#### 2026-10-07 — 5단계: 통합 회귀와 실제 Neo4j 검증
-
-- 실제 Neo4j 공개 질의 통합 테스트가 테스트용 관계를 실행 직전에 덧붙이지 않고
-  `semantic_analyzer_current/semantic_analysis.json` fixture를 그대로 적재하도록
-  변경했다. envelope의 실행 식별자만 통합 테스트 run에 맞춘다.
-- 실제 DB ingest 후 snapshot이 원본의 노드 5건·관계 6건·workflow 1건과
-  일치하고, 내부 RequestObservation도 손실 없이 왕복되는지 확인했다.
-- `resource_ownership`은 원본 `acc_alice`와 `resource:order`를,
-  `role_resource_access`는 원본 `acc_alice`·`role_user`·`read_order`와
-  `resource:order`를 반환해야 통과하도록 고정했다. 빈 결과나 prefixed node ID
-  반환은 테스트 실패가 된다.
-- 실제 Neo4j 통합 테스트는 ingest round-trip, 공개 ingest 멱등성, 최신 semantic
-  fixture의 공개 query, verification revision 반영 4건이 모두 통과했다.
-- 실제 Neo4j를 활성화한 KG 전체 결과는 `124 passed`로 skip 없이 통과했다.
-  전체 레포 기본 실행도 `980 passed, 4 skipped`였으며, 이때 skip된 4건은 이후
-  실제 DB에서 별도로 모두 통과했다.
-- 전체 레포 회귀는 Playwright와 로컬 테스트 서버 실행을 위해 샌드박스 밖에서
-  재확인했다. 실제 Neo4j 테스트는 다음 환경 변수와 실행 플래그를 사용한다.
+실제 Neo4j 통합 테스트는 Neo4j 실행 후 명시적으로 활성화한다.
 
 ```bash
 KG_RUN_NEO4J_INTEGRATION=1 \
 NEO4J_URI=bolt://localhost:7687 \
 NEO4J_USERNAME=neo4j \
 NEO4J_PASSWORD='<configured-password>' \
-.venv/bin/python -m pytest modules/knowledge_graph/tests/test_neo4j_integration.py
+python -m pytest \
+modules/knowledge_graph/tests/test_neo4j_integration.py -q
 ```
 
-공개 JSON 계약 변경과 새 의존성은 없다. 코드·고정 fixture·전체 회귀·실제
-Neo4j 통합 검증까지 완료했다.
+---
+
+# 변경 이력
+
+## 2026-10-07 — semantic_analyzer 호환성 확인
+
+semantic analyzer 실제 출력과 KG 입력·질의 동작을 비교했다.
+
+| 커밋 | 변경 | KG 영향 |
+|---|---|---|
+| `66557db` | semantic_analyzer 1차 구현 | 실제 생산자 산출물 기반 호환 테스트 가능 |
+| `953e6c2` | collector Page 입력에 `account_id` 추가 | 현재 KG 직접 영향 없음 |
+| `721edf9` | Schema 오류 메시지 입력값 노출 차단 | 데이터 계약 영향 없음 |
+| `d145195` | User→Endpoint `ACCESS` 추가 | 계정별 접근 질의 가능 |
+
+초기 확인 당시 다음 차이가 발견됐다.
+
+- normalized request의 account·role 원본 ID와 Graph Node ID 해석 불일치
+- workflow `role_ids`의 원본 ID 해석 불일치
+- `ACCESS.properties`에 action이 없어 기존 접근 질의 사용 불가
+- AccessRow가 원본 account·role ID가 아닌 Graph Node ID를 반환
+- normalized request의 request provenance가 접근 결과까지 전달되지 않음
+
+이를 아래 단계에서 순차적으로 해결했다.
+
+---
+
+## 1단계 — 실제 semantic fixture 고정
+
+- 실제 semantic analyzer 출력 형태를 축약한 fixture 추가
+- producer/KG Schema 호환성 검증
+- 기존 KG가 실제 입력을 거절하는 상태를 테스트로 고정
+
+당시 결과:
+
+```text
+105 passed, 4 skipped, 1 xfailed
+```
+
+---
+
+## 2단계 — 원본 ID 검증 분리
+
+- User `properties.account_id` 기반 account 원본 ID 인덱스 구성
+- Role `properties.role_id` 기반 role 원본 ID 인덱스 구성
+- request의 account·role과 Endpoint·Resource 검증 방식 분리
+- workflow `role_ids`를 원본 Role ID로 해석
+- User↔Role `HAS_ROLE` 일관성 검증 추가
+
+당시 결과:
+
+```text
+116 passed, 4 skipped
+```
+
+---
+
+## 3단계 — RequestObservation 저장
+
+`normalized_requests`를 KG 내부 `RequestObservation`으로 보존하도록 변경했다.
+
+저장 정보:
+
+```text
+request_id
+account_id
+role_id
+user_node_id
+role_node_id
+endpoint_id
+action
+resource_ids
+basis
+evidence_refs
+```
+
+Neo4j에는 `ABC2RequestObservation`으로 저장한다.
+
+유일성 기준:
+
+```text
+(run_id, graph_id, request_id)
+```
+
+`structure_snapshot`에는 노출하지 않는다.
+
+당시 결과:
+
+```text
+117 passed, 4 skipped
+```
+
+---
+
+## 4단계 — `role_resource_access` 수정
+
+접근 질의 기준을 Graph Entity 조합이 아닌 개별 `RequestObservation`으로 변경했다.
+
+주요 변경:
+
+- 원본 `account_id`, `role_id` 반환
+- `action_meaning` 기반 action 반환
+- 요청별 Resource 연결 유지
+- User→Role `HAS_ROLE` 검증
+- User→Endpoint `ACCESS|VERIFIED_ACCESS` 검증
+- Resource가 여러 개인 요청 지원
+- Resource가 없는 요청 지원
+- 동일 접근 관찰 병합
+- evidence 중복 제거
+- `resource_ownership.owner_account_id`도 원본 account ID로 통일
+
+당시 결과:
+
+```text
+120 passed, 4 skipped
+```
+
+---
+
+## 5단계 — 실제 Neo4j 통합 검증
+
+실제 semantic fixture를 Neo4j에 적재하고 다음 경로를 검증했다.
+
+```text
+semantic_analysis
+      ↓
+ingest
+      ↓
+Neo4j
+      ↓
+query
+      ↓
+graph_query_result
+```
+
+확인 항목:
+
+- RequestObservation 저장·복원
+- snapshot 노드·관계·workflow 일치
+- `resource_ownership` 원본 account ID 반환
+- `role_resource_access` 원본 account·role·action·Resource 반환
+- verification 반영 및 revision 증가
+
+당시 실제 Neo4j 테스트 결과:
+
+```text
+124 passed
+```
+
+전체 저장소 기본 회귀 결과:
+
+```text
+980 passed, 4 skipped
+```
+
+---
+
+## 6단계 — A3: AccessRow request provenance 보존
+
+access_analyzer가 취약점 후보의 `source_request_ids`를 구성할 수 있도록 `role_resource_access` 결과에 원본 request ID를 추가했다.
+
+변경 전:
+
+```text
+RequestObservation.request_id
+        ↓
+AccessRow 생성 과정에서 소실
+```
+
+변경 후:
+
+```text
+RequestObservation.request_id
+        ↓
+AccessRow.request_ids[]
+        ↓
+취약점 후보 원본 요청 추적 가능
+```
+
+동일한 접근 의미가 여러 요청에서 관찰되면:
+
+```text
+request_001
+request_002
+      ↓
+하나의 AccessRow
+      ↓
+request_ids = [
+  "request_001",
+  "request_002"
+]
+```
+
+형태로 provenance를 보존한다.
+
+KG 출력 `graph_query_result`의 `AccessRow.request_ids` 계약은 다음 조건을 사용한다.
+
+```text
+type: array
+minItems: 1
+uniqueItems: true
+item: non-empty string
+```
+
+검증 결과:
+
+```text
+test_query_repository.py
+11 passed
+
+test_query_service.py
+9 passed
+
+knowledge_graph 전체
+121 passed, 4 skipped
+```
+
+실제 Neo4j 통합 테스트는 현재 Neo4j 미실행으로 4건이 skip된 상태이며, 다음 실제 DB 실행 시 `request_ids`까지 함께 검증한다.
+
+---
+
+## 현재 상태
+
+knowledge_graph 기준으로 semantic analyzer 호환 문제와 A2/A3 관련 KG 책임은 해결된 상태다.
+
+```text
+원본 account/role ID 처리        완료
+RequestObservation 내부 저장     완료
+role_resource_access 호환        완료
+AccessRow request_ids 제공        완료
+KG 기본 회귀 테스트               완료
+A3 실제 Neo4j 재검증              보류
+```
+
+외부 소비자 모듈의 입력 Schema 및 `Candidate.source_request_ids` 연결은 각 소비자 모듈의 계약 반영 범위에서 처리한다.

@@ -82,6 +82,7 @@ def test_execute_and_publish_completed_query(query_run_root: Path) -> None:
                     "endpoint_id": "endpoint_orders",
                     "resource_id": "resource_order_001",
                     "action": "read_order",
+                    "request_ids": ["request_order_001"],
                     "access_observed": True,
                     "evidence_refs": [],
                 }

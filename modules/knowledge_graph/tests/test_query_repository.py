@@ -83,13 +83,12 @@ def test_role_resource_access_maps_request_observation_resources() -> None:
     transaction = FakeQueryTransaction(
         [
             {
+                "request_id": "request_order_alice",
                 "account_id": "acc_alice",
                 "role_id": "role_user",
                 "endpoint_id": "endpoint:GET:/orders/{id}",
                 "action": "read_order",
-                "resource_ids_json": encode_json(
-                    ["resource:order", "resource:audit"]
-                ),
+                "resource_ids_json": encode_json(["resource:order", "resource:audit"]),
                 "evidence_refs_json": "[]",
             }
         ]
@@ -110,6 +109,7 @@ def test_role_resource_access_maps_request_observation_resources() -> None:
             "endpoint_id": "endpoint:GET:/orders/{id}",
             "resource_id": "resource:order",
             "action": "read_order",
+            "request_ids": ["request_order_alice"],
             "access_observed": True,
             "evidence_refs": [],
         },
@@ -119,6 +119,7 @@ def test_role_resource_access_maps_request_observation_resources() -> None:
             "endpoint_id": "endpoint:GET:/orders/{id}",
             "resource_id": "resource:audit",
             "action": "read_order",
+            "request_ids": ["request_order_alice"],
             "access_observed": True,
             "evidence_refs": [],
         },
@@ -126,6 +127,7 @@ def test_role_resource_access_maps_request_observation_resources() -> None:
     query, parameters = transaction.calls[0]
     assert "ABC2RequestObservation" in query
     assert "MATCH (account)-[access]->" in query
+    assert "observation.request_id AS request_id" in query
     assert "MATCH (account)-[has_role:HAS_ROLE]->(role)" in query
     assert "observation.role_id IN $role_ids" in query
     assert "role.node_id IN $role_ids" not in query
@@ -137,6 +139,7 @@ def test_role_resource_access_uses_null_when_request_has_no_resource() -> None:
     transaction = FakeQueryTransaction(
         [
             {
+                "request_id": "request_logout_alice",
                 "account_id": "acc_alice",
                 "role_id": "role_user",
                 "endpoint_id": "endpoint:POST:/logout",
@@ -156,6 +159,7 @@ def test_role_resource_access_uses_null_when_request_has_no_resource() -> None:
 
     assert len(rows) == 1
     assert rows[0]["resource_id"] is None
+    assert rows[0]["request_ids"] == ["request_logout_alice"]
 
 
 def test_role_resource_access_merges_repeated_observation_evidence() -> None:
@@ -170,10 +174,19 @@ def test_role_resource_access_merges_repeated_observation_evidence() -> None:
     }
     transaction = FakeQueryTransaction(
         [
-            {**base_record, "evidence_refs_json": encode_json([first_evidence])},
-            {**base_record, "evidence_refs_json": encode_json([second_evidence])},
             {
                 **base_record,
+                "request_id": "request_001",
+                "evidence_refs_json": encode_json([first_evidence]),
+            },
+            {
+                **base_record,
+                "request_id": "request_002",
+                "evidence_refs_json": encode_json([second_evidence]),
+            },
+            {
+                **base_record,
+                "request_id": "request_003",
                 "action": "download_order",
                 "evidence_refs_json": "[]",
             },
@@ -188,15 +201,30 @@ def test_role_resource_access_merges_repeated_observation_evidence() -> None:
     )
 
     assert len(rows) == 2
+
     assert rows[0]["action"] == "read_order"
-    assert rows[0]["evidence_refs"] == [first_evidence, second_evidence]
+
+    assert rows[0]["request_ids"] == [
+        "request_001",
+        "request_002",
+    ]
+
+    assert rows[0]["evidence_refs"] == [
+        first_evidence,
+        second_evidence,
+    ]
+
     assert rows[1]["action"] == "download_order"
+    assert rows[1]["request_ids"] == [
+        "request_003",
+    ]
 
 
 def test_role_resource_access_rejects_invalid_stored_resource_ids() -> None:
     transaction = FakeQueryTransaction(
         [
             {
+                "request_id": "request_invalid_resource",
                 "account_id": "acc_alice",
                 "role_id": "role_user",
                 "endpoint_id": "endpoint:GET:/orders/{id}",
@@ -215,6 +243,31 @@ def test_role_resource_access_rejects_invalid_stored_resource_ids() -> None:
             {"role_ids": []},
         )
 
+def test_role_resource_access_rejects_invalid_request_id() -> None:
+    transaction = FakeQueryTransaction(
+        [
+            {
+                "request_id": "",
+                "account_id": "acc_alice",
+                "role_id": "role_user",
+                "endpoint_id": "endpoint:GET:/orders/{id}",
+                "action": "read_order",
+                "resource_ids_json": encode_json(["resource:order"]),
+                "evidence_refs_json": "[]",
+            }
+        ]
+    )
+
+    with pytest.raises(
+        QueryResultValidationError,
+        match="request_id",
+    ):
+        _repository(transaction).query(
+            "graph_001",
+            "run_001",
+            "role_resource_access",
+            {"role_ids": []},
+        )
 
 def test_workflow_dependencies_returns_typed_rows() -> None:
     transaction = FakeQueryTransaction(
