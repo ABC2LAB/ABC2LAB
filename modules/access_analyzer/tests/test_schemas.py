@@ -33,9 +33,9 @@ def _completed_result_data() -> dict:
     ]}
     access = {"query_id": "q_acc", "query_key": "role_resource_access", "status": "completed", "errors": [], "rows": [
         {"account_id": "account_a", "role_id": "role_user", "endpoint_id": "endpoint:GET:/x/{id}",
-         "resource_id": "resource:item_1", "action": "read", "access_observed": True, "evidence_refs": [EVIDENCE]},
+         "resource_id": "resource:item_1", "action": "read", "request_ids": ["req_a"], "access_observed": True, "evidence_refs": [EVIDENCE]},
         {"account_id": "account_b", "role_id": "role_user", "endpoint_id": "endpoint:GET:/y",
-         "resource_id": None, "action": "list", "access_observed": False, "evidence_refs": []},
+         "resource_id": None, "action": "list", "request_ids": ["req_b"], "access_observed": False, "evidence_refs": []},
     ]}
     flow = {"query_id": "q_flow", "query_key": "workflow_dependencies", "status": "completed", "errors": [], "rows": [
         {"workflow_id": "workflow_a", "before_step_id": "s0", "after_step_id": "s1",
@@ -80,6 +80,20 @@ def test_graph_query_rejects_undefined_key() -> None:
 
 def test_result_completed_all_row_types_valid() -> None:
     assert schema_errors(RESULT_SCHEMA, _result_envelope("completed", [], _completed_result_data())) == []
+
+
+def test_result_access_row_requires_request_ids() -> None:
+    # #32에서 AccessRow에 request_ids가 required로 추가됐다. 미러링이 빠지면 이 테스트가 red.
+    data = _completed_result_data()
+    access_rows = data["results"][1]["rows"]
+    del access_rows[0]["request_ids"]
+    assert schema_errors(RESULT_SCHEMA, _result_envelope("completed", [], data))
+
+
+def test_result_access_row_rejects_empty_request_ids() -> None:
+    data = _completed_result_data()
+    data["results"][1]["rows"][0]["request_ids"] = []
+    assert schema_errors(RESULT_SCHEMA, _result_envelope("completed", [], data))
 
 
 def test_result_partial_valid() -> None:

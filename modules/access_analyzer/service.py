@@ -7,14 +7,15 @@ query_key(resource_ownership·role_resource_access·workflow_dependencies·struc
 structure_snapshot은 명세상 평가·감사용(reporter)이라 analyze 규칙 입력으로 쓰지 않지만, 질의 작성 주체는
 access_analyzer다(명세 m4). 그래서 계획에는 포함해 KG가 reporter용 snapshot을 함께 내도록 한다.
 
-analyze: graph_query_result를 받아 revision·상태를 판정하고 vulnerability_candidates의 data를 만든다.
-이 PR은 규칙이 없어 candidates는 빈 배열이다(Rule A는 다음 PR). 핵심은 질의 실패·partial·오래된 revision을
-"후보 0개"와 구분하는 것이다(명세 m4 완료 기준). model_info는 LLM을 쓰지 않아 null.
+analyze: graph_query_result를 받아 revision·상태를 판정하고 rules로 vulnerability_candidates의 data를 만든다.
+질의 실패·partial·오래된 revision을 "후보 0개"와 구분하는 것이 먼저다(명세 m4 완료 기준). model_info는 LLM을 쓰지 않아 null.
 """
 
 from dataclasses import dataclass
 from typing import Any
 
+from modules.access_analyzer import rules
+from modules.access_analyzer.utils.config import RuleConfig, load_rule_config
 from modules.access_analyzer.utils.envelope import ErrorCode, Status, make_error_item
 
 # 명세 m4·KG configs/default.json의 supported_query_keys와 같은 집합·순서.
@@ -75,12 +76,14 @@ def build_candidates_result(
     graph_id: str,
     expected_graph_revision: int | None,
     run_id: str,
+    config: RuleConfig | None = None,
 ) -> AnalyzeOutcome:
     """graph_query_result로 vulnerability_candidates의 status·errors·data를 정한다.
 
-    규칙이 없는 이 PR은 candidates=[]다. 중요한 건 실패·partial·stale을 정상 빈 결과와 구분하는 것.
+    규칙(Rule A)으로 후보를 만든다. 실패·partial·stale을 정상 빈 결과와 구분하는 것이 먼저다.
     입력은 이미 Schema·의미 검증을 통과했다고 본다(entrypoint가 먼저 검증).
     """
+    rule_config = config or load_rule_config()
     input_status = input_artifact["status"]
     if input_status == "failed":
         # KG가 결과를 못 냈다(data=null). 후보 0개로 단정하지 않고 우리도 failed로 둔다.
@@ -110,15 +113,16 @@ def build_candidates_result(
         )
         return AnalyzeOutcome(Status.FAILED, [error], None)
 
-    # 규칙은 다음 PR. 지금은 빈 후보. source_graph_revision은 실제 조회 revision.
+    # 완료된 분석 쿼리 결과에 규칙을 적용한다. LLM은 쓰지 않아 model_info=null.
+    candidates, rule_errors = rules.apply_rules(data, rule_config)
     candidates_data = {
         "source_graph_revision": graph_revision,
-        "candidates": [],
+        "candidates": candidates,
         "model_info": None,
     }
-    if input_status == "partial":
-        # 일부 질의가 실패한 결과다. 분석 못 한 범위를 errors로 남겨 "후보 0개 완료"와 구분한다.
-        errors = [
+    # 입력 partial(일부 질의 실패)은 분석 못 한 범위를 errors로 남겨 "후보 0개 완료"와 구분한다.
+    partial_errors = (
+        [
             make_error_item(
                 ErrorCode.QUERY_RESULT_PARTIAL,
                 f"입력 질의 일부 실패: {item['code']}",
@@ -127,5 +131,9 @@ def build_candidates_result(
             )
             for item in input_artifact["errors"]
         ]
-        return AnalyzeOutcome(Status.PARTIAL, errors, candidates_data)
-    return AnalyzeOutcome(Status.COMPLETED, [], candidates_data)
+        if input_status == "partial"
+        else []
+    )
+    errors = partial_errors + rule_errors
+    status = Status.PARTIAL if errors else Status.COMPLETED
+    return AnalyzeOutcome(status, errors, candidates_data)

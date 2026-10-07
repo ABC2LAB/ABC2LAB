@@ -74,6 +74,17 @@ CLI:
 | `workflow_dependencies` | 업무 흐름 단계 의존 관계 |
 | `structure_snapshot` | 실제 적재 구조. 명세상 평가·감사용(reporter)이라 analyze 규칙 입력으로 쓰지 않지만, 질의 작성 주체는 access_analyzer다(m4) |
 
+## 후보 규칙 (analyze)
+
+후보는 검증 대상이지 확정 취약점이 아니다. 규칙 입력은 분석 쿼리(`resource_ownership`·`role_resource_access`) 결과뿐이다(`structure_snapshot`은 평가·감사용이라 제외). 규칙 파라미터는 `configs/access_analyzer.toml`.
+
+| rule_id | 판정 | 비고 |
+|---|---|---|
+| `rule_same_role_other_owner` | `OwnershipRow`로 자원 R의 소유자 Y를 얻고, `AccessRow.role_id`로 Y와 **같은 role_id** 인 다른 계정 X를 찾으면 (X 실행, Y 기준, R 대상) 후보. `(actor, reference)` 순서쌍마다 1개. category=authorization, vulnerability_type=horizontal_access, expected_basis=inferred | 역할 **이름**이 아니라 role_id 동일성으로 판단. 소유자 없는 자원은 OwnershipRow가 없어 자연 제외 |
+
+- **`source_request_ids`의 출처**: 소유자(reference) 계정 Y가 자원 R에 접근한 `AccessRow`의 `request_ids`를 쓴다(verifier가 그 요청을 X로 재현). 매칭되는 AccessRow가 없으면 그 후보는 발행하지 않고 `CANDIDATE_INCOMPLETE` 오류로 남긴다(status=partial).
+- 계정·역할·자원 ID는 결과 row 값을 그대로 쓴다(#29 이후 crawl 원본 ID). 우회 변환하지 않는다.
+
 ## 실패 처리
 
 - **산출물 타입을 알 수 있으면**(지원 operation) 실패도 `status=failed`·`data=null` 파일로 공개한다(입력 JSON 혼입/누락, 입력 계약 위반, 입력 결과 failed·stale·graph_id 불일치, 자기 출력 검증 실패 등). 실패를 정상 빈 결과로 숨기지 않는다. 종료코드 2.
@@ -107,4 +118,5 @@ CLI:
 모듈 완성 후 파이프라인 연결 때 맞춘다. 그 전까지는 명세 의미대로 만든 fixture로 독립 개발한다.
 
 - **A2 (결과 row의 계정·역할 ID 형식) → #29(이동찬)로 해결.** ownership `owner_account_id`·access `account_id`·`role_id`가 이제 crawl 원본 ID로 나온다(KG observation 기반). resource_id는 `resource:<key>`, endpoint_id는 `endpoint:<METHOD>:<path>`.
-- **A3 (상대: knowledge_graph)**: 후보 `source_request_ids`를 채우려면 `AccessRow`에 수집 요청 ID가 필요하다(현재 row에 없음). KG observation에는 request_id가 있어 `AccessRow`에 추가하는 계약 변경(A3(b))은 쉽다. 합의 전에는 못 채우는 후보를 발행하지 않고 errors로 둔다.
+- **A3 (후보 `source_request_ids`의 출처) → #32(이동찬)로 해결.** `AccessRow`에 `request_ids`(원본 수집 요청 ID, `minItems:1`·`uniqueItems`)가 추가됐다. 우리 입력 사본 Schema에 그대로 미러링했다. Rule A는 이 값으로 `source_request_ids`를 채운다. 매칭되는 AccessRow가 없으면 그 후보는 발행하지 않고 errors로 둔다(안전장치).
+- 남은 연결 항목: reporter의 crawl_result 입력에 Page.account_id 반영(#23 이후) 확인 — 우리 모듈 무관, 연결 때.
