@@ -53,17 +53,15 @@ def test_expected_revision_null_queries_current(tmp_path: Path) -> None:
 
 # --- 경계: 경로를 신뢰할 수 있으면 failed 파일 공개(종료코드 2) ---
 
-def test_unsupported_operation_publishes_failed_file(tmp_path: Path) -> None:
+def test_unknown_operation_writes_no_file(tmp_path: Path) -> None:
+    # 알 수 없는 operation은 어떤 산출물을 쓸지 몰라 파일을 만들지 않는다(analyze는 정상 operation).
     run_root = tmp_path / "run_demo"
     context = make_context(run_root)
-    result = ep.run("analyze", [], output_dir_for(run_root), context)
-    published = output_dir_for(run_root) / "graph_query.json"
+    result = ep.run("foo", [], output_dir_for(run_root), context)
     assert result["status"] == "failed"
-    assert result["artifact_path"] == str(published)
-    assert published.exists()
-    assert json.loads(published.read_bytes())["data"] is None
+    assert result["artifact_path"] is None
     assert result["errors"][0]["code"] == "OPERATION_UNSUPPORTED"
-    assert ep._exit_code(result) == ep.EXIT_FAILED_WITH_FILE
+    assert ep._exit_code(result) == ep.EXIT_NO_FILE
 
 
 def test_input_paths_publishes_failed_file(tmp_path: Path) -> None:

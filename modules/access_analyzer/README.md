@@ -3,7 +3,7 @@
 | 항목 | 값 |
 |---|---|
 | module_id | `access_analyzer` |
-| 공개 operation | `prepare_queries` (이 PR), `analyze` (다음 PR) |
+| 공개 operation | `prepare_queries`, `analyze` (규칙 없는 골격 — 후보는 빈 배열, Rule은 다음 PR) |
 | 명세 | `docs/spec/m4-access_analyzer.md`, `docs/spec/02-common-contract.md`, `docs/spec/03-runner-layout.md` |
 | 계약 버전 | `schema_version = 0.1.0` |
 
@@ -49,10 +49,19 @@ result = run(
 CLI:
 
 ```bash
+# 질의 계획
 .venv/bin/python -m modules.access_analyzer.entrypoint prepare_queries \
   --mode development --graph-id graph_example [--expected-graph-revision 1] \
   [--run-id run_example] [--iteration 0] [--runs-dir runs]
+
+# 후보 분석 (KG가 낸 graph_query_result.json을 입력으로)
+.venv/bin/python -m modules.access_analyzer.entrypoint analyze \
+  --mode development --graph-id graph_example --expected-graph-revision 1 \
+  --input-path artifacts/iteration-000/knowledge_graph/graph_query_result.json \
+  --run-id run_example --iteration 0
 ```
+
+`analyze`는 `graph_query_result.json` 하나를 입력으로 받는다(`--input-path`는 run_root 기준 상대 또는 절대). 입력은 run_root 안에 있어야 한다.
 
 ## 질의 계획 (prepare_queries)
 
@@ -67,8 +76,11 @@ CLI:
 
 ## 실패 처리
 
-- **출력 경로를 신뢰할 수 있으면** 실패도 `status=failed`·`data=null` 파일로 공개한다(미지원 operation, 입력 JSON 혼입, 자기 출력 검증 실패 등). 실패를 정상 빈 결과로 숨기지 않는다. 종료코드 2.
-- **경로 자체가 불확실하면**(잘못된 `run_id`·`run_root`, output_dir가 `run_root/artifacts/iteration-NNN/access_analyzer`가 아님, `..`·symlink로 run 밖을 가리킴, 폴더 생성 불가) 파일을 쓰지 않고 반환값으로만 알린다. 종료코드 3.
+- **산출물 타입을 알 수 있으면**(지원 operation) 실패도 `status=failed`·`data=null` 파일로 공개한다(입력 JSON 혼입/누락, 입력 계약 위반, 입력 결과 failed·stale·graph_id 불일치, 자기 출력 검증 실패 등). 실패를 정상 빈 결과로 숨기지 않는다. 종료코드 2.
+- **타입·경로가 불확실하면** 파일을 쓰지 않고 반환값으로만 알린다. 종료코드 3. 여기에 해당:
+  - 알 수 없는 operation(어떤 산출물을 쓸지 모름) → `OPERATION_UNSUPPORTED`.
+  - 잘못된 `run_id`·`run_root`, output_dir가 `run_root/artifacts/iteration-NNN/access_analyzer`가 아님, `..`·symlink로 run 밖을 가리킴, 폴더 생성 불가.
+- analyze의 입력 경로는 run_root 안이어야 한다. 밖을 가리키면 `INPUT_PATH_INVALID`로 failed 파일을 공개한다(출력 경로는 신뢰 가능).
 - 완료 파일은 한 번만 공개한다. 같은 경로에 이미 있으면 덮어쓰지 않고 거절한다(`ARTIFACT_EXISTS`).
 - 종료코드: 0 completed / 1 partial / 2 failed(파일 있음) / 3 파일 없음.
 
@@ -90,9 +102,9 @@ CLI:
 | 2026-10-07 | `vulnerability_candidates` `Candidate.resource_ids` | `array<string>` → `minItems:1` | 같음. TODO(choiamj980818): `workflow_step_bypass` 규칙은 자원 없이 `workflow_id`만 가질 수 있어 그 규칙 추가 시 minItems:1을 재검토한다 |
 | 2026-10-07 | `vulnerability_candidates` `Candidate.reference_account_id`·`workflow_id` | `string/null` → `nonEmptyString/null` | 빈 문자열 금지. reporter 입력 Schema와 일치시킴(수동 확인: reporter·scenario_generator 입력 통과) |
 
-## 미합의 (KG와 협의 중 — 계획 7절, A2·A3)
+## 연결 때 다른 모듈과 맞출 것
 
-실물 KG 연결 전 합의가 필요하다. 그 사이는 명세 의미대로 만든 fixture로 독립 개발한다.
+모듈 완성 후 파이프라인 연결 때 맞춘다. 그 전까지는 명세 의미대로 만든 fixture로 독립 개발한다.
 
-- **A2**: `graph_query_result`의 row ID가 crawl 원본 계정/역할/자원 ID인지(현재 KG는 graph node_id 반환). access_analyzer는 우회 변환하지 않는다.
-- **A3**: 후보 `source_request_ids`를 채우려면 `AccessRow`에 수집 요청 ID가 필요하다(현재 row에 없음). 합의 전에는 못 채우는 후보를 발행하지 않고 errors로 둔다.
+- **A2 (결과 row의 계정·역할 ID 형식) → #29(이동찬)로 해결.** ownership `owner_account_id`·access `account_id`·`role_id`가 이제 crawl 원본 ID로 나온다(KG observation 기반). resource_id는 `resource:<key>`, endpoint_id는 `endpoint:<METHOD>:<path>`.
+- **A3 (상대: knowledge_graph)**: 후보 `source_request_ids`를 채우려면 `AccessRow`에 수집 요청 ID가 필요하다(현재 row에 없음). KG observation에는 request_id가 있어 `AccessRow`에 추가하는 계약 변경(A3(b))은 쉽다. 합의 전에는 못 채우는 후보를 발행하지 않고 errors로 둔다.

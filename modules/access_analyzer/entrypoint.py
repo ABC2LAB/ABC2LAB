@@ -1,14 +1,17 @@
 """access_analyzer 공개 실행 창구: run(operation, input_paths, output_dir, context)와 CLI.
 
-    .venv/bin/python -m modules.access_analyzer.entrypoint prepare_queries --mode development \
-        --graph-id GID [--expected-graph-revision N] [--run-id ID] [--iteration 0] [--runs-dir runs]
+지원 operation:
+- prepare_queries: 입력 JSON 없음 → graph_query.json 공개(KG에 보낼 질의 계획).
+- analyze: graph_query_result.json 하나 입력 → vulnerability_candidates.json 공개(후보. 규칙은 다음 PR이라 빈 배열).
 
-이 PR은 prepare_queries만 연다(analyze는 다음 PR). 처리 순서: 실행 값 검증 → 질의 계획(service)
-→ 공개 형식(envelope) → 자기 출력 검증(validation) → 원자적 공개(storage). 반환값과 CLI stdout 한 줄은
-{status, artifact_path, artifact_id, sha256, errors}다. 파일을 못 썼으면 경로·ID·sha256이 null이고 이유는 errors에.
+    .venv/bin/python -m modules.access_analyzer.entrypoint prepare_queries --mode development --graph-id GID [--expected-graph-revision N]
+    .venv/bin/python -m modules.access_analyzer.entrypoint analyze --mode development --graph-id GID --expected-graph-revision N --input-path <graph_query_result.json>
 
-context 키는 명세 03 실행 값 + 필요한 graph 상태다: run_id·iteration·mode·run_root·graph_id·expected_graph_revision.
-graph_id·expected_graph_revision은 KG ingest 제어 응답에서 온다(명세 03 "필요한 graph 상태"). 그 밖의 키는 거절한다.
+처리 순서: 실행 값 검증 → (prepare: 질의 계획 / analyze: 입력 검증·판정) → envelope → 자기 출력 검증 → 원자적 공개.
+반환값·CLI stdout 한 줄: {status, artifact_path, artifact_id, sha256, errors}. 파일을 못 썼으면 경로·ID·sha256이 null.
+
+context 키는 명세 03 실행 값 + 필요한 graph 상태 여섯 개: run_id·iteration·mode·run_root·graph_id·expected_graph_revision.
+알 수 없는 operation은 산출물 타입을 모르므로 파일 없이 반환값으로만 알린다(종료코드 3).
 """
 
 import argparse
@@ -19,13 +22,14 @@ import re
 import secrets
 import sys
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from modules.access_analyzer import service
 from modules.access_analyzer.utils.envelope import (
+    ARTIFACT_TYPE_CANDIDATES,
     ARTIFACT_TYPE_GRAPH_QUERY,
     ErrorCode,
     Mode,
@@ -46,13 +50,19 @@ from modules.access_analyzer.utils.storage import (
     serialize_json,
 )
 from modules.access_analyzer.utils.validation import (
+    CANDIDATES_FILE_NAME,
     GRAPH_QUERY_FILE_NAME,
+    ValidationIssue,
     validate_graph_query_bytes,
+    validate_graph_query_result_file,
+    validate_vulnerability_candidates_bytes,
 )
 
 logger = logging.getLogger(__name__)
 
 PREPARE_QUERIES_OPERATION = "prepare_queries"
+ANALYZE_OPERATION = "analyze"
+GRAPH_QUERY_RESULT_TYPE = "graph_query_result"
 REQUIRED_CONTEXT_KEYS = frozenset(
     {"run_id", "iteration", "mode", "run_root", "graph_id", "expected_graph_revision"}
 )
@@ -69,16 +79,38 @@ EXIT_PARTIAL = 1
 EXIT_FAILED_WITH_FILE = 2
 EXIT_NO_FILE = 3
 
+# operation별 산출물 종류·파일명·자기 출력 검증기.
+ARTIFACT_TYPE_BY_OPERATION = {
+    PREPARE_QUERIES_OPERATION: ARTIFACT_TYPE_GRAPH_QUERY,
+    ANALYZE_OPERATION: ARTIFACT_TYPE_CANDIDATES,
+}
+FILE_NAME_BY_OPERATION = {
+    PREPARE_QUERIES_OPERATION: GRAPH_QUERY_FILE_NAME,
+    ANALYZE_OPERATION: CANDIDATES_FILE_NAME,
+}
+VALIDATOR_BY_OPERATION: dict[str, Callable[[bytes], list[ValidationIssue]]] = {
+    PREPARE_QUERIES_OPERATION: validate_graph_query_bytes,
+    ANALYZE_OPERATION: validate_vulnerability_candidates_bytes,
+}
+
 
 class ContextError(ValueError):
     """context가 명세 실행 값 규칙에 맞지 않는다. 메시지에는 키 이름만 넣는다."""
 
 
+class InputPathError(ValueError):
+    """analyze 입력 경로가 run_root 안의 읽을 수 있는 파일이 아니다."""
+
+
 def run(
     operation: str, input_paths: Sequence[str | Path], output_dir: str | Path, context: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """prepare_queries를 실행하고 graph_query.json을 output_dir에 공개한다. 예외 대신 결과 객체로 알린다."""
+    """operation을 실행하고 산출물을 output_dir에 공개한다. 예외 대신 결과 객체로 알린다."""
     started = time.monotonic()
+    # 알 수 없는 operation은 어떤 산출물을 쓸지 모른다. 파일을 만들지 않고 반환값으로만 알린다.
+    if operation not in ARTIFACT_TYPE_BY_OPERATION:
+        supported = ", ".join(sorted(ARTIFACT_TYPE_BY_OPERATION))
+        return _make_unwritten_result(ErrorCode.OPERATION_UNSUPPORTED, f"지원 operation은 {supported}")
     try:
         run_context = parse_context(context)
         artifact_dir = prepare_output_dir(run_context.run_root, run_context.iteration, Path(output_dir))
@@ -88,16 +120,15 @@ def run(
         return _make_unwritten_result(ErrorCode.OUTPUT_PATH_INVALID, str(error))
     except OSError as error:
         return _make_unwritten_result(ErrorCode.OUTPUT_WRITE_FAILED, f"출력 폴더를 만들지 못함: {type(error).__name__}")
-    # 완료 파일은 한 번만 공개한다. 탐색하기 전에 먼저 거절한다(공개 때 os.link가 한 번 더 막는다).
-    if (artifact_dir / GRAPH_QUERY_FILE_NAME).exists():
-        return _make_unwritten_result(ErrorCode.ARTIFACT_EXISTS, f"이미 공개된 파일이 있음: {GRAPH_QUERY_FILE_NAME}")
-    call_errors = _check_call(operation, input_paths)
-    if call_errors:
-        work = WorkResult(Status.FAILED, call_errors, None, _elapsed_ms(started))
-        return _publish(run_context, artifact_dir, work)
-    data = service.build_graph_query_data(run_context.graph_id, run_context.expected_graph_revision)
-    work = WorkResult(Status.COMPLETED, [], data, _elapsed_ms(started))
-    return _publish(run_context, artifact_dir, work)
+    file_name = FILE_NAME_BY_OPERATION[operation]
+    # 완료 파일은 한 번만 공개한다. 작업 전에 먼저 거절한다(공개 때 os.link가 한 번 더 막는다).
+    if (artifact_dir / file_name).exists():
+        return _make_unwritten_result(ErrorCode.ARTIFACT_EXISTS, f"이미 공개된 파일이 있음: {file_name}")
+    if operation == PREPARE_QUERIES_OPERATION:
+        work, input_refs = _prepare_queries_work(run_context, input_paths, started)
+    else:
+        work, input_refs = _analyze_work(run_context, input_paths, started)
+    return _publish(run_context, artifact_dir, operation, work, input_refs)
 
 
 def parse_context(context: Mapping[str, Any]) -> RunContext:
@@ -138,32 +169,93 @@ def make_run_id(now: datetime) -> str:
     return f"{now.strftime(RUN_ID_TIME_FORMAT)}-{secrets.token_hex(RUN_ID_RANDOM_BYTES)}"
 
 
-def _check_call(operation: str, input_paths: Sequence[str | Path]) -> list[dict[str, Any]]:
-    errors = []
-    if operation != PREPARE_QUERIES_OPERATION:
-        errors.append(
-            make_error_item(ErrorCode.OPERATION_UNSUPPORTED, f"이 모듈이 지원하는 operation은 {PREPARE_QUERIES_OPERATION}")
-        )
-    # prepare_queries는 입력 JSON을 읽지 않는다. graph 상태는 context로 받는다.
+def _prepare_queries_work(
+    run_context: RunContext, input_paths: Sequence[str | Path], started: float
+) -> tuple[WorkResult, list[dict[str, Any]]]:
+    """질의 계획을 만든다. 입력 JSON을 받으면 거절한다."""
     if input_paths:
-        errors.append(make_error_item(ErrorCode.INPUT_UNEXPECTED, "prepare_queries는 입력 JSON을 받지 않음"))
-    return errors
+        error = make_error_item(ErrorCode.INPUT_UNEXPECTED, "prepare_queries는 입력 JSON을 받지 않음")
+        return WorkResult(Status.FAILED, [error], None, _elapsed_ms(started)), []
+    data = service.build_graph_query_data(run_context.graph_id, run_context.expected_graph_revision)
+    return WorkResult(Status.COMPLETED, [], data, _elapsed_ms(started)), []
 
 
-def _publish(run_context: RunContext, artifact_dir: Path, work: WorkResult) -> dict[str, Any]:
+def _analyze_work(
+    run_context: RunContext, input_paths: Sequence[str | Path], started: float
+) -> tuple[WorkResult, list[dict[str, Any]]]:
+    """graph_query_result 하나를 읽어 검증하고 후보를 판정한다. 입력을 못 읽으면 input_refs 없이 failed."""
+    if len(input_paths) != 1:
+        code = ErrorCode.INPUT_MISSING if not input_paths else ErrorCode.INPUT_UNEXPECTED
+        message = "analyze는 graph_query_result.json 하나를 입력으로 받는다"
+        return WorkResult(Status.FAILED, [make_error_item(code, message)], None, _elapsed_ms(started)), []
+    try:
+        input_path = _resolve_input_path(run_context.run_root, input_paths[0])
+    except InputPathError as error:
+        return WorkResult(Status.FAILED, [make_error_item(ErrorCode.INPUT_PATH_INVALID, str(error))], None, _elapsed_ms(started)), []
+    issues = validate_graph_query_result_file(input_path)
+    if issues:
+        errors = _describe_issues(ErrorCode.INPUT_CONTRACT_INVALID, issues)
+        return WorkResult(Status.FAILED, errors, None, _elapsed_ms(started)), []
+    raw = input_path.read_bytes()
+    input_artifact = json.loads(raw)
+    input_ref = _build_input_ref(run_context.run_root, input_path, raw, input_artifact)
+    outcome = service.build_candidates_result(
+        input_artifact,
+        run_context.graph_id,
+        run_context.expected_graph_revision,
+        run_context.run_id,
+    )
+    return WorkResult(outcome.status, outcome.errors, outcome.data, _elapsed_ms(started)), [input_ref]
+
+
+def _resolve_input_path(run_root: Path, raw_path: str | Path) -> Path:
+    """입력 경로를 run_root 안으로 제한한다. 상대 경로는 run_root 기준, 바깥을 가리키면 거절한다."""
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        candidate = run_root / candidate
+    resolved = candidate.resolve()
+    root = run_root.resolve()
+    if not resolved.is_relative_to(root):
+        raise InputPathError("입력 경로가 run_root 밖을 가리킴")
+    if not resolved.is_file():
+        raise InputPathError("입력 파일이 없음")
+    return resolved
+
+
+def _build_input_ref(run_root: Path, input_path: Path, raw: bytes, artifact: Mapping[str, Any]) -> dict[str, Any]:
+    relative = input_path.resolve().relative_to(run_root.resolve()).as_posix()
+    return {
+        "artifact_id": artifact["artifact_id"],
+        "artifact_type": GRAPH_QUERY_RESULT_TYPE,
+        "iteration": artifact["iteration"],
+        "path": relative,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
+
+
+def _publish(
+    run_context: RunContext,
+    artifact_dir: Path,
+    operation: str,
+    work: WorkResult,
+    input_refs: list[dict[str, Any]],
+) -> dict[str, Any]:
     """자기 출력 검증을 통과한 바이트만 공개한다. 통과 못 하면 데이터 없이 failed로 공개한다."""
-    document = build_envelope(ARTIFACT_TYPE_GRAPH_QUERY, run_context, work)
+    artifact_type = ARTIFACT_TYPE_BY_OPERATION[operation]
+    file_name = FILE_NAME_BY_OPERATION[operation]
+    validate = VALIDATOR_BY_OPERATION[operation]
+    document = build_envelope(artifact_type, run_context, work, input_refs=input_refs)
     raw = serialize_json(document)
-    issues = validate_graph_query_bytes(raw)
+    issues = validate(raw)
     if issues:
         logger.error("자기 출력 검증 실패 %d건: 데이터 없이 failed로 공개", len(issues))
-        failed_work = WorkResult(Status.FAILED, _describe_issues(issues), None, work.duration_ms)
-        document = build_envelope(ARTIFACT_TYPE_GRAPH_QUERY, run_context, failed_work)
+        failed_work = WorkResult(Status.FAILED, _describe_issues(ErrorCode.OUTPUT_CONTRACT_INVALID, issues), None, work.duration_ms)
+        document = build_envelope(artifact_type, run_context, failed_work, input_refs=input_refs)
         raw = serialize_json(document)
-        if validate_graph_query_bytes(raw):
+        if validate(raw):
             return _make_unwritten_result(ErrorCode.OUTPUT_CONTRACT_INVALID, "failed 결과도 계약 검증을 통과하지 못함")
     try:
-        path = publish_file(artifact_dir, GRAPH_QUERY_FILE_NAME, raw)
+        path = publish_file(artifact_dir, file_name, raw)
     except ArtifactExistsError as error:
         return _make_unwritten_result(ErrorCode.ARTIFACT_EXISTS, str(error))
     except OSError as error:
@@ -178,14 +270,14 @@ def _publish(run_context: RunContext, artifact_dir: Path, work: WorkResult) -> d
     }
 
 
-def _describe_issues(issues: Sequence[Any]) -> list[dict[str, Any]]:
+def _describe_issues(code: ErrorCode, issues: Sequence[Any]) -> list[dict[str, Any]]:
     described = [
-        make_error_item(ErrorCode.OUTPUT_CONTRACT_INVALID, f"{issue.code} {issue.location}: {issue.message}")
+        make_error_item(code, f"{issue.code} {issue.location}: {issue.message}")
         for issue in issues[:MAX_CONTRACT_ISSUES]
     ]
     if len(issues) > MAX_CONTRACT_ISSUES:
         omitted = len(issues) - MAX_CONTRACT_ISSUES
-        described.append(make_error_item(ErrorCode.OUTPUT_CONTRACT_INVALID, f"그 밖의 문제 {omitted}건 생략"))
+        described.append(make_error_item(code, f"그 밖의 문제 {omitted}건 생략"))
     return described
 
 
@@ -202,13 +294,12 @@ def _elapsed_ms(started: float) -> int:
 def _log_summary(document: Mapping[str, Any], path: Path) -> None:
     """runs/는 직접 열어보지 않으므로 건수로 결과를 확인한다. 값은 남기지 않는다."""
     data = document["data"] or {}
-    logger.info(
-        "%s %s: 질의 %d·errors %d",
-        document["status"],
-        path,
-        len(data.get("queries", [])),
-        len(document["errors"]),
+    detail = (
+        f"질의 {len(data['queries'])}"
+        if "queries" in data
+        else f"후보 {len(data.get('candidates', []))}"
     )
+    logger.info("%s %s: %s·errors %d", document["status"], path, detail, len(document["errors"]))
 
 
 def _exit_code(result: Mapping[str, Any]) -> int:
@@ -225,9 +316,9 @@ def _exit_code(result: Mapping[str, Any]) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m modules.access_analyzer.entrypoint",
-        description="KG에 보낼 읽기 전용 질의 계획 graph_query.json을 공개",
+        description="KG 질의 계획(prepare_queries) 또는 취약점 후보(analyze)를 공개",
     )
-    parser.add_argument("operation", help=f"공개 operation ({PREPARE_QUERIES_OPERATION})")
+    parser.add_argument("operation", help=f"{PREPARE_QUERIES_OPERATION} 또는 {ANALYZE_OPERATION}")
     parser.add_argument("--mode", required=True, choices=[mode.value for mode in Mode])
     parser.add_argument("--graph-id", required=True, help="조회 대상 KG ID (KG ingest 제어 응답에서 받음)")
     parser.add_argument(
@@ -236,6 +327,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="기대 KG revision. 생략하면 현재 revision을 조회하고 결과에서 실제 값을 받는다",
     )
+    parser.add_argument("--input-path", help=f"{ANALYZE_OPERATION}의 graph_query_result.json (run_root 기준 상대 또는 절대)")
     parser.add_argument("--run-id", help="없으면 시각+난수로 만든다")
     parser.add_argument("--iteration", type=int, default=0)
     parser.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_DIR, help=f"기본 {DEFAULT_RUNS_DIR}")
@@ -252,7 +344,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "graph_id": args.graph_id,
         "expected_graph_revision": args.expected_graph_revision,
     }
-    result = run(args.operation, [], output_dir, context)
+    input_paths = [args.input_path] if args.input_path else []
+    result = run(args.operation, input_paths, output_dir, context)
     # stdout은 호출자가 읽는 결과 한 줄이다. 로그는 stderr로 간다.
     sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
     return _exit_code(result)
