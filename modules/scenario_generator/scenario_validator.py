@@ -42,7 +42,7 @@ class ValidationContext:
 def _get_scenario_validator() -> Draft202012Validator:
     schema = json.loads(OUTPUT_SCHEMA_PATH.read_text(encoding="utf-8"))
     return Draft202012Validator(
-        {"$schema": schema["$schema"], "$ref": "#/$defs/Scenario", "$defs": schema["$defs"]}
+        {"$schema": schema["$schema"], "$ref": "#/$defs/scenario", "$defs": schema["$defs"]}
     )
 
 
