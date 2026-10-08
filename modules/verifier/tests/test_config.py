@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from modules.verifier.utils.config import DEFAULT_MAX_REDIRECTS, load_replay_config
+from modules.verifier.utils.config import load_replay_config
 
 
 def _write(tmp_path: Path, body: str) -> Path:
@@ -12,7 +12,8 @@ def _write(tmp_path: Path, body: str) -> Path:
 
 
 def test_missing_file_uses_default(tmp_path: Path) -> None:
-    assert load_replay_config(tmp_path / "none.toml").max_redirects == DEFAULT_MAX_REDIRECTS
+    # 리터럴 0으로 고정한다(기본 상수와 비교하면 상수가 틀려도 못 잡음). 스펙: 설정이 없으면 자동 리다이렉트 끔.
+    assert load_replay_config(tmp_path / "none.toml").max_redirects == 0
 
 
 def test_default_is_zero() -> None:
@@ -27,4 +28,5 @@ def test_file_override(tmp_path: Path) -> None:
 
 def test_invalid_value_falls_back_to_default(tmp_path: Path) -> None:
     path = _write(tmp_path, "[replay]\nmax_redirects = -1\n")
-    assert load_replay_config(path).max_redirects == DEFAULT_MAX_REDIRECTS
+    # 잘못된 값도 리터럴 0으로 떨어져야 한다(기본 상수와 비교하지 않음).
+    assert load_replay_config(path).max_redirects == 0
