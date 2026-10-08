@@ -64,7 +64,7 @@
       "relationships": [
         {
           "relationship_id": "verified_access_user_a_order_b",
-          "source_id": "account_user_a",
+          "source_id": "user:account_user_a",
           "target_id": "resource_order_b",
           "relation_type": "VERIFIED_ACCESS",
           "properties": {

@@ -186,6 +186,26 @@ reporter의 `evaluate`는 현재 KG 결과 중 `structure_snapshot`을 실제 �
 
 ---
 
+## 원본 ID와 KG 노드 ID 검증
+
+`evaluate`는 원본 계정·역할 ID와 KG 노드 ID를 구분한다. 예를 들어 `account_id=account_user_a`와 `node_id=user:account_user_a`는 서로 다른 식별자다.
+
+입력의 `nodes`를 읽어 다음 reporter 내부 인덱스를 만든다. `GraphReferenceIndex`는 내부 검증 모델이며 공개 JSON에 추가되는 필드가 아니다.
+
+| 내부 변수 | 연결 기준 | 사용하는 참조 |
+|---|---|---|
+| `user_node_id_by_account_id` | User의 `properties.account_id` → `node_id` | `normalized_requests.account_id` |
+| `role_node_id_by_role_id` | Role의 `properties.role_id` → `node_id` | `normalized_requests.role_id`, `workflow.role_ids` |
+| `node_type_by_id` | `node_id` → 노드 종류 | `endpoint_id`, `resource_ids`의 대상 종류 검사 |
+
+관계의 `source_id`, `target_id`는 실제 `node_id`의 존재 여부를 검사한다. Workflow의 단계 순서·의존 단계, semantic의 원본 요청 참조 및 collector와의 계정·역할 일치 검사도 유지한다.
+
+이 검증은 semantic 입력과 KG `structure_snapshot`에 공통으로 적용한다. 입력의 원본 ID나 노드 ID를 변경하지 않고, `user:`·`role:` 같은 접두사를 계산하거나 생산자의 ID 생성 함수를 import하지 않는다. 따라서 공개 속성이 유효하면 다른 형식의 노드 ID도 처리할 수 있다.
+
+User의 `account_id`와 Role의 `role_id` 속성은 비어 있지 않은 문자열이어야 하며, 같은 종류의 노드 간 중복 원본 ID는 거절한다. 원본 ID 속성이 없으면 `node_id`에서 추측해 복구하지 않는다. 노드 ID가 원본 ID와 우연히 같더라도 올바른 공개 속성이 있으면 허용한다.
+
+---
+
 ## 진단 결과 상태
 
 리포트 finding은 다음 상태를 사용한다.
@@ -368,7 +388,7 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-216 passed
+290 passed
 ```
 
 계약 테스트:
@@ -395,11 +415,57 @@ python -m modules.reporter.entrypoint evaluate \
 21 passed
 ```
 
+원본 ID / 노드 ID 참조 회귀 테스트:
+
+```bash
+.venv/bin/python -m pytest modules/reporter/tests/test_graph_references.py -q
+```
+
+현재 결과:
+
+```text
+74 passed
+```
+
 추가 실행 의존성 없이 팀 공통 Python 환경과 루트 의존성을 사용한다.
 
 ---
 
 ## 변경 이력
+
+### 2026-10-09 — 4단계: 원본 계정·역할 ID 참조 검증 수정
+
+기준 커밋 `a30f32b`에서 reporter가 원본 `account_id`, `role_id`를 KG `node_id`와 동일하게 검사해 정상 semantic 출력과 Workflow를 거절하는 문제를 수정했다.
+
+변경 내용:
+
+- `models.py`에 검증용 `GraphReferenceIndex`를 추가하고, `input_validation.py`에서 노드 ID·원본 계정 ID·원본 역할 ID 인덱스를 분리했다.
+- `normalized_requests.account_id`, `role_id`와 `workflow.role_ids`는 노드의 공개 원본 ID 속성으로 연결한다. semantic 입력과 KG snapshot의 공통 검증에 적용했다.
+- Endpoint·Resource는 실제 노드 ID와 대상 종류를 각각 검사하고, 관계는 실제 노드 ID로 검사한다. 같은 ID가 여러 참조 필드에 나타나도 다른 필드의 검사를 덮어쓰지 않는다.
+- 원본 ID 속성의 누락·잘못된 타입·빈 값·중복 매핑을 거절한다. 노드 ID 접두사나 문자열 일치로 원본 ID를 추측하지 않는다.
+- reporter 소유 semantic/KG fixture를 User·Role 노드의 공개 원본 ID 속성과 별도 노드 ID를 갖는 구조로 갱신했다. 요청·Workflow·AccessRow의 원본 ID는 그대로 유지했다.
+- reporter 소유 verification fixture의 관계 `source_id`도 실제 User 노드 ID로 맞추고, 이를 참조하는 리포트 fixture 6개의 SHA-256을 재계산했다.
+
+입력·출력 Schema와 버전은 변경하지 않았다. 다른 모듈, `matching.py`, 진단 분류·평가 계산·HTML 렌더링·CLI도 변경하지 않았다. `IMPLEMENTATION.md`는 만들지 않고 README에 이력을 유지한다.
+
+검증 결과:
+
+```text
+test_graph_references.py
+74 passed
+
+reporter 전체
+290 passed
+
+knowledge_graph + access_analyzer + safety_policy + reporter
+675 passed, 4 skipped
+```
+
+회귀 테스트는 생산자 형태의 노드 ID·임의 노드 ID·원본 ID와 동일한 노드 ID를 모두 검증한다. 원본 ID/노드 ID 혼용, 잘못된 노드 종류, 누락·중복 원본 ID, 없는 관계 대상, Workflow 순서·의존 단계 오류를 거절하고 collector와의 계정 일치 검사를 유지한다.
+
+공개 `evaluate` 실행에서 원본 요청과 Workflow가 변경되지 않고 실제 입력 해시를 참조하는 출력이 생성되는지 확인했다. 원본 ID 매핑이 잘못되면 `CONTRACT_INVALID` 제어 응답을 반환하고 출력 파일을 만들지 않는 것도 검증했다. 이는 reporter 독립 테스트이며 전체 파이프라인 연결 완료를 뜻하지 않는다.
+
+다음은 5단계: Resource 식별값 비교에서 대소문자·공백 원문을 보존하는 수정이다. 이번 단계에서 Resource 매칭 방식은 변경하지 않았다.
 
 ### 2026-10-09 — 3단계: reporter 입출력 계약 0.2 동기화
 

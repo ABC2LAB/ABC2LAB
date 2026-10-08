@@ -13,6 +13,7 @@ from modules.reporter.models import (
     CrawlAccount,
     CrawlIndex,
     CrawlRequest,
+    GraphReferenceIndex,
     GraphSnapshot,
     InputArtifact,
     ReportInputs,
@@ -108,30 +109,39 @@ def validate_semantic_analysis(artifact: InputArtifact) -> None:
         "relationships": data["relationships"],
         "workflows": data["workflows"],
     }
-    node_type_by_id = _validate_graph_structure(graph)
+    graph_index = _validate_graph_structure(graph)
     request_ids = require_unique(
         (item["request_id"] for item in data["normalized_requests"]),
         "normalized request ID",
     )
     for request in data["normalized_requests"]:
-        expected_types = {
-            request["account_id"]: "User",
-            request["role_id"]: "Role",
-            request["endpoint_id"]: "Endpoint",
-            **{
-                resource_id: "Resource"
-                for resource_id in request["resource_ids"]
-            },
-        }
-        has_invalid_type = any(
-            node_type_by_id.get(node_id) != node_type
-            for node_id, node_type in expected_types.items()
-        )
-        if has_invalid_type:
-            raise ContractValidationError(
-                "normalized request의 node 참조가 올바르지 않음"
-            )
+        _validate_normalized_request_references(request, graph_index)
     _validate_workflow_request_refs(data["workflows"], request_ids)
+
+
+def _validate_normalized_request_references(
+    request: Mapping[str, Any],
+    graph_index: GraphReferenceIndex,
+) -> None:
+    if request["account_id"] not in graph_index.user_node_id_by_account_id:
+        raise ContractValidationError(
+            "normalized request의 원본 account_id에 해당하는 User 노드가 없음"
+        )
+    if request["role_id"] not in graph_index.role_node_id_by_role_id:
+        raise ContractValidationError(
+            "normalized request의 원본 role_id에 해당하는 Role 노드가 없음"
+        )
+    has_invalid_endpoint = (
+        graph_index.node_type_by_id.get(request["endpoint_id"]) != "Endpoint"
+    )
+    has_invalid_resource = any(
+        graph_index.node_type_by_id.get(resource_id) != "Resource"
+        for resource_id in request["resource_ids"]
+    )
+    if has_invalid_endpoint or has_invalid_resource:
+        raise ContractValidationError(
+            "normalized request의 node 참조가 올바르지 않음"
+        )
 
 
 def build_crawl_index(artifact: InputArtifact) -> CrawlIndex | None:
@@ -526,7 +536,7 @@ def _validate_source_revisions(
 
 def _validate_graph_structure(
     graph: Mapping[str, Any],
-) -> dict[str, str]:
+) -> GraphReferenceIndex:
     nodes = graph["nodes"]
     relationships = graph["relationships"]
     workflows = graph["workflows"]
@@ -541,23 +551,50 @@ def _validate_graph_structure(
             raise ContractValidationError("relationship source_id가 없음")
         if relationship["target_id"] not in node_ids:
             raise ContractValidationError("relationship target_id가 없음")
-    node_type_by_id = {
-        item["node_id"]: item["node_type"] for item in nodes
-    }
-    _validate_workflows(workflows, node_type_by_id)
-    return node_type_by_id
+    graph_index = GraphReferenceIndex(
+        node_type_by_id={item["node_id"]: item["node_type"] for item in nodes},
+        user_node_id_by_account_id=_build_original_id_index(
+            nodes, "User", "account_id"
+        ),
+        role_node_id_by_role_id=_build_original_id_index(nodes, "Role", "role_id"),
+    )
+    _validate_workflows(workflows, graph_index.role_node_id_by_role_id)
+    return graph_index
+
+
+def _build_original_id_index(
+    nodes: list[Mapping[str, Any]],
+    node_type: str,
+    property_name: str,
+) -> dict[str, str]:
+    node_id_by_original_id: dict[str, str] = {}
+    for node in nodes:
+        if node["node_type"] != node_type:
+            continue
+        # 원본 ID와 node_id는 별개이므로 접두사나 문자열 일치로 추측하지 않는다.
+        original_id = node["properties"].get(property_name)
+        if not isinstance(original_id, str) or not original_id:
+            raise ContractValidationError(
+                f"{node_type} 노드의 {property_name} 속성이 올바르지 않음"
+            )
+        if original_id in node_id_by_original_id:
+            raise ContractValidationError(
+                f"{node_type} 노드의 {property_name}가 중복됨"
+            )
+        node_id_by_original_id[original_id] = node["node_id"]
+    return node_id_by_original_id
 
 
 def _validate_workflows(
     workflows: list[Mapping[str, Any]],
-    node_type_by_id: Mapping[str, str],
+    role_node_id_by_role_id: Mapping[str, str],
 ) -> None:
     for workflow in workflows:
         if any(
-            node_type_by_id.get(role_id) != "Role"
+            role_id not in role_node_id_by_role_id
             for role_id in workflow["role_ids"]
         ):
-            raise ContractValidationError("workflow role_id가 Role 노드가 아님")
+            raise ContractValidationError("workflow가 없는 원본 role_id를 참조함")
         step_ids = require_unique(
             (item["step_id"] for item in workflow["steps"]),
             f"workflow step_id ({workflow['workflow_id']})",

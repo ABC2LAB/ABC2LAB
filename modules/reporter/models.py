@@ -436,6 +436,13 @@ class EvaluationControlResponse:
 
 
 @dataclass(frozen=True)
+class GraphReferenceIndex:
+    node_type_by_id: Mapping[str, str]
+    user_node_id_by_account_id: Mapping[str, str]
+    role_node_id_by_role_id: Mapping[str, str]
+
+
+@dataclass(frozen=True)
 class GraphSnapshot:
     graph_id: str
     graph_revision: int

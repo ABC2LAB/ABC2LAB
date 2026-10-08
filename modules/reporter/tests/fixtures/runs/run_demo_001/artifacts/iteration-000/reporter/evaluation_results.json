@@ -35,7 +35,7 @@
       "artifact_type": "verification_results",
       "iteration": 0,
       "path": "artifacts/iteration-000/verifier/verification_results.json",
-      "sha256": "100c53d7af461dfe0aa5ed6f77356a6fcb4aa2f46d7bf71378bf5441984644b5"
+      "sha256": "2a018f995bdd121d41f54e44c10d4145c51bb7d2984a883b8b72bbb5db9349df"
     }
   ],
   "errors": [],

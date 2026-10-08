@@ -68,28 +68,33 @@
     ],
     "nodes": [
       {
-        "node_id": "account_user_a",
+        "node_id": "user:account_user_a",
         "node_type": "User",
         "properties": {
-          "alias": "user_a"
+          "account_id": "account_user_a",
+          "alias": "user_a",
+          "role_id": "role_user"
         },
         "basis": "observed",
         "evidence_refs": []
       },
       {
-        "node_id": "account_user_b",
+        "node_id": "user:account_user_b",
         "node_type": "User",
         "properties": {
-          "alias": "user_b"
+          "account_id": "account_user_b",
+          "alias": "user_b",
+          "role_id": "role_user"
         },
         "basis": "observed",
         "evidence_refs": []
       },
       {
-        "node_id": "role_user",
+        "node_id": "role:role_user",
         "node_type": "Role",
         "properties": {
-          "name": "User"
+          "name": "User",
+          "role_id": "role_user"
         },
         "basis": "observed",
         "evidence_refs": []
@@ -139,7 +144,7 @@
     "relationships": [
       {
         "relationship_id": "relationship_user_b_owns_order_b",
-        "source_id": "account_user_b",
+        "source_id": "user:account_user_b",
         "target_id": "resource_order_b",
         "relation_type": "OWNS",
         "properties": {},
