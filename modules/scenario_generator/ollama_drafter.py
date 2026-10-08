@@ -29,7 +29,8 @@ _SYSTEM = (
     "Each STEP object has EXACTLY: step_id(string, unique), order(integer, contiguous from 0), "
     "source_request_id(one of source_requests[].request_id), account_id(=actor_account.account_id), "
     "role_id(=actor_account.role_id), session_ref(=actor_account.session_ref), "
-    "request(object), bindings(array, usually []; may only reference earlier steps).\n"
+    "request(object), bindings(array, usually []; may only reference earlier steps), "
+    "state_change(none|possible|expected|unknown; your estimate of whether this request changes server state).\n"
     "request has EXACTLY: method(=that source request's method), url_template(=that source request's url, "
     "same scheme/host/port, no credentials), parameters(array of {name, location(path|query|body), value, binding_ref}), "
     "body_ref(null unless that source request had one).\n"
@@ -58,7 +59,7 @@ _SYSTEM = (
     '"steps":[{"step_id":"s1","order":0,"source_request_id":"request_1",'
     '"account_id":"account_user_a","role_id":"role_user","session_ref":"session_user_a",'
     '"request":{"method":"GET","url_template":"http://localhost:8001/products/1","parameters":[],"body_ref":null},'
-    '"bindings":[]}],'
+    '"bindings":[],"state_change":"none"}],'
     '"assertions":[{"check_id":"a1","kind":"response_status","subject_ref":"s1","selector":null,'
     '"operator":"eq","expected":200},'
     '{"check_id":"a2","kind":"response_json","subject_ref":"s1","selector":"/id",'
