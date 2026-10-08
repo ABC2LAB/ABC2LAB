@@ -14,6 +14,7 @@ from modules.access_analyzer.utils.config import RuleConfig, SameRoleRuleConfig
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "graph_query_result"
 INPUT_REL = "artifacts/iteration-000/knowledge_graph/graph_query_result.json"
 CANDIDATES_SCHEMA = "output/vulnerability_candidates.schema.json"
+RESULT_SCHEMA = "input/graph_query_result.schema.json"
 
 
 def _config(enabled: bool = True, max_candidates: int = 100) -> RuleConfig:
@@ -22,7 +23,7 @@ def _config(enabled: bool = True, max_candidates: int = 100) -> RuleConfig:
 
 def _artifact(results, status="completed", errors=None, revision=1):
     return {
-        "schema_version": "0.1.0", "artifact_type": "graph_query_result", "artifact_id": "r",
+        "schema_version": "0.2.0", "artifact_type": "graph_query_result", "artifact_id": "r",
         "run_id": "run_demo_001", "iteration": 0, "producer": "knowledge_graph", "mode": "development",
         "created_at": "2026-10-07T00:03:00Z", "status": status, "input_refs": [], "errors": errors or [],
         "runtime_metrics": None,
@@ -38,19 +39,36 @@ def _access(rows):
     return {"query_id": "q_a", "query_key": "role_resource_access", "status": "completed", "errors": [], "rows": rows}
 
 
+def _match_key(resource_id):
+    return {"resource_key": "order", "identifiers": [{"key": "order_id", "value": resource_id}]}
+
+
 def _own_row(resource_id, owner):
-    return {"resource_id": resource_id, "owner_account_id": owner, "basis": "inferred", "evidence_refs": []}
-
-
-def _acc_row(account, role, resource_id, request_ids):
+    # 0.2.0 소유 행은 Resource instance만 온다.
     return {
-        "account_id": account, "role_id": role, "endpoint_id": "endpoint:GET:/x/{id}",
-        "resource_id": resource_id, "action": "read", "request_ids": request_ids,
-        "access_observed": True, "evidence_refs": [],
+        "resource_id": resource_id, "resource_key": "order", "resource_scope": "instance",
+        "match_key": _match_key(resource_id), "owner_account_id": owner, "basis": "inferred", "evidence_refs": [],
+    }
+
+
+def _acc_row(account, role, resource_id, request_ids, scope="instance"):
+    """scope: instance(자원 하나) · type(자원 종류, 목록 등). resource_id가 None이면 Resource 필드 넷 다 null."""
+    if resource_id is None:
+        resource_fields = {"resource_id": None, "resource_key": None, "resource_scope": None, "match_key": None}
+    else:
+        resource_fields = {
+            "resource_id": resource_id, "resource_key": "order", "resource_scope": scope,
+            "match_key": _match_key(resource_id) if scope == "instance" else None,
+        }
+    return {
+        "account_id": account, "role_id": role, "endpoint_id": "endpoint:GET:/x/{id}", **resource_fields,
+        "action": "read", "request_ids": request_ids, "access_observed": True, "evidence_refs": [],
     }
 
 
 def _run(artifact, config=None):
+    # 전제: 규칙 입력은 KG가 낼 수 있는 모양이어야 한다(예: type 소유 행은 계약상 없음).
+    assert schema_errors(RESULT_SCHEMA, artifact) == []
     return service.build_candidates_result(artifact, "graph_demo_001", 1, "run_demo_001", config=config)
 
 

@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "graph_query_result",
   "artifact_id": "graph_query_result-run_demo_001-000-feed0001",
   "run_id": "run_demo_001",
@@ -20,7 +20,7 @@
         "query_key": "resource_ownership",
         "status": "completed",
         "rows": [
-          {"resource_id": "resource:order", "owner_account_id": "acc_alice", "basis": "inferred", "evidence_refs": []}
+          {"resource_id": "resource:order_001", "resource_key": "order", "resource_scope": "instance", "match_key": {"resource_key": "order", "identifiers": [{"key": "order_id", "value": "001"}]}, "owner_account_id": "acc_alice", "basis": "inferred", "evidence_refs": []}
         ],
         "errors": []
       },
@@ -29,12 +29,16 @@
         "query_key": "role_resource_access",
         "status": "completed",
         "rows": [
-          {"account_id": "acc_alice", "role_id": "role_user", "endpoint_id": "endpoint:GET:/orders/{id}", "resource_id": "resource:order", "action": "read_order", "request_ids": ["req_alice_order"], "access_observed": true, "evidence_refs": []}
+          {"account_id": "acc_alice", "role_id": "role_user", "endpoint_id": "endpoint:GET:/orders/{id}", "resource_id": "resource:order_001", "resource_key": "order", "resource_scope": "instance", "match_key": {"resource_key": "order", "identifiers": [{"key": "order_id", "value": "001"}]}, "action": "read_order", "request_ids": ["req_alice_order"], "access_observed": true, "evidence_refs": []},
+          {"account_id": "acc_alice", "role_id": "role_user", "endpoint_id": "endpoint:GET:/orders", "resource_id": "resource:order", "resource_key": "order", "resource_scope": "type", "match_key": null, "action": "list_orders", "request_ids": ["req_alice_orders"], "access_observed": true, "evidence_refs": []}
         ],
         "errors": []
       },
       {"query_id": "q_workflow_dependencies", "query_key": "workflow_dependencies", "status": "completed", "rows": [], "errors": []},
-      {"query_id": "q_structure_snapshot", "query_key": "structure_snapshot", "status": "completed", "rows": [{"nodes": [], "relationships": [], "workflows": []}], "errors": []}
+      {"query_id": "q_structure_snapshot", "query_key": "structure_snapshot", "status": "completed", "rows": [{"nodes": [
+        {"node_id": "resource:order", "node_type": "Resource", "properties": {"resource_key": "order", "resource_scope": "type", "match_key": null}, "basis": "inferred", "evidence_refs": []},
+        {"node_id": "resource:order_001", "node_type": "Resource", "properties": {"resource_key": "order", "resource_scope": "instance", "match_key": {"resource_key": "order", "identifiers": [{"key": "order_id", "value": "001"}]}}, "basis": "inferred", "evidence_refs": []}
+      ], "relationships": [], "workflows": []}], "errors": []}
     ]
   }
 }

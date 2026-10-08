@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "graph_query_result",
   "artifact_id": "graph_query_result-run_demo_001-000-feed0004",
   "run_id": "run_demo_001",
@@ -20,8 +20,8 @@
         "query_key": "resource_ownership",
         "status": "completed",
         "rows": [
-          {"resource_id": "resource:order_a", "owner_account_id": "acc_alice", "basis": "inferred", "evidence_refs": []},
-          {"resource_id": "resource:order_b", "owner_account_id": "acc_bob", "basis": "inferred", "evidence_refs": []}
+          {"resource_id": "resource:order_a", "resource_key": "order", "resource_scope": "instance", "match_key": {"resource_key": "order", "identifiers": [{"key": "order_id", "value": "a"}]}, "owner_account_id": "acc_alice", "basis": "inferred", "evidence_refs": []},
+          {"resource_id": "resource:order_b", "resource_key": "order", "resource_scope": "instance", "match_key": {"resource_key": "order", "identifiers": [{"key": "order_id", "value": "b"}]}, "owner_account_id": "acc_bob", "basis": "inferred", "evidence_refs": []}
         ],
         "errors": []
       },
@@ -30,8 +30,8 @@
         "query_key": "role_resource_access",
         "status": "completed",
         "rows": [
-          {"account_id": "acc_alice", "role_id": "role_user", "endpoint_id": "endpoint:GET:/orders/{id}", "resource_id": "resource:order_a", "action": "read_order", "request_ids": ["req_alice_order_a"], "access_observed": true, "evidence_refs": []},
-          {"account_id": "acc_bob", "role_id": "role_user", "endpoint_id": "endpoint:GET:/orders/{id}", "resource_id": "resource:order_b", "action": "read_order", "request_ids": ["req_bob_order_b"], "access_observed": true, "evidence_refs": []}
+          {"account_id": "acc_alice", "role_id": "role_user", "endpoint_id": "endpoint:GET:/orders/{id}", "resource_id": "resource:order_a", "resource_key": "order", "resource_scope": "instance", "match_key": {"resource_key": "order", "identifiers": [{"key": "order_id", "value": "a"}]}, "action": "read_order", "request_ids": ["req_alice_order_a"], "access_observed": true, "evidence_refs": []},
+          {"account_id": "acc_bob", "role_id": "role_user", "endpoint_id": "endpoint:GET:/orders/{id}", "resource_id": "resource:order_b", "resource_key": "order", "resource_scope": "instance", "match_key": {"resource_key": "order", "identifiers": [{"key": "order_id", "value": "b"}]}, "action": "read_order", "request_ids": ["req_bob_order_b"], "access_observed": true, "evidence_refs": []}
         ],
         "errors": []
       }
