@@ -239,6 +239,19 @@ def test_public_query_returns_all_typed_rows_with_real_neo4j(
     assert len(snapshot["nodes"]) == 5
     assert len(snapshot["relationships"]) == 6
     assert len(snapshot["workflows"]) == 1
+    resource_node = next(
+        node for node in snapshot["nodes"] if node["node_id"] == "resource:order"
+    )
+    assert resource_node["properties"] == {
+        "resource_key": "order",
+        "resource_scope": "instance",
+        "match_key": {
+            "resource_key": "order",
+            "identifiers": [
+                {"key": "order_id", "value": "example-order"},
+            ],
+        },
+    }
 
 
 @pytest.mark.skipif(

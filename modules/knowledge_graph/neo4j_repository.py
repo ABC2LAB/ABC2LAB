@@ -327,6 +327,7 @@ class Neo4jGraphRepository:
                 "MATCH (observation:ABC2RequestObservation {"
                 "graph_id: $graph_id, run_id: $run_id}) "
                 "WHERE owner.node_type = 'User' AND resource.node_type = 'Resource' "
+                "AND resource.resource_scope = 'instance' "
                 "AND observation.user_node_id = owner.node_id "
                 "AND (size($account_ids) = 0 "
                 "OR observation.account_id IN $account_ids) "
@@ -665,6 +666,9 @@ class Neo4jGraphRepository:
             "node_id: record.node_id}) "
             "SET node.node_type = record.node_type, "
             "node.properties_json = record.properties_json, "
+            "node.resource_key = record.resource_key, "
+            "node.resource_scope = record.resource_scope, "
+            "node.resource_match_key_json = record.resource_match_key_json, "
             "node.basis = record.basis, "
             "node.evidence_refs_json = record.evidence_refs_json",
             graph_id=graph_id,
@@ -779,6 +783,9 @@ class Neo4jGraphRepository:
             "CREATE (:ABC2Entity {"
             "graph_id: $graph_id, run_id: $run_id, node_id: record.node_id, "
             "node_type: record.node_type, properties_json: record.properties_json, "
+            "resource_key: record.resource_key, "
+            "resource_scope: record.resource_scope, "
+            "resource_match_key_json: record.resource_match_key_json, "
             "basis: record.basis, evidence_refs_json: record.evidence_refs_json})",
             graph_id=graph_id,
             run_id=run_id,

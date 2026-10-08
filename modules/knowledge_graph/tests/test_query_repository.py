@@ -52,7 +52,7 @@ def test_resource_ownership_uses_parameterized_template() -> None:
     transaction = FakeQueryTransaction(
         [
             {
-                "resource_id": "resource_001",
+                "resource_id": "resource:instance:order:001",
                 "owner_account_id": "account_001",
                 "basis": "observed",
                 "evidence_refs_json": "[]",
@@ -77,6 +77,8 @@ def test_resource_ownership_uses_parameterized_template() -> None:
     assert "observation.account_id IN $account_ids" in query
     assert "owner.node_id IN $account_ids" not in query
     assert "observation.account_id AS owner_account_id" in query
+    assert "resource.resource_scope = 'instance'" in query
+    assert rows[0]["resource_id"] == "resource:instance:order:001"
 
 
 def test_role_resource_access_maps_request_observation_resources() -> None:
