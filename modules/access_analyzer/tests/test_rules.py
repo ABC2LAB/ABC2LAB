@@ -152,6 +152,41 @@ def test_source_request_ids_come_from_owner_access() -> None:
     assert candidate["actor_account_id"] == "acc_alice"
 
 
+def test_type_scope_access_only_makes_no_candidate() -> None:
+    # 접근 행이 전부 type(목록 요청)이면 소유자 bob이 order_001에 접근한 요청이 없다.
+    # 자원 종류(resource_key)로 묶으면 bob의 목록 요청이 order_001 재현 요청으로 둔갑한다 → 후보 0, 미발행 오류로 남김.
+    out = _run(_artifact([
+        _ownership([_own_row("resource:order_001", "acc_bob")]),
+        _access([
+            _acc_row("acc_alice", "role_user", "resource:order", ["req_alice_list"], scope="type"),
+            _acc_row("acc_bob", "role_user", "resource:order", ["req_bob_list"], scope="type"),
+        ]),
+    ]))
+    assert out.data["candidates"] == []
+    assert out.status.value == "partial"
+    assert [e["code"] for e in out.errors] == ["CANDIDATE_INCOMPLETE"]
+    assert out.errors[0]["item_ref"] == "rule_same_role_other_owner:acc_alice|acc_bob|resource:order_001"
+
+
+def test_type_scope_access_finds_peer_but_not_owner_request() -> None:
+    # alice는 목록(type)만, bob은 목록(type)과 자기 주문 상세(instance).
+    # type 행도 "alice는 role_user"라는 관찰이라 같은 역할 계정 찾기엔 쓴다 → 후보 1개.
+    # 재현 요청은 bob 상세 요청만. 목록 요청이 섞이면 bob 주문 접근이 아니라 목록 조회를 재현하게 된다.
+    out = _run(_artifact([
+        _ownership([_own_row("resource:order_001", "acc_bob")]),
+        _access([
+            _acc_row("acc_alice", "role_user", "resource:order", ["req_alice_list"], scope="type"),
+            _acc_row("acc_bob", "role_user", "resource:order", ["req_bob_list"], scope="type"),
+            _acc_row("acc_bob", "role_user", "resource:order_001", ["req_bob_detail"]),
+        ]),
+    ]))
+    assert out.status.value == "completed"
+    [candidate] = out.data["candidates"]
+    assert candidate["candidate_id"] == "rule_same_role_other_owner:acc_alice|acc_bob|resource:order_001"
+    assert candidate["resource_ids"] == ["resource:order_001"]
+    assert candidate["source_request_ids"] == ["req_bob_detail"]
+
+
 def test_truncation_sets_partial_and_error() -> None:
     # 같은 역할 3계정이 각자 자원 소유·접근 → 후보 6개. 상한 2면 4개 잘림.
     accounts = ["acc_a", "acc_b", "acc_c"]
