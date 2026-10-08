@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "crawl_result",
   "artifact_id": "crawl_result-run_demo_001-000-7c3e9a10",
   "run_id": "run_demo_001",
@@ -35,7 +35,7 @@
         "url": "http://localhost:8080/",
         "title": "Demo Catalog",
         "evidence_refs": [
-          {"evidence_id": "evidence:dom:page:1", "kind": "dom", "path": "evidence/collector/dom/page-1.json", "sha256": "6b2d3cbddf66481d370031182baad71c63359e1568d436174e0f69ced7f26ce0", "redacted": true}
+          {"evidence_id": "evidence:dom:page:1", "kind": "dom", "path": "evidence/collector/dom/page-1.json", "sha256": "e640e9245d7012664e5ea7e269bd21d6f68d9e08ecf509df39d5955b8e02cc8b", "redacted": true}
         ]
       },
       {
@@ -44,7 +44,7 @@
         "url": "http://localhost:8080/items",
         "title": "Items",
         "evidence_refs": [
-          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "c03c4857dde1c73262421b13b2c1034943ad047ace9c4efb147d901d105902b5", "redacted": true}
+          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "a1589b112d94f3b520304e99bd66574e97f80df8d8ee849fab02b797f28f1039", "redacted": true}
         ]
       },
       {
@@ -62,7 +62,7 @@
         "kind": "navigate",
         "label": "Items",
         "evidence_refs": [
-          {"evidence_id": "evidence:dom:page:1", "kind": "dom", "path": "evidence/collector/dom/page-1.json", "sha256": "6b2d3cbddf66481d370031182baad71c63359e1568d436174e0f69ced7f26ce0", "redacted": true}
+          {"evidence_id": "evidence:dom:page:1", "kind": "dom", "path": "evidence/collector/dom/page-1.json", "sha256": "e640e9245d7012664e5ea7e269bd21d6f68d9e08ecf509df39d5955b8e02cc8b", "redacted": true}
         ]
       },
       {
@@ -71,7 +71,7 @@
         "kind": "navigate",
         "label": "Item 7",
         "evidence_refs": [
-          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "c03c4857dde1c73262421b13b2c1034943ad047ace9c4efb147d901d105902b5", "redacted": true}
+          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "a1589b112d94f3b520304e99bd66574e97f80df8d8ee849fab02b797f28f1039", "redacted": true}
         ]
       },
       {
@@ -80,7 +80,7 @@
         "kind": "submit",
         "label": "Delete",
         "evidence_refs": [
-          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "c03c4857dde1c73262421b13b2c1034943ad047ace9c4efb147d901d105902b5", "redacted": true}
+          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "a1589b112d94f3b520304e99bd66574e97f80df8d8ee849fab02b797f28f1039", "redacted": true}
         ]
       },
       {
@@ -89,7 +89,7 @@
         "kind": "click",
         "label": "Refresh",
         "evidence_refs": [
-          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "c03c4857dde1c73262421b13b2c1034943ad047ace9c4efb147d901d105902b5", "redacted": true}
+          {"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "a1589b112d94f3b520304e99bd66574e97f80df8d8ee849fab02b797f28f1039", "redacted": true}
         ]
       }
     ],
@@ -199,7 +199,7 @@
           "headers": [
             {"name": "content-type", "value": "application/json", "redacted": false}
           ],
-          "body_ref": {"evidence_id": "evidence:response:request:4", "kind": "response", "path": "evidence/collector/response/request-4.json", "sha256": "09268523a2d146001a1c6fb07c8db273d0926b649465ddcac3cd3376366bb9a5", "redacted": true}
+          "body_ref": {"evidence_id": "evidence:response:request:4", "kind": "response", "path": "evidence/collector/response/request-4.json", "sha256": "4472ca820cafd94e9a385710c0741232e457558131376cf7fa459cdaf3e39f54", "redacted": true}
         },
         "evidence_refs": []
       },
@@ -285,7 +285,7 @@
           "headers": [
             {"name": "content-type", "value": "application/json", "redacted": false}
           ],
-          "body_ref": {"evidence_id": "evidence:response:request:7", "kind": "response", "path": "evidence/collector/response/request-7.json", "sha256": "288ec596e09de045550922e1d1934be936e1c62888122bf084e98e2655deeb23", "redacted": true}
+          "body_ref": {"evidence_id": "evidence:response:request:7", "kind": "response", "path": "evidence/collector/response/request-7.json", "sha256": "f9376e08e5d0a18639676fd197ffb420ccaa812aa661acb04d14e7d619910d7f", "redacted": true}
         },
         "evidence_refs": []
       }

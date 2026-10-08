@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:abc2lab:collector:dom_evidence:0.1.0",
+  "$id": "urn:abc2lab:collector:dom_evidence:0.2.0",
   "title": "collector DOM 요약 근거 파일 (EvidenceRef kind=dom)",
   "description": "페이지 하나에서 찾은 링크·폼·버튼 요약. 페이지 하나에 파일 하나이고 항목은 crawl_result의 전역 action_id로 키잉한다. HTML 원문과 입력값은 넣지 않는다. 위치: evidence/collector/dom/page-<N>.json.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "kind", "evidence_id", "page_id", "actions"],
   "properties": {
-    "schema_version": { "const": "0.1.0" },
+    "schema_version": { "const": "0.2.0" },
     "kind": { "const": "dom" },
     "evidence_id": { "type": "string" },
     "page_id": { "type": "string" },
