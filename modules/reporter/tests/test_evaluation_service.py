@@ -506,6 +506,7 @@ def test_build_evaluation_artifact_uses_all_runtime_inputs(
         timestamp_factory=lambda: FIXED_TIMESTAMP,
     )
 
+    assert artifact["schema_version"] == "0.2.0"
     assert artifact["created_at"] == FIXED_TIMESTAMP
     assert (
         artifact["artifact_id"]
@@ -553,6 +554,7 @@ def test_failed_evaluation_artifact_satisfies_output_contract(
         timestamp_factory=lambda: FIXED_TIMESTAMP,
     )
 
+    assert artifact["schema_version"] == "0.2.0"
     assert artifact["status"] == "failed"
     assert artifact["data"] is None
 
@@ -597,6 +599,21 @@ def test_publish_evaluation_artifact_validates_and_writes_atomically(
             prepared_evaluation,
             artifact,
         )
+
+
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+def test_publish_evaluation_rejects_unsupported_output_version(
+    prepared_evaluation: EvaluationInputs,
+    schema_version: str,
+) -> None:
+    prepared_evaluation.request.output_path.unlink()
+    artifact = build_evaluation_artifact(prepared_evaluation, perf_counter())
+    artifact["schema_version"] = schema_version
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        publish_evaluation_artifact(prepared_evaluation, artifact)
+
+    assert not prepared_evaluation.request.output_path.exists()
 
 
 def test_output_validation_rejects_tampered_metric(

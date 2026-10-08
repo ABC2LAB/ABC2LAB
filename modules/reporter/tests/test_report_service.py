@@ -12,13 +12,14 @@ from modules.reporter.exceptions import (
 from modules.reporter.input_adapter import parse_report_request
 from modules.reporter.models import ErrorItem, InputArtifact, ReportInputs
 from modules.reporter.output_adapter import (
+    DIAGNOSIS_REPORT_SCHEMA,
     build_diagnosis_artifact,
     publish_diagnosis_artifact,
     validate_diagnosis_artifact_against_inputs,
 )
 from modules.reporter.service import build_diagnosis_report
 from modules.reporter.utils.hashing import calculate_sha256
-from modules.reporter.utils.validation import load_json
+from modules.reporter.utils.validation import load_json, validate_schema
 
 Arguments = tuple[dict[str, Any], str, dict[str, Any]]
 FIXED_TIMESTAMP = "2026-10-07T03:00:00Z"
@@ -216,6 +217,10 @@ def test_build_diagnosis_report_propagates_partial_upstream_error(
     assert result.data is not None
     assert result.errors[0].code.endswith("CANDIDATE_SKIPPED")
     assert any("일부 후보 생성 실패" in item for item in result.data.limitations)
+    artifact = build_diagnosis_artifact(changed, perf_counter())
+    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["status"] == "partial"
+    validate_schema(artifact, DIAGNOSIS_REPORT_SCHEMA)
 
 
 def test_build_diagnosis_report_fails_without_candidate_data(
@@ -245,6 +250,12 @@ def test_build_diagnosis_report_fails_without_candidate_data(
     assert result.data is None
     assert result.errors
 
+    artifact = build_diagnosis_artifact(changed, perf_counter())
+    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["status"] == "failed"
+    assert artifact["data"] is None
+    validate_schema(artifact, DIAGNOSIS_REPORT_SCHEMA)
+
 
 def test_build_diagnosis_artifact_uses_actual_input_references(
     prepared_report: ReportInputs,
@@ -255,6 +266,7 @@ def test_build_diagnosis_artifact_uses_actual_input_references(
         timestamp_factory=lambda: FIXED_TIMESTAMP,
     )
 
+    assert artifact["schema_version"] == "0.2.0"
     assert artifact["created_at"] == FIXED_TIMESTAMP
     assert artifact["artifact_id"] == "diagnosis_report_run_demo_001_000"
     assert artifact["data"]["summary"]["candidate_count"] == 3
@@ -289,6 +301,21 @@ def test_publish_diagnosis_artifact_validates_and_writes_atomically(
     assert load_json(prepared_report.request.output_path) == artifact
     with pytest.raises(OutputArtifactExistsError):
         publish_diagnosis_artifact(prepared_report, artifact)
+
+
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+def test_publish_diagnosis_rejects_unsupported_output_version(
+    prepared_report: ReportInputs,
+    schema_version: str,
+) -> None:
+    prepared_report.request.output_path.unlink()
+    artifact = build_diagnosis_artifact(prepared_report, perf_counter())
+    artifact["schema_version"] = schema_version
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        publish_diagnosis_artifact(prepared_report, artifact)
+
+    assert not prepared_report.request.output_path.exists()
 
 
 def test_output_validation_rejects_tampered_summary(

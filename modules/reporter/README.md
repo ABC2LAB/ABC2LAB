@@ -64,9 +64,9 @@ Ground Truth는 development 평가에서만 사용하며 다른 진단 모듈로
 
 ## 계약
 
-- reporter 출력 계약: `0.1.0`
-- `graph_query_result` 입력 계약: `0.2.0`
-- 그 외 현재 입력 계약: producer 공개 계약에 맞춰 관리
+- 진단 실행 입력 7종: `0.2.0` (`crawl_result`, `semantic_analysis`, `graph_query_result`, `vulnerability_candidates`, `test_scenarios`, `safety_decisions`, `verification_results`)
+- reporter 출력 2종: `0.2.0` (`diagnosis_report`, `evaluation_results`)
+- development 평가 전용 `ground_truth` 입력: 기존 `0.1.0` 유지
 - 입력 Schema: `schemas/input/`
 - 출력 Schema: `schemas/output/`
 - 실행 산출물: `runs/<run_id>/artifacts/iteration-<NNN>/reporter/`
@@ -78,6 +78,12 @@ Ground Truth는 development 평가에서만 사용하며 다른 진단 모듈로
 입력 Schema는 producer의 공개 계약을 reporter 내부에 복제해 관리하며, 다른 모듈 구현 코드를 직접 import하지 않는다.
 
 생산자 계약이 변경된 경우 reporter는 해당 생산자의 정상 출력을 소비할 수 있도록 직접 사용하는 입력 Schema만 동기화한다.
+
+진단 실행 입력의 `0.1.0` 및 미지원 버전은 거절하며, 기존 산출물의 버전을 묵시적으로 변환하지 않는다. `graph_query_result`는 이미 0.2 계약이므로 이번 동기화에서 변경하지 않았다.
+
+현재 `test_scenarios` 입력은 팀의 0.2 전환 방향을 반영한다. 기준 커밋 `986e9d7`의 scenario_generator는 아직 0.1을 출력하므로 생산자 측 전환이 필요하다. 입력 Schema 동기화와 전체 파이프라인 호환 완료는 구분한다.
+
+`ground_truth`는 공통 계약의 11개 파일 0.2 안내와 `m8-reporter.md`의 정답 파일 0.1 표가 일치하지 않는다. 이번 단계에서는 기존 정답 Schema·fixture를 유지하고, 정답 계약 전환은 별도 검토 대상으로 남긴다.
 
 ---
 
@@ -356,37 +362,37 @@ python -m modules.reporter.entrypoint evaluate \
 전체 reporter 테스트:
 
 ```bash
-python -m pytest modules/reporter/ -q
+.venv/bin/python -m pytest modules/reporter/ -q
 ```
 
 현재 결과:
 
 ```text
-141 passed
+216 passed
 ```
 
 계약 테스트:
 
 ```bash
-python -m pytest modules/reporter/tests/test_contracts.py -q
+.venv/bin/python -m pytest modules/reporter/tests/test_contracts.py modules/reporter/tests/test_contract_migration.py -q
 ```
 
 현재 결과:
 
 ```text
-38 passed
+93 passed
 ```
 
 평가 테스트:
 
 ```bash
-python -m pytest modules/reporter/tests/test_evaluation_service.py -q
+.venv/bin/python -m pytest modules/reporter/tests/test_evaluation_service.py -q
 ```
 
 현재 결과:
 
 ```text
-19 passed
+21 passed
 ```
 
 추가 실행 의존성 없이 팀 공통 Python 환경과 루트 의존성을 사용한다.
@@ -394,6 +400,66 @@ python -m pytest modules/reporter/tests/test_evaluation_service.py -q
 ---
 
 ## 변경 이력
+
+### 2026-10-09 — 3단계: reporter 입출력 계약 0.2 동기화
+
+기준 커밋 `986e9d7`과 팀의 0.2 전환 방향을 기준으로 reporter 내부의 계약 사본·출력 버전·독립 테스트를 갱신했다. 다른 모듈이나 `docs/spec/`은 수정하지 않았다.
+
+변경한 입력 Schema:
+
+```text
+crawl_result
+semantic_analysis
+vulnerability_candidates
+test_scenarios
+safety_decisions
+verification_results
+```
+
+각 Schema는 생산자의 공개 출력 Schema를 reporter 내부 사본으로 동기화했다. `test_scenarios`는 현재 생산자 Schema 구조를 유지하되 합의된 목표 버전인 `0.2.0`을 적용했다. 다른 모듈의 Schema를 직접 참조하거나 구현 코드를 import하지 않는다.
+
+주요 계약 제약:
+
+- `semantic_analysis`의 Resource는 `resource_key`, `resource_scope`, `match_key`를 필수로 갖는다. Type은 `match_key=null`, Instance는 식별값이 있는 `match_key`를 요구한다.
+- 각 취약점 후보의 `resource_ids`, `source_request_ids`는 최소 1개를 요구한다. 후보 배열 자체가 비어 있는 정상 결과는 계속 허용한다.
+- `verification_results.graph_updates`는 Resource 생성, 미검증 관계, `basis`가 verified가 아닌 갱신, 근거 없는 갱신을 거절한다. 관계는 `VERIFIED_ACCESS`, `VERIFIED_DENIAL`만 허용한다.
+- collector의 민감 파라미터·마스킹 헤더 제약, 근거 SHA-256 형식 및 상태별 데이터·오류 제약을 생산자 공개 Schema와 맞췄다.
+
+`diagnosis_report`, `evaluation_results`는 출력 Schema와 출력 adapter 모두 `0.2.0`을 사용한다. 기존 진단 상태 분류, 평가 계산, HTML 렌더링, CLI 인터페이스는 변경하지 않았다.
+
+reporter 소유 fixture의 실행 산출물 버전과 Resource Instance 속성을 갱신하고, 변경된 시나리오 바이트를 기준으로 safety/verifier의 `scenarios_sha256`을 재계산했다. 리포트 fixture의 `input_refs`와 평가용 정답 참조도 실제 fixture 파일 해시로 갱신했다. 실제 실행 산출물은 수정하지 않았다.
+
+변경하지 않은 계약은 기존 `graph_query_result` 0.2 Schema·fixture와 `ground_truth` 0.1 Schema·fixture다.
+
+검증 결과:
+
+```text
+reporter 전체
+216 passed
+
+test_contracts.py + test_contract_migration.py
+93 passed
+
+test_evaluation_service.py
+21 passed
+
+knowledge_graph + access_analyzer + safety_policy + reporter
+601 passed, 4 skipped
+```
+
+회귀 테스트는 지원/미지원 버전, Resource 범위와 match_key, 후보 참조 배열, 검증 graph_updates 제약, 민감값 마스킹, fixture 해시, 공개 run/CLI 출력 버전·참조 무결성을 확인한다. completed/partial/failed 리포트와 실패한 평가 출력도 0.2 Schema를 검증한다.
+
+생산자 Schema 6종은 입력용 title과 `test_scenarios` 목표 버전을 제외하면 사본과 일치한다. collector/access_analyzer/safety_policy/verifier의 공개 출력 fixture 4종은 reporter 입력 Schema를 통과했다. semantic_analyzer에는 해당 경로의 공개 출력 fixture가 없어 Schema 비교만 수행했다. scenario_generator의 기존 0.1 fixture는 버전 불일치로 거절됨을 확인했다. 이 확인은 Schema 검증이며 모듈 간 전체 실행 검증은 아니다.
+
+다음 단계에 남긴 reporter 내부 작업:
+
+```text
+4단계: account_id/role_id와 KG node_id의 참조 검증 구분
+5단계: Resource 식별값 비교에서 대소문자·공백 원문 보존
+6단계: 담당 모듈과 생산자 산출물의 최종 회귀 검증
+```
+
+이번 단계에서는 `input_validation.py`, `matching.py`를 변경하지 않았다. 0.2 입력 Schema를 통과하더라도 원본 계정·역할 ID와 KG node_id의 구분에 관한 후속 수정은 필요하다.
 
 ### 2026-10-08 — KG Resource Type/Instance 0.2 계약 동기화
 
