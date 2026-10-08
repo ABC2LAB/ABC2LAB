@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "graph_query_result",
   "artifact_id": "graph_result_demo_001",
   "run_id": "run_demo_001",
@@ -31,6 +31,17 @@
             "role_id": "role_user",
             "endpoint_id": "endpoint_order",
             "resource_id": "resource_order_b",
+            "resource_key": "order",
+            "resource_scope": "instance",
+            "match_key": {
+              "resource_key": "order",
+              "identifiers": [
+                {
+                  "key": "external_id",
+                  "value": "order-b"
+                }
+              ]
+            },
             "action": "read_order",
             "request_ids": [
               "request_read_order"
@@ -89,8 +100,17 @@
                 "node_id": "resource_order_b",
                 "node_type": "Resource",
                 "properties": {
-                  "resource_type": "order",
-                  "external_id": "order-b"
+                  "resource_key": "order",
+                  "resource_scope": "instance",
+                  "match_key": {
+                    "resource_key": "order",
+                    "identifiers": [
+                      {
+                        "key": "external_id",
+                        "value": "order-b"
+                      }
+                    ]
+                  }
                 },
                 "basis": "inferred",
                 "evidence_refs": []
