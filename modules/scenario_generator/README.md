@@ -87,6 +87,11 @@ Python 호출: `entrypoint.run(operation, input_paths, output_dir, context)`
 Schema(필드·타입·enum, 미정의 키 거절) 외에 다음을 코드로 확인한다.
 
 - `steps`와 `assertions`가 비어 있지 않다
+- verifier가 평가하는 세 조건을 모두 쓴다. 명세 m7은 HTTP 200만으로 위반을 확정하지 않는다
+  - `preconditions`: steps에 쓰인 **계정마다** `session_valid`(`subject_ref`=account_id, `operator=eq`, `expected=true`). `exists`는 세션이 죽어도(false) 참이라 거절한다
+  - `assertions`: **실행 계정 단계 하나에** `response_status`와 `response_json`이 함께 있다
+- `response_status`·`response_json` 조건의 `subject_ref`는 steps에 있는 `step_id`다(응답은 단계에서만 나온다)
+- `resource_state`·`resource_owner`·`baseline_match`는 Schema상 허용하지만 verifier가 아직 평가하지 않아(판단불가) 필수 조건으로 치지 않는다
 - `steps.order`가 0..N-1을 순서대로 유일하게 채운다. `step_id`·`binding_id`·`check_id`가 중복이 아니다
 - 바인딩은 **앞선 단계**만 가리킨다. 파라미터의 `binding_ref`와 `url_template`의 `{binding_id}`는 정의된 바인딩만 쓴다
 - 바인딩 selector: 본문은 JSON Pointer 문법, 헤더는 소문자 이름. `response_json` 조건의 selector도 JSON Pointer
@@ -118,7 +123,7 @@ class ScenarioDrafter(Protocol):
 |---|---|---|
 | 후보와 시나리오의 수 | 후보 1개당 시나리오 1개. `scenario_id = "scenario_" + candidate_id` | 이경준 |
 | `assertions`의 의미 | "모두 참이면 위반이 재현됨"으로 읽는다(명세: 위반 재현 여부를 판단할 조건) | verifier |
-| `Check.subject_ref`의 내용 | 형식을 검사하지 않는다. 샘플은 계정 ID·단계 ID를 쓴다 | verifier |
+| `Check.subject_ref`의 내용 | `response_status`·`response_json`은 step_id인지 검사한다. `session_valid`는 계정 ID를 쓰고(verifier 구현 기준) 검사하지 않는다. `resource_state`·`resource_owner`·`baseline_match`의 subject_ref·selector 규약은 정해지지 않았다 | verifier |
 | `url_template`의 `{binding_id}` 와 `parameters(location=path)` | 검증은 정의된 바인딩만 쓰는지까지만. 샘플은 `{binding_id}`만 쓴다 | verifier |
 | `Binding`의 위치 | 값을 **쓰는** 단계의 `bindings`에 두고 `source_step_id`로 앞 단계를 가리킨다 | verifier |
 | 기준 계정 단계 | 기준(소유자) 계정으로 보내는 단계를 steps에 둘 수 있다 | 이경준 |
