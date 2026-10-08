@@ -324,12 +324,50 @@ issues = validate_crawl_result_file(artifact_path, run_root, known_secrets=[...]
 
 메시지에는 값 대신 위치·키 이름만 넣는다.
 
+## 세션 공개 창구 (collector ↔ verifier)
+
+`session_gateway.py`. verifier가 허용된 재현 요청을 넘기면 그 계정 세션으로 **대신 전송**한다. verifier의
+`executor.py` Protocol을 import하지 않고 같은 모양(`lease`/`is_valid`/`send`/`release`)의 클래스를 자기 폴더에 둔다.
+런너가 `open_session_executor(config)`로 창구를 만들어 verifier에 주입한다(명세 03). 세션 쿠키·토큰은 이 모듈 안에만
+머물고 `ReplayRequest`·응답·로그·근거에 값으로 넣지 않는다. 둘 다 최민준 담당이라 규약은 아래로 확정한다.
+
+| 항목 | 규약 |
+|---|---|
+| 접근 방식 | 리스가 요청 대신 전송한다. verifier가 쿠키 없는 요청을 넘기면 창구가 그 계정 세션으로 보내고 응답만 돌려준다 |
+| 세션 생성 | `lease(account_id)` 때 그 계정으로 **새로 로그인**한다(계정별 live Playwright context 1개). 크롤 수명과 분리 |
+| 유효성 `is_valid()` | 창구가 세션을 들고 있고(로그인 성공·미반납) 만료 감지가 없었는가. **대상 앱에 요청하지 않는다** |
+| 만료 처리 | 리스 안에서 자동 재로그인하지 않는다. send 응답이 로그인 안 된 상태를 뜻하면 `SessionExpiredError` → 그 lease는 이후 `is_valid()=False` |
+| 대여/반납 | `release()`는 그 계정 context를 닫는다. 창구 `close()`는 반납 안 된 세션까지 닫고 브라우저를 종료 |
+| send 리다이렉트 | 자동으로 따라가지 않는다(`max_redirects=0`). 3xx를 그대로 돌려줘 verifier가 Location을 재검사 |
+| 외부 주소 2차 차단 | send에서 `is_request_allowed(config, url)`로 한 번 더 검사. 밖이면 보내지 않고 `SessionTransportError`(차단 URL·사유를 로그에 남김, 비밀값 제외). verifier `effective_origins`와 별개의 2차 방어 |
+
+### 만료 감지 신호 (send 응답 → `SessionExpiredError`)
+
+판단 기준은 전부 collector 설정(`LoginSettings`)에서 읽는다. 로그인 URL·마커를 코드에 하드코딩하지 않는다.
+
+- **신호 1(항상)**: 응답이 3xx이고 `Location`의 경로(쿼리·fragment 제외)가 `login.path`와 같으면 만료. 인증 요청이 로그인
+  페이지로 튕기는 것은 로그인 안 된 상태다. 이 302를 응답으로 기록하지 않고 예외로 올려 verifier가 indeterminate로 두게 한다(절대 규칙 9).
+- **신호 2(`success_check=cookie_present`일 때만)**: send 뒤 context에 성공 쿠키 이름이 없으면 만료(이름만 확인, 값 비노출).
+- 상태 코드 **401·403은 만료로 쓰지 않는다** — 403은 인가 거부(정상 failure)라 만료와 섞으면 안 된다.
+- `url_contains`·`text_present` 설정은 send 응답에 신뢰성 있게 매핑되지 않아 신호 1만 적용한다(한계 참조).
+
+### 한계
+
+- 실제 세션 만료를 능동 probe로 재확인하지 않는다(명세 m7의 능동 재확인 대신 send 응답 신호로 잡는다). 그래서 `lease()`의 로그인 요청은
+  세션 준비라 verifier `limits.max_requests`에 세지 않고, 대상 앱으로 가는 요청은 `send()`뿐이다.
+- `url_contains`·`text_present` 성공 조건을 쓰는 앱에서는 만료 신호가 로그인 리다이렉트 하나뿐이다(쿠키 소실·본문 추측은 하지 않는다).
+- 인가 거부를 로그인 리다이렉트로 처리하는 앱에서는 거부도 만료(→indeterminate)로 잡힌다. 보수적 방향이라 규칙 9는 지키지만 그런 앱에선 failure가 안 나온다.
+- 실물 `PlaywrightAccountBackend`는 브라우저가 필요해 단위 테스트 대신 실제 실행으로 검증한다. 창구 로직(만료·2차 차단·헤더 제거)은 `FakeBackend`로 단위 테스트한다.
+- **라이브 1회 결과(docker)**: 같은 IDOR 시나리오(`GET /api/users/{id}`)를 vulnerable(:8001)·secure(:8000)에 각각 실행 — vulnerable은 success(위반 재현), secure는 403을 그대로 받아 indeterminate(거짓 success를 만들지 않음). 산출물·근거에서 비밀값 0건.
+- 403으로 거부하는 앱에서는 현재 Check 세트(`response_status`·`response_json`)로는 failure가 아니라 indeterminate가 나온다. 깔끔한 failure 판정은 `baseline_match` 등 Check 3종 평가가 들어와야 한다(PR3-c 뒤 작업).
+
 ## 테스트
 
 ```bash
 .venv/bin/python -m pytest modules/collector/                            # collector 전체
 .venv/bin/python -m pytest modules/collector/tests/test_contract.py     # 계약·fixture
 .venv/bin/python -m pytest modules/collector/tests/test_entrypoint.py   # 실행 창구(가짜 로컬 사이트)
+.venv/bin/python -m pytest modules/collector/tests/test_session_gateway.py  # 세션 창구(FakeBackend)
 ```
 
-테스트는 전부 127.0.0.1의 빈 포트에 띄운 가짜 사이트(`tests/sites.py`)로 돈다. 실제 테스트 앱에는 요청하지 않는다.
+테스트는 전부 127.0.0.1의 빈 포트에 띄운 가짜 사이트(`tests/sites.py`)·`FakeBackend`로 돈다. 실제 테스트 앱에는 요청하지 않는다(세션 창구 실물 검증은 실제 실행 1회로 한다).
