@@ -16,17 +16,48 @@ from typing import Any
 
 from modules.scenario_generator.scenario_drafter import Draft, DrafterError
 
-PROMPT_VERSION = "ollama-scenario-v1"
+PROMPT_VERSION = "ollama-scenario-v2"
 _GENERATE_PATH = "/api/generate"
 
+# 상위 3키뿐 아니라 중첩 레코드(ScenarioStep·RequestPlan·ParameterValue·Binding·Check)의
+# 정확한 필드까지 알려줘야 작은 모델이 유효 초안을 낸다. 예시는 모양만 보이고 값은 입력에서 채우게 한다.
 _SYSTEM = (
-    "You draft a reproduction plan for ONE access-control/business-logic finding. "
-    "Use only the given candidate and source_requests. "
-    "Return ONLY JSON with exactly these keys: "
-    "{\"preconditions\": [Check], \"steps\": [ScenarioStep], \"assertions\": [Check]}. "
-    "Do not include candidate_id, expected_basis, or scenario_id (the program fills them). "
-    "steps.order is 0..N-1; bindings only reference earlier steps; "
-    "url_template stays within the given target origin; no prose."
+    "You draft ONE reproduction plan for an access-control/business-logic finding, as STRICT JSON.\n"
+    "Use ONLY the given candidate, actor_account, and source_requests. "
+    "Output ONLY a JSON object with EXACTLY these top-level keys: preconditions, steps, assertions. "
+    "Do NOT output candidate_id, expected_basis, scenario_id, or any other top-level key. No prose, no markdown.\n"
+    "Each STEP object has EXACTLY: step_id(string, unique), order(integer, contiguous from 0), "
+    "source_request_id(one of source_requests[].request_id), account_id(=actor_account.account_id), "
+    "role_id(=actor_account.role_id), session_ref(=actor_account.session_ref), "
+    "request(object), bindings(array, usually []; may only reference earlier steps).\n"
+    "request has EXACTLY: method(=that source request's method), url_template(=that source request's url, "
+    "same scheme/host/port, no credentials), parameters(array of {name, location(path|query|body), value, binding_ref}), "
+    "body_ref(null unless that source request had one).\n"
+    "Each CHECK (in preconditions and assertions) has EXACTLY: check_id(string), "
+    "kind(session_valid|response_status|response_json|resource_state|resource_owner|baseline_match), "
+    "subject_ref(string, e.g. an account_id or step_id), selector(JSON Pointer string or null), "
+    "operator(exists|eq|ne|in|contains), expected(any JSON).\n"
+    "preconditions: >=1 (e.g. session_valid for the actor). assertions: >=1 (e.g. response_status eq 200 "
+    "meaning the actor could access the resource = violation reproduced).\n"
+    "Each PARAMETER in request.parameters has EXACTLY: name(string), location(path|query|body), "
+    "value(literal JSON or null), binding_ref(string or null; null when value is literal). "
+    "NEVER include is_sensitive or any other key in a parameter.\n"
+    "CRITICAL: bindings MUST be [] unless a value truly must be extracted from an earlier step's response; "
+    "never invent a binding. parameters SHOULD be [] (the url_template already identifies the resource); "
+    "only add a parameter when you deliberately change one value. "
+    "url_template MUST be one source request's url copied verbatim (full http://host:port/path); "
+    "do NOT insert any {placeholder} into it. "
+    "Never output angle brackets, ellipses, or the word 'placeholder' — copy the REAL values from the input.\n"
+    "Below is the required SHAPE. The literal values shown are only illustrative; replace every value with the "
+    "matching real value from actor_account and source_requests:\n"
+    '{"preconditions":[{"check_id":"pc1","kind":"session_valid","subject_ref":"account_user_a",'
+    '"selector":null,"operator":"exists","expected":true}],'
+    '"steps":[{"step_id":"s1","order":0,"source_request_id":"request_1",'
+    '"account_id":"account_user_a","role_id":"role_user","session_ref":"session_user_a",'
+    '"request":{"method":"GET","url_template":"http://localhost:8001/products/1","parameters":[],"body_ref":null},'
+    '"bindings":[]}],'
+    '"assertions":[{"check_id":"a1","kind":"response_status","subject_ref":"s1","selector":null,'
+    '"operator":"eq","expected":200}]}'
 )
 
 Transport = Callable[[str, bytes, float], bytes]
