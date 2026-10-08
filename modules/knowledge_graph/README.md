@@ -482,7 +482,7 @@ knowledge_graph 전체
 121 passed, 4 skipped
 ```
 
-실제 Neo4j 통합 테스트는 현재 Neo4j 미실행으로 4건이 skip된 상태이며, 다음 실제 DB 실행 시 `request_ids`까지 함께 검증한다.
+이후 실제 Neo4j에서 통합 테스트 4건을 다시 실행해 `request_ids`를 포함한 조회 결과를 검증했다.
 
 ---
 
@@ -496,7 +496,7 @@ RequestObservation 내부 저장     완료
 role_resource_access 호환        완료
 AccessRow request_ids 제공        완료
 KG 기본 회귀 테스트               완료
-A3 실제 Neo4j 재검증              보류
+A3 실제 Neo4j 재검증              완료
 ```
 
 외부 소비자 모듈의 입력 Schema 및 `Candidate.source_request_ids` 연결은 각 소비자 모듈의 계약 반영 범위에서 처리한다.
@@ -565,7 +565,7 @@ verification_results 0.2 반영
 
 ```text
 knowledge_graph 전체
-156 passed, 4 skipped
+160 passed
 ```
 
-실제 Neo4j 통합 테스트 4건은 현재 실행 환경에서 Docker 명령을 사용할 수 없어 보류했다.
+Neo4j `5.26.31-community` 일회성 컨테이너에서 실제 통합 테스트 4건과 knowledge_graph 전체 테스트를 실행했다. ingest·query·apply_verification·revision·snapshot 경로가 모두 통과했다.
