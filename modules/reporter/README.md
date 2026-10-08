@@ -64,7 +64,9 @@ Ground Truth는 development 평가에서만 사용하며 다른 진단 모듈로
 
 ## 계약
 
-- 계약 버전: `0.1.0`
+- reporter 출력 계약: `0.1.0`
+- `graph_query_result` 입력 계약: `0.2.0`
+- 그 외 현재 입력 계약: producer 공개 계약에 맞춰 관리
 - 입력 Schema: `schemas/input/`
 - 출력 Schema: `schemas/output/`
 - 실행 산출물: `runs/<run_id>/artifacts/iteration-<NNN>/reporter/`
@@ -75,9 +77,17 @@ Ground Truth는 development 평가에서만 사용하며 다른 진단 모듈로
 
 입력 Schema는 producer의 공개 계약을 reporter 내부에 복제해 관리하며, 다른 모듈 구현 코드를 직접 import하지 않는다.
 
-### Knowledge Graph 입력
+생산자 계약이 변경된 경우 reporter는 해당 생산자의 정상 출력을 소비할 수 있도록 직접 사용하는 입력 Schema만 동기화한다.
 
-`graph_query_result.json`의 `AccessRow`는 다음 원본 요청 provenance를 포함한다.
+---
+
+## Knowledge Graph 입력
+
+development 평가에서 사용하는 `graph_query_result.json`은 현재 Knowledge Graph의 `schema_version=0.2.0` 계약을 따른다.
+
+### AccessRow provenance
+
+`role_resource_access`의 `AccessRow`는 원본 요청 provenance를 포함한다.
 
 ```json
 {
@@ -95,7 +105,78 @@ Ground Truth는 development 평가에서만 사용하며 다른 진단 모듈로
 빈 문자열 불가
 ```
 
-reporter의 `evaluate`는 현재 KG 결과 중 `structure_snapshot`을 평가에 사용하며, 다른 query 결과도 입력 계약상 정상적으로 검증할 수 있어야 한다.
+### Resource Type / Instance
+
+KG 0.2에서는 Resource 종류와 실제 Resource 인스턴스를 구분한다.
+
+Resource는 다음 필드를 사용한다.
+
+```text
+resource_key
+resource_scope
+match_key
+```
+
+`resource_scope`는 다음 두 값을 사용한다.
+
+```text
+type
+instance
+```
+
+Resource Type 예시:
+
+```json
+{
+  "resource_key": "order",
+  "resource_scope": "type",
+  "match_key": null
+}
+```
+
+Resource Instance 예시:
+
+```json
+{
+  "resource_key": "order",
+  "resource_scope": "instance",
+  "match_key": {
+    "resource_key": "order",
+    "identifiers": [
+      {
+        "key": "external_id",
+        "value": "order-b"
+      }
+    ]
+  }
+}
+```
+
+`resource_ownership`은 Resource Instance를 대상으로 하며 `resource_scope="instance"`와 유효한 `match_key`를 요구한다.
+
+`role_resource_access`의 Resource 관련 필드는 다음과 같다.
+
+```text
+resource_id
+resource_key
+resource_scope
+match_key
+```
+
+Resource가 연결되지 않은 AccessRow는 네 필드가 모두 `null`일 수 있다.
+
+```json
+{
+  "resource_id": null,
+  "resource_key": null,
+  "resource_scope": null,
+  "match_key": null
+}
+```
+
+reporter의 `evaluate`는 현재 KG 결과 중 `structure_snapshot`을 실제 구조 평가에 사용한다.
+
+다른 query 결과 역시 producer의 `graph_query_result 0.2.0` 계약에 따라 정상적으로 검증할 수 있어야 한다.
 
 ---
 
@@ -126,13 +207,64 @@ default-v1
 
 이다.
 
-Ground Truth와 분석 결과는 내부 ID 문자열을 직접 비교하지 않고 다음 의미 정보를 기준으로 연결한다.
+Ground Truth와 분석 결과는 내부 ID 문자열을 직접 비교하지 않고 의미 정보를 기준으로 연결한다.
+
+주요 비교 정보:
 
 - Page path
 - Endpoint method + path template
 - Parameter 위치·이름
 - Role 이름
 - Resource 정규화 키
+
+### KG 0.2 Resource 정규화
+
+Ground Truth를 KG 내부 Resource 표현에 직접 종속시키지 않는다.
+
+reporter는 평가 시점에만 KG 0.2 Resource를 비교용 view로 정규화한다.
+
+예를 들어 기존 Ground Truth가 다음과 같은 Resource를 사용할 수 있다.
+
+```json
+{
+  "resource_type": "order",
+  "external_id": "order-b"
+}
+```
+
+KG 0.2의 실제 Resource 표현은 다음과 같을 수 있다.
+
+```json
+{
+  "resource_key": "order",
+  "resource_scope": "instance",
+  "match_key": {
+    "resource_key": "order",
+    "identifiers": [
+      {
+        "key": "external_id",
+        "value": "order-b"
+      }
+    ]
+  }
+}
+```
+
+reporter는 평가 시 다음 의미가 서로 비교될 수 있도록 정규화한다.
+
+```text
+resource_key  → resource_type 호환
+resource_key  → name 호환
+
+match_key.identifiers[]
+              → identifier key/value 비교
+```
+
+따라서 기존 Ground Truth의 표현을 유지하면서 최신 KG 0.2 Resource를 평가할 수 있다.
+
+실제 KG artifact 자체를 변환하거나 수정하지 않는다.
+
+### 평가 대상
 
 주요 평가 대상:
 
@@ -142,6 +274,14 @@ Ground Truth와 분석 결과는 내부 ID 문자열을 직접 비교하지 않�
 workflow
 후보 recall / precision
 확정 recall / precision
+```
+
+Resource 정규화는 다음 평가 경로에 공통으로 적용된다.
+
+```text
+구조 평가
+관계 평가
+취약점 후보 ↔ Ground Truth case 평가
 ```
 
 분모가 0이거나 측정할 수 없는 지표는 `value=null`로 기록한다.
@@ -213,6 +353,8 @@ python -m modules.reporter.entrypoint evaluate \
 
 저장소 루트에서 실행한다.
 
+전체 reporter 테스트:
+
 ```bash
 python -m pytest modules/reporter/ -q
 ```
@@ -220,10 +362,10 @@ python -m pytest modules/reporter/ -q
 현재 결과:
 
 ```text
-123 passed
+141 passed
 ```
 
-계약 테스트만 실행하려면:
+계약 테스트:
 
 ```bash
 python -m pytest modules/reporter/tests/test_contracts.py -q
@@ -232,7 +374,19 @@ python -m pytest modules/reporter/tests/test_contracts.py -q
 현재 결과:
 
 ```text
-23 passed
+38 passed
+```
+
+평가 테스트:
+
+```bash
+python -m pytest modules/reporter/tests/test_evaluation_service.py -q
+```
+
+현재 결과:
+
+```text
+19 passed
 ```
 
 추가 실행 의존성 없이 팀 공통 Python 환경과 루트 의존성을 사용한다.
@@ -240,6 +394,82 @@ python -m pytest modules/reporter/tests/test_contracts.py -q
 ---
 
 ## 변경 이력
+
+### 2026-10-08 — KG Resource Type/Instance 0.2 계약 동기화
+
+knowledge_graph의 `graph_query_result.json`이 Resource Type/Instance 모델을 포함하는 `schema_version=0.2.0`으로 변경됨에 따라 reporter의 development 평가 입력 계약을 동기화했다.
+
+변경 내용:
+
+```text
+graph_query_result
+0.1.0 → 0.2.0
+```
+
+Resource 구조:
+
+```text
+resource_key
+resource_scope: type | instance
+match_key
+```
+
+`role_resource_access`의 AccessRow에 다음 Resource 메타데이터를 반영했다.
+
+```text
+resource_id
+resource_key
+resource_scope
+match_key
+request_ids
+```
+
+Resource가 없는 AccessRow는 다음 형태를 허용한다.
+
+```text
+resource_id=null
+resource_key=null
+resource_scope=null
+match_key=null
+```
+
+Resource Instance는 유효한 `match_key`를 요구하고 Resource Type은 `match_key=null`을 사용한다.
+
+reporter의 KG fixture 역시 `graph_query_result 0.2.0`과 Resource Instance 구조로 갱신했다.
+
+평가 로직에서는 Ground Truth를 KG 내부 표현에 직접 종속시키지 않도록 KG 0.2 Resource를 평가 시점에만 정규화한다.
+
+호환되는 Ground Truth 표현 예:
+
+```text
+resource_type=order
+external_id=order-b
+```
+
+또는:
+
+```text
+name=order
+```
+
+이들은 KG 0.2의 `resource_key` 및 `match_key.identifiers`와 의미 기준으로 비교한다.
+
+검증 결과:
+
+```text
+test_contracts.py
+38 passed
+
+test_evaluation_service.py
+19 passed
+
+reporter 전체
+141 passed
+```
+
+이번 변경은 일반 `report` operation의 진단 결과 생성 흐름을 변경하지 않는다.
+
+주요 영향 범위는 development 모드의 `evaluate`가 최신 Knowledge Graph 출력을 정상적으로 소비하고 Resource를 Ground Truth와 정확하게 비교할 수 있도록 하는 것이다.
 
 ### 2026-10-07 — collector Page.account_id 계약 동기화
 

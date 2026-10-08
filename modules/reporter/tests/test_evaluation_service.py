@@ -17,6 +17,7 @@ from modules.reporter.exceptions import (
     OutputArtifactExistsError,
 )
 from modules.reporter.input_adapter import parse_evaluate_request
+from modules.reporter.matching import matches_key
 from modules.reporter.models import (
     ErrorItem,
     EvaluationInputs,
@@ -78,7 +79,67 @@ def test_build_evaluation_results_matches_structure_and_cases(
         "output_tokens": 0,
         "peak_memory_mb": 32,
     }
-    assert any("일대일 매칭되지 않은 후보: 1개" in note for note in result.data.notes)
+    assert any(
+        "일대일 매칭되지 않은 후보: 1개" in note
+        for note in result.data.notes
+    )
+
+
+def test_kg_0_2_resource_instance_matches_legacy_ground_truth_key() -> None:
+    expected = {
+        "resource_type": "order",
+        "external_id": "order-b",
+    }
+    observed = {
+        "resource_key": "order",
+        "resource_scope": "instance",
+        "match_key": {
+            "resource_key": "order",
+            "identifiers": [
+                {
+                    "key": "external_id",
+                    "value": "order-b",
+                }
+            ],
+        },
+    }
+
+    assert matches_key(expected, observed)
+
+
+def test_kg_0_2_resource_type_matches_ground_truth_name() -> None:
+    expected = {
+        "name": "order",
+    }
+    observed = {
+        "resource_key": "order",
+        "resource_scope": "type",
+        "match_key": None,
+    }
+
+    assert matches_key(expected, observed)
+
+
+def test_kg_0_2_resource_instance_rejects_different_identifier() -> None:
+    expected = {
+        "resource_type": "order",
+        "external_id": "order-c",
+    }
+    observed = {
+        "resource_key": "order",
+        "resource_scope": "instance",
+        "match_key": {
+            "resource_key": "order",
+            "identifiers": [
+                {
+                    "key": "external_id",
+                    "value": "order-b",
+                }
+            ],
+        },
+    }
+
+    assert not matches_key(expected, observed)
 
 
 def test_entity_matching_uses_normalized_keys_not_ground_truth_ids(
@@ -101,13 +162,18 @@ def test_entity_matching_uses_normalized_keys_not_ground_truth_ids(
             prepared_evaluation.ground_truth.entities[2],
         ),
     )
-    changed = replace(prepared_evaluation, ground_truth=ground_truth)
+    changed = replace(
+        prepared_evaluation,
+        ground_truth=ground_truth,
+    )
 
     result = build_evaluation_results(changed)
 
     assert result.data is not None
     endpoint_metric = next(
-        item for item in result.data.metrics if item.metric_id == "endpoint_recall"
+        item
+        for item in result.data.metrics
+        if item.metric_id == "endpoint_recall"
     )
     assert endpoint_metric.value == 1
 
@@ -129,15 +195,23 @@ def test_parameter_matching_includes_normalized_endpoint_key(
     }
     ground_truth = replace(
         prepared_evaluation.ground_truth,
-        entities=(*prepared_evaluation.ground_truth.entities, parameter),
+        entities=(
+            *prepared_evaluation.ground_truth.entities,
+            parameter,
+        ),
     )
-    changed = replace(prepared_evaluation, ground_truth=ground_truth)
+    changed = replace(
+        prepared_evaluation,
+        ground_truth=ground_truth,
+    )
 
     result = build_evaluation_results(changed)
 
     assert result.data is not None
     metric = next(
-        item for item in result.data.metrics if item.metric_id == "parameter_recall"
+        item
+        for item in result.data.metrics
+        if item.metric_id == "parameter_recall"
     )
     assert metric.value == 1
 
@@ -148,13 +222,21 @@ def test_relationship_matching_uses_matched_nodes_not_ground_truth_ids(
     owner = {
         **prepared_evaluation.ground_truth.entities[0],
         "entity_type": "User",
-        "match_key": {"alias": "USER_B"},
+        "match_key": {
+            "alias": "USER_B",
+        },
     }
     ground_truth = replace(
         prepared_evaluation.ground_truth,
-        entities=(owner, *prepared_evaluation.ground_truth.entities[1:]),
+        entities=(
+            owner,
+            *prepared_evaluation.ground_truth.entities[1:],
+        ),
     )
-    changed = replace(prepared_evaluation, ground_truth=ground_truth)
+    changed = replace(
+        prepared_evaluation,
+        ground_truth=ground_truth,
+    )
 
     result = build_evaluation_results(changed)
 
@@ -176,7 +258,10 @@ def test_confirmed_recall_keeps_unverified_positive_in_denominator(
             prepared_evaluation.report_inputs.verification_results[1],
         ),
     )
-    changed = replace(prepared_evaluation, report_inputs=report_inputs)
+    changed = replace(
+        prepared_evaluation,
+        report_inputs=report_inputs,
+    )
 
     result = build_evaluation_results(changed)
 
@@ -187,7 +272,9 @@ def test_confirmed_recall_keeps_unverified_positive_in_denominator(
         "fn": 1,
     }
     metric = next(
-        item for item in result.data.metrics if item.metric_id == "confirmed_recall"
+        item
+        for item in result.data.metrics
+        if item.metric_id == "confirmed_recall"
     )
     assert metric.numerator == 0
     assert metric.denominator == 1
@@ -199,8 +286,15 @@ def test_confirmed_normal_case_is_counted_as_false_positive(
     prepared_evaluation: EvaluationInputs,
 ) -> None:
     report_inputs = prepared_evaluation.report_inputs
-    candidate = replace(report_inputs.candidates[1], expected_basis="rule")
-    scenario = replace(report_inputs.scenarios[1], expected_basis="rule")
+
+    candidate = replace(
+        report_inputs.candidates[1],
+        expected_basis="rule",
+    )
+    scenario = replace(
+        report_inputs.scenarios[1],
+        expected_basis="rule",
+    )
     decision = replace(
         report_inputs.decisions[1],
         decision="allow",
@@ -212,8 +306,11 @@ def test_confirmed_normal_case_is_counted_as_false_positive(
         execution_status="completed",
         result="success",
         reason="정상 대조 사례에서 위반 정황을 잘못 재현함",
-        evidence_refs=report_inputs.verification_results[0].evidence_refs,
+        evidence_refs=(
+            report_inputs.verification_results[0].evidence_refs
+        ),
     )
+
     changed_report_inputs = replace(
         report_inputs,
         candidates=(
@@ -221,8 +318,14 @@ def test_confirmed_normal_case_is_counted_as_false_positive(
             candidate,
             report_inputs.candidates[2],
         ),
-        scenarios=(report_inputs.scenarios[0], scenario),
-        decisions=(report_inputs.decisions[0], decision),
+        scenarios=(
+            report_inputs.scenarios[0],
+            scenario,
+        ),
+        decisions=(
+            report_inputs.decisions[0],
+            decision,
+        ),
         verification_results=(
             report_inputs.verification_results[0],
             verification,
@@ -260,14 +363,21 @@ def test_failed_semantic_input_produces_partial_unmeasured_metrics(
         retryable=False,
     )
     failed_semantic = InputArtifact(
-        source=replace(source.source, status="failed"),
+        source=replace(
+            source.source,
+            status="failed",
+        ),
         value={
             **source.value,
             "status": "failed",
-            "errors": [error.to_mapping()],
+            "errors": [
+                error.to_mapping(),
+            ],
             "data": None,
         },
-        errors=(error,),
+        errors=(
+            error,
+        ),
     )
     changed = replace(
         prepared_evaluation,
@@ -277,11 +387,17 @@ def test_failed_semantic_input_produces_partial_unmeasured_metrics(
     result = build_evaluation_results(changed)
 
     assert result.status == "partial"
-    assert result.errors[0].code.endswith("SEMANTIC_FAILED")
-    assert result.data is not None
-    endpoint_metric = next(
-        item for item in result.data.metrics if item.metric_id == "endpoint_recall"
+    assert result.errors[0].code.endswith(
+        "SEMANTIC_FAILED"
     )
+    assert result.data is not None
+
+    endpoint_metric = next(
+        item
+        for item in result.data.metrics
+        if item.metric_id == "endpoint_recall"
+    )
+
     assert endpoint_metric.numerator == 0
     assert endpoint_metric.denominator == 1
     assert endpoint_metric.value is None
@@ -291,13 +407,19 @@ def test_failed_semantic_input_produces_partial_unmeasured_metrics(
 def test_missing_graph_snapshot_fails_without_zero_metrics(
     prepared_evaluation: EvaluationInputs,
 ) -> None:
-    changed = replace(prepared_evaluation, graph_snapshot=None)
+    changed = replace(
+        prepared_evaluation,
+        graph_snapshot=None,
+    )
 
     result = build_evaluation_results(changed)
 
     assert result.status == "failed"
     assert result.data is None
-    assert any(error.code == "EVALUATION_INPUT_UNAVAILABLE" for error in result.errors)
+    assert any(
+        error.code == "EVALUATION_INPUT_UNAVAILABLE"
+        for error in result.errors
+    )
 
 
 def test_evaluation_rejects_unsupported_matching_profile(
@@ -307,9 +429,15 @@ def test_evaluation_rejects_unsupported_matching_profile(
         prepared_evaluation.request,
         matching_profile="unknown-v1",
     )
-    changed = replace(prepared_evaluation, request=request)
+    changed = replace(
+        prepared_evaluation,
+        request=request,
+    )
 
-    with pytest.raises(ContractValidationError, match="matching_profile"):
+    with pytest.raises(
+        ContractValidationError,
+        match="matching_profile",
+    ):
         build_evaluation_results(changed)
 
 
@@ -317,14 +445,27 @@ def test_evaluation_rejects_duplicate_normalized_ground_truth_key(
     prepared_evaluation: EvaluationInputs,
 ) -> None:
     original = prepared_evaluation.ground_truth.entities[0]
-    duplicate = {**original, "gt_id": "gt_role_user_duplicate"}
+    duplicate = {
+        **original,
+        "gt_id": "gt_role_user_duplicate",
+    }
+
     ground_truth = replace(
         prepared_evaluation.ground_truth,
-        entities=(*prepared_evaluation.ground_truth.entities, duplicate),
+        entities=(
+            *prepared_evaluation.ground_truth.entities,
+            duplicate,
+        ),
     )
-    changed = replace(prepared_evaluation, ground_truth=ground_truth)
+    changed = replace(
+        prepared_evaluation,
+        ground_truth=ground_truth,
+    )
 
-    with pytest.raises(ContractValidationError, match="정규화 키가 중복"):
+    with pytest.raises(
+        ContractValidationError,
+        match="정규화 키가 중복",
+    ):
         build_evaluation_results(changed)
 
 
@@ -336,9 +477,13 @@ def test_run_metrics_preserve_unmeasured_values_as_null(
         **source.value["runtime_metrics"],
         "input_tokens": None,
     }
+
     changed_semantic = replace(
         source,
-        value={**source.value, "runtime_metrics": runtime_metrics},
+        value={
+            **source.value,
+            "runtime_metrics": runtime_metrics,
+        },
     )
     changed = replace(
         prepared_evaluation,
@@ -362,9 +507,16 @@ def test_build_evaluation_artifact_uses_all_runtime_inputs(
     )
 
     assert artifact["created_at"] == FIXED_TIMESTAMP
-    assert artifact["artifact_id"] == "evaluation_results_run_demo_001_000"
+    assert (
+        artifact["artifact_id"]
+        == "evaluation_results_run_demo_001_000"
+    )
     assert len(artifact["input_refs"]) == 7
-    assert [item["artifact_type"] for item in artifact["input_refs"]] == [
+
+    assert [
+        item["artifact_type"]
+        for item in artifact["input_refs"]
+    ] == [
         "crawl_result",
         "semantic_analysis",
         "graph_query_result",
@@ -373,19 +525,27 @@ def test_build_evaluation_artifact_uses_all_runtime_inputs(
         "safety_decisions",
         "verification_results",
     ]
+
     assert artifact["data"]["ground_truth_ref"] == {
         "dataset_id": "shop_demo",
         "dataset_version": "1",
         "path": "datasets/shop_demo/ground_truth.json",
         "sha256": prepared_evaluation.ground_truth.sha256,
     }
-    validate_schema(artifact, EVALUATION_RESULTS_SCHEMA)
+
+    validate_schema(
+        artifact,
+        EVALUATION_RESULTS_SCHEMA,
+    )
 
 
 def test_failed_evaluation_artifact_satisfies_output_contract(
     prepared_evaluation: EvaluationInputs,
 ) -> None:
-    changed = replace(prepared_evaluation, graph_snapshot=None)
+    changed = replace(
+        prepared_evaluation,
+        graph_snapshot=None,
+    )
 
     artifact = build_evaluation_artifact(
         changed,
@@ -395,29 +555,48 @@ def test_failed_evaluation_artifact_satisfies_output_contract(
 
     assert artifact["status"] == "failed"
     assert artifact["data"] is None
-    validate_schema(artifact, EVALUATION_RESULTS_SCHEMA)
+
+    validate_schema(
+        artifact,
+        EVALUATION_RESULTS_SCHEMA,
+    )
 
 
 def test_publish_evaluation_artifact_validates_and_writes_atomically(
     prepared_evaluation: EvaluationInputs,
 ) -> None:
     prepared_evaluation.request.output_path.unlink()
+
     artifact = build_evaluation_artifact(
         prepared_evaluation,
         perf_counter(),
         timestamp_factory=lambda: FIXED_TIMESTAMP,
     )
 
-    response = publish_evaluation_artifact(prepared_evaluation, artifact)
+    response = publish_evaluation_artifact(
+        prepared_evaluation,
+        artifact,
+    )
 
     assert response.status == "completed"
-    assert response.output_path.endswith("/reporter/evaluation_results.json")
+    assert response.output_path.endswith(
+        "/reporter/evaluation_results.json"
+    )
     assert response.sha256 == calculate_sha256(
         prepared_evaluation.request.output_path
     )
-    assert load_json(prepared_evaluation.request.output_path) == artifact
-    with pytest.raises(OutputArtifactExistsError):
-        publish_evaluation_artifact(prepared_evaluation, artifact)
+    assert (
+        load_json(prepared_evaluation.request.output_path)
+        == artifact
+    )
+
+    with pytest.raises(
+        OutputArtifactExistsError,
+    ):
+        publish_evaluation_artifact(
+            prepared_evaluation,
+            artifact,
+        )
 
 
 def test_output_validation_rejects_tampered_metric(
@@ -430,7 +609,10 @@ def test_output_validation_rejects_tampered_metric(
     )
     artifact["data"]["metrics"][0]["numerator"] += 1
 
-    with pytest.raises(ContractValidationError, match="지표"):
+    with pytest.raises(
+        ContractValidationError,
+        match="지표",
+    ):
         validate_evaluation_artifact_against_inputs(
             artifact,
             prepared_evaluation,
@@ -441,18 +623,33 @@ def test_publish_rejects_ground_truth_changed_after_preparation(
     prepared_evaluation: EvaluationInputs,
 ) -> None:
     prepared_evaluation.request.output_path.unlink()
+
     artifact = build_evaluation_artifact(
         prepared_evaluation,
         perf_counter(),
         timestamp_factory=lambda: FIXED_TIMESTAMP,
     )
+
     project_root = prepared_evaluation.request.project_root
     assert project_root is not None
-    ground_truth_path = project_root / prepared_evaluation.ground_truth.relative_path
+
+    ground_truth_path = (
+        project_root
+        / prepared_evaluation.ground_truth.relative_path
+    )
     ground_truth_path.write_text(
-        ground_truth_path.read_text(encoding="utf-8") + "\n",
+        ground_truth_path.read_text(
+            encoding="utf-8",
+        )
+        + "\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(ContractValidationError, match="ground_truth 파일이 변경됨"):
-        publish_evaluation_artifact(prepared_evaluation, artifact)
+    with pytest.raises(
+        ContractValidationError,
+        match="ground_truth 파일이 변경됨",
+    ):
+        publish_evaluation_artifact(
+            prepared_evaluation,
+            artifact,
+        )
