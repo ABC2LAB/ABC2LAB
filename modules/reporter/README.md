@@ -81,7 +81,7 @@ Ground Truth는 development 평가에서만 사용하며 다른 진단 모듈로
 
 진단 실행 입력의 `0.1.0` 및 미지원 버전은 거절하며, 기존 산출물의 버전을 묵시적으로 변환하지 않는다. `graph_query_result`는 이미 0.2 계약이므로 이번 동기화에서 변경하지 않았다.
 
-현재 `test_scenarios` 입력은 팀의 0.2 전환 방향을 반영한다. 기준 커밋 `986e9d7`의 scenario_generator는 아직 0.1을 출력하므로 생산자 측 전환이 필요하다. 입력 Schema 동기화와 전체 파이프라인 호환 완료는 구분한다.
+현재 `test_scenarios` 입력은 팀의 0.2 전환 방향을 반영한다. 6단계 확인 기준 커밋 `1b123bd`에서도 scenario_generator는 아직 0.1을 출력하므로 생산자 측 전환이 필요하다. reporter의 Safety 입력은 0.2를 수용하지만 verifier의 해당 입력 사본은 아직 0.1이다. 입력 Schema 동기화와 전체 파이프라인 호환 완료는 구분한다.
 
 `ground_truth`는 공통 계약의 11개 파일 0.2 안내와 `m8-reporter.md`의 정답 파일 0.1 표가 일치하지 않는다. 이번 단계에서는 기존 정답 Schema·fixture를 유지하고, 정답 계약 전환은 별도 검토 대상으로 남긴다.
 
@@ -458,6 +458,74 @@ Resource 식별값 회귀 테스트:
 ---
 
 ## 변경 이력
+
+### 2026-10-09 — 6단계: 담당 모듈 최종 회귀·생산자 산출물 수신 확인
+
+기준 커밋 `1b123bd`에서 1~5단계 수정의 최종 회귀와 공개 입력 계약을 확인했다. 추가 구현 오류가 발견되지 않아 이번 단계에서는 README만 갱신했다. 다른 모듈·공용 명세·Schema·fixture 원본·의존성은 변경하지 않았다.
+
+#### reporter 입력별 확인 결과
+
+| 입력 | 생산자 / reporter 버전 | 확인 결과 |
+|---|---|---|
+| `crawl_result` | `0.2.0` / `0.2.0` | collector 공개 출력 fixture의 입력 Schema 검증 통과 |
+| `semantic_analysis` | `0.2.0` / `0.2.0` | 생산자 CLI가 실제 생성한 결과의 입력 Schema·원본 ID·노드/Workflow 참조 검증 통과 |
+| `graph_query_result` | `0.2.0` / `0.2.0` | KG 공개 출력 fixture의 입력 Schema 검증 통과 |
+| `vulnerability_candidates` | `0.2.0` / `0.2.0` | access_analyzer 공개 출력 fixture의 입력 Schema 검증 통과 |
+| `test_scenarios` | `0.1.0` / `0.2.0` | scenario_generator 공개 출력 fixture는 버전 불일치로 거절 |
+| `safety_decisions` | `0.2.0` / `0.2.0` | safety_policy 공개 출력 fixture의 입력 Schema 검증 통과 |
+| `verification_results` | `0.2.0` / `0.2.0` | verifier 공개 출력 fixture의 입력 Schema 검증 통과 |
+| `ground_truth` | `0.1.0` / `0.1.0` | `datasets/shop_demo/ground_truth.json`의 입력 Schema 검증 통과 |
+
+semantic_analyzer에는 문서상 공개 경로의 출력 fixture가 없어서 공개 CLI를 임시 디렉터리에서 실행했다. 생산자 소유 수집 fixture와 기본 `fake` LLM으로 요청 6개·노드 27개·관계 33개·Workflow 3개를 생성했고, 생산자·KG·reporter의 세 Schema와 KG/reporter 입력 adapter 검증을 통과했다. 원본 수집 파일 해시를 보존하고 임시 산출물은 검증 후 정리했다. 실제 Local LLM 품질이나 전체 파이프라인 실행 검증은 아니다.
+
+정답 dataset은 entity 65개·관계 52개·Workflow 5개·case 10개이며 Schema 오류는 0건이다. 이는 정답 입력 형식 검증이고, 해당 dataset의 진단 정확도를 측정한 것은 아니다.
+
+#### 계약 대조 범위
+
+담당 3개 모듈의 직접 생산자·소비자 경계 13개를 대조했다. 최상위 제목·설명·`$id`를 제외하고 사본이 같은 경계는 7개다. 3개는 버전 차이이며, 나머지 3개는 KG 관련 정의 이름·`$ref` 등의 구조 표현 차이가 있다. Schema 파일의 전체 일치, 샘플 수신 성공, 실행 내 교차 참조 검증은 서로 다른 검증 결과로 구분한다.
+
+기존 공개 fixture가 있는 경계 11개 중 Schema 검증 8개는 통과했고 3개는 아래 버전 문제로 거절됐다. semantic 2개 경계는 위 실제 CLI 생성 결과로 별도 확인했다. 서로 다른 모듈의 예시 파일을 동일 실행의 산출물인 것처럼 조합하거나 원본 ID·해시를 바꿔 연결하지 않았다.
+
+#### 회귀 결과
+
+```text
+knowledge_graph 기본 테스트
+160 passed, 4 skipped
+
+safety_policy
+145 passed
+
+reporter
+356 passed
+
+담당 3개 모듈 기본 테스트
+661 passed, 4 skipped
+
+담당 3개 모듈, 실제 Neo4j 통합 테스트 활성화
+665 passed
+
+modules/ 전체 테스트
+1456 passed, 4 skipped
+```
+
+기본 합동 검증 명령은 `.venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter -q -rs`, 전체 모듈 명령은 `.venv/bin/python -m pytest modules -q -rs --tb=short`다. 전체 모듈의 최초 실패는 Chromium·로컬 서버의 샌드박스 실행 제한이었으며, 실행 권한을 확보한 환경에서 재실행해 통과했다.
+
+실제 Neo4j 4개 테스트는 기존 `neo4j:5.26.31-community` 이미지의 일회성 DB에서 실행하고 해당 컨테이너·임시 볼륨만 정리했다. 기존 DB와 볼륨은 사용하지 않았다. 기본 실행의 skip과 실제 DB 실행 성공을 구분한다.
+
+`report`·`evaluate`·CLI의 정상/partial/failed 출력, 미검증 후보 보존, 원본 account/role ID와 KG node_id 구분, Resource 원문·복합키·GT 중복 검사, 진단 상태 분류, 출력 Schema·참조 해시·HTML·원자 저장을 기존 테스트로 회귀 확인했다. AST 검사에서 reporter Python 파일 31개의 다른 모듈 import 0건, Schema 10개의 외부 `$ref` 0건을 확인했다.
+
+공통 환경은 Python `3.12.13`이며 `uv pip check --python .venv/bin/python`은 설치 패키지 21개의 호환성을 확인했다. 이는 현재 설치 환경의 검사이며 lock 파일을 재생성하거나 패키지를 설치·변경한 것은 아니다.
+
+#### 완료 범위와 후속 연계 항목
+
+이번 수정의 1~6단계는 완료했다. 추가 구현 단계는 남기지 않으며, 전체 파이프라인 연결 전에는 다음을 별도로 확인한다.
+
+- scenario_generator 담당: `test_scenarios` 출력 0.2 전환과 새 산출물 발행. 구버전을 reporter/safety_policy가 자동 변환하지 않는다.
+- verifier 담당: `safety_decisions` 입력 사본의 0.2 전환. 현재 Safety의 0.2 판정은 해당 0.1 사본에서 거절된다.
+- 정답 담당자·관리자: 공통 명세의 11개 파일 0.2 안내와 `m8-reporter.md`의 Ground Truth 0.1 표 정리. 현재 정답 Schema와 dataset은 기존 0.1로 유지한다.
+- 연결 검증: 위 항목 반영 후 동일 실행의 수집·후보·계획·판정·검증·KG revision·리포트로 실제 연결을 확인한다. 독립 테스트 통과나 서로 다른 예시 파일의 Schema 통과로 이를 대체하지 않는다.
+
+노션 원본은 현재 연결에서 404로 반환되어 저장소 명세 스냅샷과 공개 Schema를 사용했다. 원본과 스냅샷의 최신 일치 여부는 확인하지 못했으며 `docs/spec/`을 수정하지 않았다. `IMPLEMENTATION.md`는 생성하지 않고 이 README에 이력을 누적한다.
 
 ### 2026-10-09 — 5단계: Resource 식별값 원문 보존
 

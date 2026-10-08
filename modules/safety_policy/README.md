@@ -202,9 +202,45 @@ CLI도 같은 고정 입력·설정·출력 경로를 사용하며 파일 해시
 .venv/bin/python -m pytest modules/safety_policy/
 ```
 
+현재 결과: `145 passed`.
+
 실제 비밀값과 실행 결과는 fixture나 Git에 저장하지 않는다.
 
 ## 변경 이력
+
+### 2026-10-09 — 6단계: 최종 회귀와 직접 연결 계약 확인
+
+기준 커밋 `1b123bd`에서 사전 판정·승인 재평가·계획 해시·출력 저장의 기존 테스트를 다시 실행했다. 구현 코드·Schema·fixture·의존성은 변경하지 않고 검증 결과와 연계 조건을 기록했다.
+
+| 경계 | 생산자 / 소비자 버전 | 확인 결과 |
+|---|---|---|
+| scenario_generator → safety_policy | `0.1.0` / `0.2.0` | 현재 공개 시나리오 fixture는 버전 불일치로 거절. 생산자 전환 필요 |
+| safety_policy → reporter | `0.2.0` / `0.2.0` | 공개 판정 fixture의 입력 Schema 검증 통과. Schema 사본은 최상위 제목·설명·`$id`를 제외하면 일치 |
+| safety_policy → verifier | `0.2.0` / `0.1.0` | 현재 verifier 입력 사본은 0.2 판정을 거절. 소비자 전환 필요 |
+
+서로 다른 시나리오 파일의 SHA-256이나 승인 기록을 맞추기 위해 원본 산출물을 수정하지 않았다. `policy_config`·`approval_record`의 독립 0.1 계약과 `policy_version`도 유지한다.
+
+검증 결과:
+
+```text
+safety_policy
+145 passed
+
+knowledge_graph + safety_policy + reporter 기본 테스트
+661 passed, 4 skipped
+
+같은 담당 3개 모듈, 실제 Neo4j 통합 테스트 활성화
+665 passed
+
+modules/ 전체 테스트
+1456 passed, 4 skipped
+```
+
+기본 합동 검증은 `.venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter -q -rs`, 전체 모듈 검증은 `.venv/bin/python -m pytest modules -q -rs --tb=short`로 실행했다. 기본 실행의 skip 4건은 KG의 실제 Neo4j 통합 테스트이며, 별도 일회성 DB 실행에서는 모두 통과했다. 전체 모듈 재실행은 Chromium·로컬 테스트 서버를 사용할 수 있는 환경에서 수행했다.
+
+정상·partial·failed, 구버전 거절, 6개 assessment와 최종 판정 대응, 승인으로 block·unknown을 허용하지 않는 규칙, 변경된 계획의 승인 거절, 실제 출력 해시·input_ref·원자 저장을 회귀 확인했다. AST 검사에서 Python 파일 28개의 다른 모듈 import 0건, Schema 4개의 외부 `$ref` 0건을 확인했다.
+
+담당 모듈 내부 수정 1~6단계는 완료했다. 다만 독립 테스트 통과가 위 두 연계 버전 차이의 해소를 의미하지는 않는다. scenario_generator·verifier 담당자가 각각 자기 계약을 반영한 뒤 같은 실행의 계획·판정·검증 결과로 연결을 확인해야 한다. 다른 모듈·공용 명세·실제 실행 결과는 수정하지 않았다.
 
 ### 2026-10-09 — 공개 입출력 계약 0.2.0 동기화
 
