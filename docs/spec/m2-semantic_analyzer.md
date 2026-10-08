@@ -89,6 +89,7 @@
 
 - basis=observed·inferred·verified를 구분한다. LLM의 추론을 관찰된 사실이나 검증된 접근으로 바꾸어 기록하지 않는다.
 - 관찰 접근인 ACCESS와 정상 허용 정책은 구분한다. 관찰한 업무 순서를 반드시 지켜야 하는 업무 정책으로 단정하지 않는다.
+- ACCESS는 관찰된 접근을 역할 단위(Role→Endpoint)와 계정 단위(User(계정)→Endpoint) 둘 다로 남긴다. 계정 단위 접근 분석(예: 수평 인가)이 필요하므로 역할 집계만으로 남기지 않는다.
 - User 계정 ID와 Role ID를 분리하고, 원본 요청 ID를 새 ID로 교체하지 않는다.
 - ground_truth.json을 읽거나 프롬프트에 넣지 않는다. 인증·비밀값을 제거한 데이터와 명시된 근거만 사용한다.
 
@@ -96,7 +97,7 @@
 
 ### semantic_analysis.json
 
-- 고정 값: `artifact_type=semantic_analysis`, `producer=semantic_analyzer`.
+- 고정 값: `artifact_type=semantic_analysis`, `producer=semantic_analyzer`, `schema_version=0.2.0`(Resource 입력 계약 0.2 반영. crawl_result 입력 버전과 독립).
 - 예상 Schema 경로: `modules/semantic_analyzer/schemas/output/semantic_analysis.schema.json`.
 - 예상 출력 fixture 경로: `modules/semantic_analyzer/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/semantic_analyzer/semantic_analysis.json`.
 
@@ -144,9 +145,33 @@
 | --- | --- | --- | --- |
 | `node_id` | `string` | 필수 | KG 노드 ID. 동일 진단에서 안정적으로 유지한다. |
 | `node_type` | `enum: User, Role, Page, Action, Endpoint, Parameter, Resource` | 필수 | RFP의 주요 노드 종류. |
-| `properties` | `map<string, JsonValue>` | 필수 | JSON으로 표현 가능한 노드 속성. Neo4j 객체를 직접 넣지 않는다. |
+| `properties` | `map<string, JsonValue>` | 필수 | JSON으로 표현 가능한 노드 속성. Neo4j 객체를 직접 넣지 않는다. **`node_type=Resource`이면 아래 ResourceProperties를 따른다(계약 0.2).** |
 | `basis` | `enum: observed, inferred, verified` | 필수 | observed=관찰, inferred=추론, verified=검증 결과. |
 | `evidence_refs` | `array<EvidenceRef>` | 필수 | 노드 속성의 근거 참조. |
+
+### ResourceProperties (node_type=Resource의 properties, 계약 0.2)
+
+| 필드 | 타입·허용값 | 필수 | 의미 |
+| --- | --- | --- | --- |
+| `resource_key` | `string` | 필수 | 자원 종류 키(명사). 예: order, user. |
+| `resource_scope` | `enum: type, instance` | 필수 | type=자원 종류 전체, instance=특정 인스턴스(경로 id로 접근). |
+| `match_key` | `ResourceMatchKey / null` | 필수 | instance면 식별자 포함, type이면 null. |
+
+`properties`는 확장 가능(위 세 필드 외 추가 키 허용). `resource_scope=type`이면 `match_key=null`, `instance`면 `match_key`가 필수다.
+
+### ResourceMatchKey
+
+| 필드 | 타입·허용값 | 필수 | 의미 |
+| --- | --- | --- | --- |
+| `resource_key` | `string` | 필수 | 자원 종류 키. |
+| `identifiers` | `array<ResourceIdentifier>` (1개 이상) | 필수 | 인스턴스를 가리키는 식별자 목록. |
+
+### ResourceIdentifier
+
+| 필드 | 타입·허용값 | 필수 | 의미 |
+| --- | --- | --- | --- |
+| `key` | `string` | 필수 | 식별자 이름(예: 경로 파라미터명 order_id). |
+| `value` | `string` | 필수 | 관찰된 식별자 값(비밀값이면 인스턴스로 만들지 않는다). |
 
 ### GraphEdge
 

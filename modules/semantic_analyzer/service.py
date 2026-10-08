@@ -194,16 +194,49 @@ def _process_parameters(graph: _Graph, endpoint_id: str, parameters: list[dict],
     return definitions
 
 
+def _path_identifiers(request: dict) -> list[dict]:
+    """경로(path) 위치 파라미터에서 인스턴스 식별자 {key, value}를 만든다.
+
+    민감 파라미터(value=null)나 빈 값은 식별자로 쓸 수 없어 제외한다. 값은 문자열로 맞춘다
+    (ResourceIdentifier.value는 비어있지 않은 문자열). 쓸 식별자가 없으면 type 범위로 떨어진다.
+    """
+    identifiers: list[dict] = []
+    for parameter in request["parameters"]:
+        if parameter["location"] != "path" or parameter["is_sensitive"]:
+            continue
+        value = parameter["value"]
+        if value is None or str(value) == "":
+            continue
+        identifiers.append({"key": parameter["name"], "value": str(value)})
+    return identifiers
+
+
 def _apply_meaning(graph: _Graph, request: dict, endpoint_id: str, meaning, evidence: list[dict]) -> list[dict]:
-    """추론한 자원을 Resource 노드·REFERENCE/OWNS 관계로 얹는다(basis=inferred)."""
-    has_path_id = any(p["location"] == "path" for p in request["parameters"])
+    """추론한 자원을 Resource 노드·REFERENCE/OWNS 관계로 얹는다(basis=inferred).
+
+    Resource properties는 계약 0.2: resource_key·resource_scope(type|instance)·match_key.
+    경로 id로 특정 인스턴스에 접근했으면 instance 범위(식별자 포함)로 만들고 소유(OWNS)를 추정한다.
+    (1차 단순화: 요청에 쓸 수 있는 경로 식별자가 있으면 해당 요청의 추론 자원을 모두 instance로 본다.)
+    """
+    identifiers = _path_identifiers(request)
+    is_instance = bool(identifiers)
+    identifier_values = tuple(item["value"] for item in identifiers)
     resource_node_ids: list[str] = []
     for resource_key in meaning.resource_keys:
-        resource_id = ids.resource_node_id(resource_key)
-        graph.add_node(resource_id, "Resource", {"name": resource_key}, BASIS_INFERRED, evidence)
+        if is_instance:
+            resource_id = ids.resource_instance_node_id(resource_key, identifier_values)
+            properties = {
+                "resource_key": resource_key,
+                "resource_scope": "instance",
+                "match_key": {"resource_key": resource_key, "identifiers": identifiers},
+            }
+        else:
+            resource_id = ids.resource_node_id(resource_key)
+            properties = {"resource_key": resource_key, "resource_scope": "type", "match_key": None}
+        graph.add_node(resource_id, "Resource", properties, BASIS_INFERRED, evidence)
         graph.add_edge(endpoint_id, "REFERENCE", resource_id, {}, BASIS_INFERRED, evidence)
-        # 경로 id로 특정 인스턴스에 접근했으면 소유 관계를 추정한다(IDOR 분석의 재료). 추론이다.
-        if has_path_id:
+        # 인스턴스 접근이면 소유 관계를 추정한다(IDOR 분석의 재료). 추론이다.
+        if is_instance:
             graph.add_edge(ids.user_node_id(request["account_id"]), "OWNS", resource_id, {},
                            BASIS_INFERRED, evidence)
         resource_node_ids.append(resource_id)

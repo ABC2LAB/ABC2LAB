@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "abc2lab/semantic_analyzer/output/semantic_analysis.schema.json",
   "title": "semantic_analysis (semantic_analyzer 출력 계약)",
-  "description": "m2-semantic_analyzer.md v0.1 기준. 직접 소비자: knowledge_graph, reporter(개발 평가).",
+  "description": "m2-semantic_analyzer.md v0.2 기준(Resource 입력 계약 0.2). 직접 소비자: knowledge_graph, reporter(개발 평가).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,7 +11,7 @@
     "runtime_metrics", "data"
   ],
   "properties": {
-    "schema_version": { "const": "0.1.0" },
+    "schema_version": { "const": "0.2.0" },
     "artifact_type": { "const": "semantic_analysis" },
     "artifact_id": { "type": "string", "minLength": 1 },
     "run_id": { "type": "string", "minLength": 1 },
@@ -154,7 +154,51 @@
         "properties": { "type": "object" },
         "basis": { "enum": ["observed", "inferred", "verified"] },
         "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "node_type": { "const": "Resource" } } },
+          "then": { "properties": { "properties": { "$ref": "#/$defs/ResourceProperties" } } }
+        }
+      ]
+    },
+    "ResourceIdentifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "value": { "type": "string", "minLength": 1 }
       }
+    },
+    "ResourceMatchKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_key", "identifiers"],
+      "properties": {
+        "resource_key": { "type": "string", "minLength": 1 },
+        "identifiers": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ResourceIdentifier" } }
+      }
+    },
+    "ResourceProperties": {
+      "type": "object",
+      "required": ["resource_key", "resource_scope", "match_key"],
+      "additionalProperties": true,
+      "properties": {
+        "resource_key": { "type": "string", "minLength": 1 },
+        "resource_scope": { "enum": ["type", "instance"] },
+        "match_key": { "oneOf": [{ "$ref": "#/$defs/ResourceMatchKey" }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "resource_scope": { "const": "type" } } },
+          "then": { "properties": { "match_key": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "resource_scope": { "const": "instance" } } },
+          "then": { "properties": { "match_key": { "$ref": "#/$defs/ResourceMatchKey" } } }
+        }
+      ]
     },
     "GraphEdge": {
       "type": "object",

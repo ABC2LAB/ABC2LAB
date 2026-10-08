@@ -74,13 +74,24 @@ def test_access_edges_cover_role_and_account(result):
 
 def test_resource_nodes_and_owns_are_inferred(result):
     resources = _nodes_by_type(result, "Resource")
-    assert any(n["properties"]["name"] == "order" for n in resources)
+    # 계약 0.2: Resource properties는 resource_key·resource_scope·match_key
+    assert any(n["properties"]["resource_key"] == "order" for n in resources)
     assert all(n["basis"] == "inferred" for n in resources)
+    assert all(n["properties"]["resource_scope"] in ("type", "instance") for n in resources)
     owns = _edges_by_type(result, "OWNS")
-    # alice·bob이 각자 경로 id로 주문에 접근 → 둘 다 order 자원 OWNS(추론)
+    # alice·bob이 각자 경로 id로 주문에 접근 → 둘 다 order 인스턴스 자원 OWNS(추론)
     owners = {e["source_id"] for e in owns}
     assert "user:acc_alice" in owners and "user:acc_bob" in owners
     assert all(e["basis"] == "inferred" for e in owns)
+
+
+def test_instance_resource_has_match_key(result):
+    # 경로 id로 접근한 자원은 instance 범위 + match_key(식별자) 를 가진다(IDOR 판정 재료).
+    instances = [n for n in _nodes_by_type(result, "Resource")
+                 if n["properties"]["resource_scope"] == "instance"]
+    assert instances, "instance 범위 Resource가 없음"
+    mk = instances[0]["properties"]["match_key"]
+    assert mk is not None and mk["identifiers"] and "key" in mk["identifiers"][0]
 
 
 def test_action_meaning_from_fake(result):
