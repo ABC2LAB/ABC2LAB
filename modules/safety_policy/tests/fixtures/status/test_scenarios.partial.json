@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "test_scenarios",
   "artifact_id": "test_scenarios_partial_001",
   "run_id": "run_demo_001",

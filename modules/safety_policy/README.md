@@ -28,7 +28,13 @@
 
 - 입력: `schemas/input/test_scenarios.schema.json`
 - 출력: `schemas/output/safety_decisions.schema.json`
-- 계약 버전: `0.1.0`
+- 공개 산출물 계약 버전: `0.2.0`
+
+`test_scenarios.json` 입력과 `safety_decisions.json` 출력은 `0.2.0`만 지원한다.
+`0.1.0`과 미지원 버전은 거절하며 완료된 입력 파일을 묵시적으로 변환하지 않는다.
+자기 설정 `policy_config`와 승인 기록 `approval_record`의 Schema 버전은 각각
+`0.1.0`을 유지한다. `policy_version`은 적용한 안전 규칙의 버전이며 공개 산출물의
+`schema_version`과 별도로 관리한다.
 
 일반 객체의 미정의 키는 거절한다. `status=completed`는 빈 `errors`와 유효한
 `data`, `partial`은 하나 이상의 오류와 유효한 `data`, `failed`는 하나 이상의
@@ -126,8 +132,9 @@ Policy 설정은 `schemas/input/policy_config.schema.json`으로 검증하며 �
 완료 제어 응답은 `operation`, `status`, `artifact_id`, `output_path`, `sha256`,
 `errors`를 반환한다. 입력이나 설정이 평가 도중 변경되면 출력을 공개하지 않는다.
 
-`safety_decisions.json`의 v0.1 출력 Schema는 변경하지 않는다. Policy 설정 해시는
-실행 입력에서만 검증하며 출력에는 기존 `policy_id`·`policy_version`을 기록한다.
+초기 4단계 구현에서는 `safety_decisions.json`의 v0.1 출력 Schema를 유지했다.
+현재 지원 버전은 위 계약 파일 절을 따른다. Policy 설정 해시는 실행 입력에서만
+검증하며 출력에는 기존 `policy_id`·`policy_version`을 기록한다.
 
 ## 5단계 승인 기록 재평가
 
@@ -160,8 +167,8 @@ context["approval_record"] = {
 
 승인 파일이 평가 중 바뀌면 결과를 공개하지 않는다. 승인 기록 생성과 사용자
 진위 확인은 향후 runner·UI 통합에서 이 입력 계약에 맞춰 연결하며, 현재 모듈은
-미리 만들어진 독립 fixture로 재평가 경계를 검증한다. `safety_decisions.json`
-출력 Schema는 5단계에서도 변경하지 않는다.
+미리 만들어진 독립 fixture로 재평가 경계를 검증한다. 초기 5단계 구현에서도
+당시 `safety_decisions.json` 출력 Schema를 유지했다.
 
 ### CLI
 
@@ -196,3 +203,52 @@ CLI도 같은 고정 입력·설정·출력 경로를 사용하며 파일 해시
 ```
 
 실제 비밀값과 실행 결과는 fixture나 Git에 저장하지 않는다.
+
+## 변경 이력
+
+### 2026-10-09 — 공개 입출력 계약 0.2.0 동기화
+
+공통 명세 `docs/spec/02-common-contract.md`의 팀 합의에 맞춰
+`test_scenarios.json` 입력 Schema, `safety_decisions.json` 출력 Schema와
+출력 adapter의 envelope 버전을 `0.2.0`으로 동기화했다. 버전 이외의 공개
+필드·타입·허용값과 안전 판단 의미는 변경하지 않았다.
+
+- `0.1.0`과 미지원 버전은 입력·출력 검증에서 거절한다. 구버전 입력은
+  `CONTRACT_INVALID` 제어 응답을 반환하고 판정 파일을 생성하지 않는다.
+- 정상·partial·failed 독립 fixture의 산출물 버전을 갱신했다. 정상 판정의
+  `input_refs`·`scenarios_sha256`과 승인 fixture의 계획 해시는 변경된
+  시나리오 파일의 정확한 바이트로 다시 계산했다.
+- partial 판정 fixture에도 대응하는 시나리오 참조와 실제 해시를 넣어
+  Schema뿐 아니라 입력·출력 대응 검증을 추가했다.
+- `policy_config`·`approval_record` Schema는 `0.1.0`을 유지한다.
+  `policy_version`은 실제 설정값을 그대로 출력하며 산출물 버전과 구분한다.
+- 6개 assessment, allow/block/require_approval 판정, 승인으로 block·unknown을
+  허용하지 않는 규칙, 실행 범위·제한·경로 검증·원자 저장은 그대로 유지했다.
+- 공개 `evaluate`와 CLI의 상태별 `0.2.0` 출력, 입력 참조·계획 해시·완료 응답
+  해시 보존, 승인 재평가, 구버전 입력·출력 거절 회귀 검증을 보강했다.
+
+승인 fixture 갱신은 독립 테스트 데이터에만 적용했다. 실제 승인 기록을 새 계획에
+자동으로 연결하지 않는다. 버전 변경만으로 파일 바이트가 달라져도 이전 계획의
+승인은 새 계획에 사용할 수 없으며 새 승인이 필요하다. 이전 `0.1.0` 파일
+바이트의 해시로 묶인 승인 기록이 현재 계획에서 거절되는 것을 검증했다.
+
+이번 변경은 `modules/safety_policy/**` 안에서만 수행했다. 기준 커밋
+`dd6c4cc`의 scenario_generator 출력과 verifier·reporter 입력은 아직
+`0.1.0`이다. 각 담당자의 `0.2.0` 전환과 실제 산출물 수신 검증 전에는
+전체 파이프라인 연결 완료로 보지 않는다. 다른 모듈의 산출물·Schema와 실제
+실행 결과는 수정하지 않았다.
+
+검증 명령과 결과:
+
+```bash
+.venv/bin/python -m pytest modules/safety_policy -q
+# 145 passed
+
+.venv/bin/python -m pytest modules/knowledge_graph modules/access_analyzer modules/safety_policy modules/reporter -q
+# 528 passed, 4 skipped
+```
+
+skip 4건은 실제 Neo4j를 사용하는 KG 통합 테스트다. 연관 모듈 회귀는 각 모듈의
+독립 fixture 검증이며 위 버전 차이가 해소되었다는 의미는 아니다.
+
+다음 단계는 reporter의 공개 입출력 계약을 `0.2.0`에 맞추는 작업이다.

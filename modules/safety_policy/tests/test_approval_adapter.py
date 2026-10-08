@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,39 @@ def test_load_approval_record_returns_bound_internal_model(
     assert record.approval_id == "approval_demo_001"
     assert record.approved_scenario_ids == ("scenario_update_order_001",)
     assert record.scenarios_sha256 == prepared.source.sha256
+
+
+def test_load_approval_record_rejects_legacy_scenario_bytes(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    input_path = evaluate_run_root / (
+        "artifacts/iteration-000/scenario_generator/test_scenarios.json"
+    )
+    source_bytes = input_path.read_bytes()
+    legacy_bytes = source_bytes.replace(
+        b'"schema_version": "0.2.0"',
+        b'"schema_version": "0.1.0"',
+        1,
+    )
+    assert legacy_bytes != source_bytes
+    approval_path = evaluate_run_root / APPROVAL_RELATIVE_PATH
+    approval = load_json(approval_path)
+    assert approval["schema_version"] == "0.1.0"
+    approval["scenarios_sha256"] = sha256(legacy_bytes).hexdigest()
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+    request, prepared, configuration = _prepare_with_approval(
+        evaluate_arguments,
+        evaluate_run_root,
+    )
+
+    with pytest.raises(ApprovalRecordError, match="계획 해시"):
+        load_approval_record(
+            request,
+            prepared,
+            configuration,
+            now_factory=lambda: FIXED_NOW,
+        )
 
 
 def test_load_approval_record_rejects_hash_mismatch(
