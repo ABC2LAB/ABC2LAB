@@ -25,6 +25,10 @@ JSON_POINTER_PATTERN = re.compile(r"^(/([^/~]|~[01])*)*$")
 HEADER_NAME_PATTERN = re.compile(r"^[^A-Z\s]+$")
 PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]*)\}")
 MAX_REPORTED_PROBLEMS = 5
+# 단계의 응답을 검사하는 조건. subject_ref가 steps의 step_id여야 평가할 수 있다.
+STEP_RESPONSE_CHECK_KINDS = frozenset({"response_status", "response_json"})
+# 실행 계정 단계에 함께 있어야 하는 판정 조건. 상태 코드만으로는 위반을 확정할 수 없어(명세 m7) 응답 내용도 본다.
+REQUIRED_ACTOR_ASSERTION_KINDS = frozenset({"response_status", "response_json"})
 
 
 @dataclass(frozen=True)
@@ -185,14 +189,49 @@ def _check_steps(scenario: dict[str, Any], context: ValidationContext) -> list[s
 
 def _check_conditions(scenario: dict[str, Any]) -> list[str]:
     problems = []
+    step_ids = {step["step_id"] for step in scenario["steps"]}
     for check in scenario["preconditions"] + scenario["assertions"]:
         check_id = check["check_id"]
         selector = check["selector"]
         if check["kind"] == "response_json" and selector is not None and not JSON_POINTER_PATTERN.fullmatch(selector):
             problems.append(f"조건 {check_id}의 selector가 JSON Pointer가 아니다")
+        if check["kind"] in STEP_RESPONSE_CHECK_KINDS and check["subject_ref"] not in step_ids:
+            problems.append(f"조건 {check_id}는 응답 조건인데 subject_ref가 steps의 step_id가 아니다")
         if check["operator"] == "in" and not isinstance(check["expected"], list):
             problems.append(f"조건 {check_id}는 operator=in인데 expected가 배열이 아니다")
     return problems
+
+
+def _check_session_preconditions(scenario: dict[str, Any]) -> list[str]:
+    """steps에 쓰인 계정마다 세션 유효성을 사전조건으로 확인한다. 세션이 죽은 실행을 위반 판정에 쓰지 않기 위해서다."""
+    step_account_ids = {step["account_id"] for step in scenario["steps"]}
+    session_check_subjects = {
+        check["subject_ref"] for check in scenario["preconditions"] if check["kind"] == "session_valid"
+    }
+    problems = [
+        f"계정 {account_id}의 session_valid 사전조건이 없다"
+        for account_id in sorted(step_account_ids - session_check_subjects)
+    ]
+    for check in scenario["preconditions"] + scenario["assertions"]:
+        if check["kind"] != "session_valid":
+            continue
+        if check["subject_ref"] not in step_account_ids:
+            problems.append(f"조건 {check['check_id']}는 session_valid인데 subject_ref가 steps에 쓰인 계정이 아니다")
+        # exists는 값이 있기만 하면 참이라 세션이 죽어도(false) 통과한다. 유효성은 eq true로만 확인한다.
+        if check["operator"] != "eq" or check["expected"] is not True:
+            problems.append(f"조건 {check['check_id']}는 session_valid인데 operator=eq, expected=true가 아니다")
+    return problems
+
+
+def _check_actor_assertions(scenario: dict[str, Any], actor_account_id: str) -> list[str]:
+    """실행 계정 단계 하나에 response_status와 response_json 판정 조건이 함께 있어야 한다."""
+    actor_step_ids = {step["step_id"] for step in scenario["steps"] if step["account_id"] == actor_account_id}
+    kinds_by_step_id: dict[str, set[str]] = {}
+    for check in scenario["assertions"]:
+        kinds_by_step_id.setdefault(check["subject_ref"], set()).add(check["kind"])
+    if any(REQUIRED_ACTOR_ASSERTION_KINDS <= kinds_by_step_id.get(step_id, set()) for step_id in actor_step_ids):
+        return []
+    return ["실행 계정 단계에 response_status와 response_json 판정 조건이 함께 있어야 한다"]
 
 
 def find_scenario_problems(scenario: Any, context: ValidationContext) -> list[str]:
@@ -205,4 +244,6 @@ def find_scenario_problems(scenario: Any, context: ValidationContext) -> list[st
         + _check_identifiers(scenario)
         + _check_steps(scenario, context)
         + _check_conditions(scenario)
+        + _check_session_preconditions(scenario)
+        + _check_actor_assertions(scenario, context.matched.actor_account["account_id"])
     )

@@ -105,6 +105,14 @@
             "selector": null,
             "operator": "eq",
             "expected": 200
+          },
+          {
+            "check_id": "assert_actor_body",
+            "kind": "response_json",
+            "subject_ref": "step_actor_detail",
+            "selector": "/id",
+            "operator": "exists",
+            "expected": true
           }
         ]
       },
@@ -148,6 +156,14 @@
             "selector": null,
             "operator": "eq",
             "expected": 200
+          },
+          {
+            "check_id": "assert_confirm_body",
+            "kind": "response_json",
+            "subject_ref": "step_confirm_directly",
+            "selector": "/status",
+            "operator": "eq",
+            "expected": "confirmed"
           }
         ]
       }

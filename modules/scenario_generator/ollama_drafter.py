@@ -16,7 +16,7 @@ from typing import Any
 
 from modules.scenario_generator.scenario_drafter import Draft, DrafterError
 
-PROMPT_VERSION = "ollama-scenario-v2"
+PROMPT_VERSION = "ollama-scenario-v3"
 _GENERATE_PATH = "/api/generate"
 
 # 상위 3키뿐 아니라 중첩 레코드(ScenarioStep·RequestPlan·ParameterValue·Binding·Check)의
@@ -29,7 +29,8 @@ _SYSTEM = (
     "Each STEP object has EXACTLY: step_id(string, unique), order(integer, contiguous from 0), "
     "source_request_id(one of source_requests[].request_id), account_id(=actor_account.account_id), "
     "role_id(=actor_account.role_id), session_ref(=actor_account.session_ref), "
-    "request(object), bindings(array, usually []; may only reference earlier steps).\n"
+    "request(object), bindings(array, usually []; may only reference earlier steps), "
+    "state_change(none|possible|expected|unknown; your estimate of whether this request changes server state).\n"
     "request has EXACTLY: method(=that source request's method), url_template(=that source request's url, "
     "same scheme/host/port, no credentials), parameters(array of {name, location(path|query|body), value, binding_ref}), "
     "body_ref(null unless that source request had one).\n"
@@ -37,8 +38,11 @@ _SYSTEM = (
     "kind(session_valid|response_status|response_json|resource_state|resource_owner|baseline_match), "
     "subject_ref(string, e.g. an account_id or step_id), selector(JSON Pointer string or null), "
     "operator(exists|eq|ne|in|contains), expected(any JSON).\n"
-    "preconditions: >=1 (e.g. session_valid for the actor). assertions: >=1 (e.g. response_status eq 200 "
-    "meaning the actor could access the resource = violation reproduced).\n"
+    "preconditions MUST contain one session_valid check (operator eq, expected true) for EVERY account_id used "
+    "in steps; its subject_ref is that account_id. ALL assertions true = violation reproduced. An HTTP status alone "
+    "NEVER proves a violation: on the actor's step, assertions MUST contain BOTH a response_status check AND a "
+    "response_json check proving the response actually carries the target resource. "
+    "response_status/response_json subject_ref MUST be a step_id from steps.\n"
     "Each PARAMETER in request.parameters has EXACTLY: name(string), location(path|query|body), "
     "value(literal JSON or null), binding_ref(string or null; null when value is literal). "
     "NEVER include is_sensitive or any other key in a parameter.\n"
@@ -51,13 +55,15 @@ _SYSTEM = (
     "Below is the required SHAPE. The literal values shown are only illustrative; replace every value with the "
     "matching real value from actor_account and source_requests:\n"
     '{"preconditions":[{"check_id":"pc1","kind":"session_valid","subject_ref":"account_user_a",'
-    '"selector":null,"operator":"exists","expected":true}],'
+    '"selector":null,"operator":"eq","expected":true}],'
     '"steps":[{"step_id":"s1","order":0,"source_request_id":"request_1",'
     '"account_id":"account_user_a","role_id":"role_user","session_ref":"session_user_a",'
     '"request":{"method":"GET","url_template":"http://localhost:8001/products/1","parameters":[],"body_ref":null},'
-    '"bindings":[]}],'
+    '"bindings":[],"state_change":"none"}],'
     '"assertions":[{"check_id":"a1","kind":"response_status","subject_ref":"s1","selector":null,'
-    '"operator":"eq","expected":200}]}'
+    '"operator":"eq","expected":200},'
+    '{"check_id":"a2","kind":"response_json","subject_ref":"s1","selector":"/id",'
+    '"operator":"exists","expected":true}]}'
 )
 
 Transport = Callable[[str, bytes, float], bytes]
