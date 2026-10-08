@@ -7,7 +7,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = "0.1.0"
+SCHEMA_VERSION = "0.2.0"
 ARTIFACT_TYPE = "crawl_result"
 PRODUCER = "collector"
 ARTIFACT_ID_RANDOM_BYTES = 4

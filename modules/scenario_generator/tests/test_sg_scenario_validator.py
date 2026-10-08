@@ -94,6 +94,29 @@ def mutate_parameter_value_and_binding(s: dict[str, Any], env: dict[str, Any]) -
     get_consumer(s)["request"]["parameters"] = [{"name": "p", "location": "query", "value": "x", "binding_ref": binding_id}]
 
 
+def append_step_reusing_consumer_binding(s: dict[str, Any]) -> dict[str, Any]:
+    """소비 단계 뒤에 bindings 없이 소비 단계의 바인딩을 다시 쓰는 단계를 붙인다."""
+    consumer = get_consumer(s)
+    later_step = copy.deepcopy(consumer)
+    later_step["step_id"] = "step_reuses_binding"
+    later_step["order"] = len(s["steps"])
+    later_step["bindings"] = []
+    later_step["request"]["url_template"] = consumer["request"]["url_template"].split("{")[0] + "{" + consumer["bindings"][0]["binding_id"] + "}"
+    s["steps"].append(later_step)
+    return later_step
+
+
+def mutate_url_uses_earlier_step_binding(s: dict[str, Any], env: dict[str, Any]) -> None:
+    append_step_reusing_consumer_binding(s)
+
+
+def mutate_parameter_uses_earlier_step_binding(s: dict[str, Any], env: dict[str, Any]) -> None:
+    binding_id = get_consumer(s)["bindings"][0]["binding_id"]
+    later_step = append_step_reusing_consumer_binding(s)
+    later_step["request"]["url_template"] = later_step["request"]["url_template"].split("{")[0].rstrip("/")
+    later_step["request"]["parameters"] = [{"name": "p", "location": "query", "value": None, "binding_ref": binding_id}]
+
+
 def mutate_url_unknown_placeholder(s: dict[str, Any], env: dict[str, Any]) -> None:
     get_consumer(s)["request"]["url_template"] += "/{no_such_binding}"
 
@@ -213,6 +236,8 @@ PROBLEM_CASES: list[tuple[str, Mutation, str]] = [
     ("binding from an unknown step", mutate_binding_to_unknown_step, "source_step_id가 steps에 없다"),
     ("parameter uses unknown binding", mutate_parameter_unknown_binding, "정의되지 않은 바인딩"),
     ("parameter has value and binding_ref", mutate_parameter_value_and_binding, "함께 쓴다"),
+    ("url uses a binding defined in an earlier step", mutate_url_uses_earlier_step_binding, "정의되지 않은 바인딩"),
+    ("parameter uses a binding defined in an earlier step", mutate_parameter_uses_earlier_step_binding, "정의되지 않은 바인딩"),
     ("url uses unknown placeholder", mutate_url_unknown_placeholder, "정의되지 않은 바인딩"),
     ("url has stray brace", mutate_url_stray_brace, "중괄호"),
     ("url points to another host", mutate_url_other_host, "origin 밖"),

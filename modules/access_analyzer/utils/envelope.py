@@ -11,7 +11,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = "0.1.0"
+SCHEMA_VERSION = "0.2.0"
 PRODUCER = "access_analyzer"
 ARTIFACT_TYPE_GRAPH_QUERY = "graph_query"
 ARTIFACT_TYPE_CANDIDATES = "vulnerability_candidates"

@@ -4,7 +4,9 @@ docs는 명세 의미대로 손으로 만든다. graph_query_result는 입력 �
 """
 
 import copy
+import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +15,11 @@ from modules.access_analyzer.tests.helpers import GRAPH_QUERY_FIXTURE, schema_er
 GRAPH_QUERY_SCHEMA = "output/graph_query.schema.json"
 RESULT_SCHEMA = "input/graph_query_result.schema.json"
 CANDIDATES_SCHEMA = "output/vulnerability_candidates.schema.json"
+# analyze를 two_owners 데모 입력으로 실제 실행해 만든 생산자 샘플. 2단계에서 소비자가 입력 사본 검증에 쓴다.
+CANDIDATES_FIXTURE = (
+    Path(__file__).resolve().parent
+    / "fixtures/runs/run_demo_001/artifacts/iteration-000/access_analyzer/vulnerability_candidates.json"
+)
 
 EVIDENCE = {
     "evidence_id": "ev1", "kind": "response",
@@ -93,7 +100,7 @@ def _candidate() -> dict:
 
 def _candidates_envelope(candidates: list) -> dict:
     return {
-        "schema_version": "0.1.0", "artifact_type": "vulnerability_candidates", "artifact_id": "c1",
+        "schema_version": "0.2.0", "artifact_type": "vulnerability_candidates", "artifact_id": "c1",
         "run_id": "run_demo_001", "iteration": 0, "producer": "access_analyzer", "mode": "development",
         "created_at": "2026-10-07T00:04:00Z", "status": "completed", "input_refs": [], "errors": [],
         "runtime_metrics": None, "data": {"source_graph_revision": 1, "candidates": candidates, "model_info": None},
@@ -221,6 +228,26 @@ def test_result_completed_with_errors_rejected() -> None:
 
 def test_candidate_valid() -> None:
     assert schema_errors(CANDIDATES_SCHEMA, _candidates_envelope([_candidate()])) == []
+
+
+def test_producer_sample_validates_against_output_schema() -> None:
+    # 커밋된 생산자 샘플(실제 analyze 출력)이 자기 출력 스키마(0.2.0)를 통과하는지 고정한다.
+    doc = json.loads(CANDIDATES_FIXTURE.read_bytes())
+    assert doc["schema_version"] == "0.2.0"
+    assert doc["run_id"] == "run_demo_001"
+    assert doc["data"]["candidates"]  # 실제 실행 산출물: 후보가 비어 있지 않다(two_owners → 2건)
+    assert schema_errors(CANDIDATES_SCHEMA, doc) == []
+
+
+def test_producer_sample_input_ref_resolves_in_run_tree() -> None:
+    # 2단계 소비자가 이 run 트리로 검증할 수 있게: input_ref가 run 루트 기준 상대경로이고 실제 파일·해시가 맞는지 고정.
+    run_root = CANDIDATES_FIXTURE.parents[3]
+    doc = json.loads(CANDIDATES_FIXTURE.read_bytes())
+    [ref] = doc["input_refs"]
+    assert not ref["path"].startswith("/")
+    target = run_root / ref["path"]
+    assert target.is_file()
+    assert hashlib.sha256(target.read_bytes()).hexdigest() == ref["sha256"]
 
 
 def test_candidate_empty_source_request_ids_rejected() -> None:

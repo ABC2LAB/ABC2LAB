@@ -18,7 +18,7 @@ from modules.collector.core.models import CapturedRequest, DiscoveredPage, PageA
 from modules.collector.utils.storage import prepare_evidence_dir, publish_file, serialize_json
 from modules.collector.utils.validation import DOM_KIND, EVIDENCE_ROOT, RESPONSE_KIND
 
-EVIDENCE_SCHEMA_VERSION = "0.1.0"
+EVIDENCE_SCHEMA_VERSION = "0.2.0"
 EVIDENCE_ID_FORMAT = "evidence:{kind}:{owner_id}"
 ID_SEPARATOR = ":"
 FILE_NAME_SEPARATOR = "-"

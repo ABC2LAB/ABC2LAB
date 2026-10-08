@@ -98,7 +98,7 @@
 
 ### graph_query.json
 
-- 고정 값: `artifact_type=graph_query`, `producer=access_analyzer`.
+- 고정 값: `artifact_type=graph_query`, `producer=access_analyzer`, `schema_version=0.2.0`(전원 동시 전환).
 - 예상 Schema 경로: `modules/access_analyzer/schemas/output/graph_query.schema.json`.
 - 예상 출력 fixture 경로: `modules/access_analyzer/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/access_analyzer/graph_query.json`.
 
@@ -110,7 +110,7 @@
 
 ### vulnerability_candidates.json
 
-- 고정 값: `artifact_type=vulnerability_candidates`, `producer=access_analyzer`.
+- 고정 값: `artifact_type=vulnerability_candidates`, `producer=access_analyzer`, `schema_version=0.2.0`(전원 동시 전환).
 - 예상 Schema 경로: `modules/access_analyzer/schemas/output/vulnerability_candidates.schema.json`.
 - 예상 출력 fixture 경로: `modules/access_analyzer/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/access_analyzer/vulnerability_candidates.json`.
 
@@ -191,16 +191,25 @@
 | `rule_id` | `string` | 필수 | 후보를 생성한 규칙 식별자. |
 | `actor_account_id` | `string` | 필수 | 재현을 제안하는 실행 계정 ID. |
 | `actor_role_id` | `string` | 필수 | 실행 계정 역할 ID. |
-| `reference_account_id` | `string / null` | 필수 | 정상 소유자·상위 역할 등 비교 기준 계정. 없으면 null. |
-| `resource_ids` | `array<string>` | 필수 | 검증 대상 자원 ID. |
-| `source_request_ids` | `array<string>` | 필수 | 후보와 연결된 수집 요청 ID. |
-| `workflow_id` | `string / null` | 필수 | 관련 업무 흐름 ID. 없으면 null. |
+| `reference_account_id` | `nonEmptyString / null` | 필수 | 정상 소유자·상위 역할 등 비교 기준 계정. 없으면 null(빈 문자열 금지). |
+| `resource_ids` | `array<nonEmptyString>` (minItems 1) | 필수 | 검증 대상 자원 ID. **KG Resource instance node_id**(graph_query_result의 instance `resource_id`를 그대로). |
+| `source_request_ids` | `array<nonEmptyString>` (minItems 1) | 필수 | 후보와 연결된 수집 요청 ID. 못 채우면 후보를 발행하지 않는다. |
+| `workflow_id` | `nonEmptyString / null` | 필수 | 관련 업무 흐름 ID. 없으면 null(빈 문자열 금지). |
 | `hypothesis` | `string` | 필수 | 검증할 위반 가설. |
 | `expected_behavior` | `string` | 필수 | 정상 동작의 기대 조건 설명. |
 | `expected_basis` | `enum: rule, inferred, unknown` | 필수 | 기대 조건의 근거. 추론·불명확한 기대를 자동 확정 정책으로 취급하지 않는다. |
 | `evidence_refs` | `array<EvidenceRef>` | 필수 | 후보 가설을 뒷받침하는 관찰·분석 근거. |
 
 **재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [EvidenceRef](02-common-contract.md), [ModelInfo](02-common-contract.md), [RuntimeMetrics](02-common-contract.md).
+
+## 변경 이력 (0.1.0 → 0.2.0)
+
+출력 `graph_query.json`·`vulnerability_candidates.json`의 `schema_version`을 0.2.0으로 올렸다(전원 동시 전환). 필드 의미 변경은 아래뿐이다.
+
+- **`Candidate.resource_ids` = KG Resource instance node_id**: graph_query_result(0.2.0, #41)의 OwnershipRow는 instance만 오고, Rule A가 그 `resource_id`(불투명 node_id)를 그대로 담는다. 형식을 가정하지 않는다. `minItems 1`.
+- **`Candidate.source_request_ids` `minItems 1`**: 근거 수집 요청(소유자 접근 행의 `request_ids`)을 못 채우면 후보를 발행하지 않고 `CANDIDATE_INCOMPLETE` 오류로 둔다(status=partial).
+- **`reference_account_id`·`workflow_id` 빈 문자열 금지**(`nonEmptyString / null`).
+- 입력 `graph_query_result`는 KG 생산자 계약 0.2.0을 미러한다(필드 정의는 [m3-knowledge_graph](m3-knowledge_graph.md), 버전 0.2.0). type 범위 접근 행은 instance 소유 행과 연결되지 않아(다른 노드) 후보에 쓰이지 않는다.
 
 ---
 
