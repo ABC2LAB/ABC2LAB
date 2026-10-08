@@ -3,9 +3,9 @@
 | 항목 | 값 |
 |---|---|
 | module_id | `access_analyzer` |
-| 공개 operation | `prepare_queries`, `analyze` (규칙 없는 골격 — 후보는 빈 배열, Rule은 다음 PR) |
+| 공개 operation | `prepare_queries`, `analyze` |
 | 명세 | `docs/spec/m4-access_analyzer.md`, `docs/spec/02-common-contract.md`, `docs/spec/03-runner-layout.md` |
-| 계약 버전 | `schema_version = 0.1.0` |
+| 계약 버전 | 출력(`graph_query`·`vulnerability_candidates`) `0.1.0` · 입력 `graph_query_result` `0.2.0` |
 
 KG 조회 계획을 세우고(prepare_queries), KG가 돌린 결과로 인가·비즈니스 로직 취약점 **후보**를 만든다(analyze).
 후보는 **검증 대상이지 확정 취약점이 아니다.** Neo4j 접속·Cypher 실행은 knowledge_graph가 한다. 이 모듈은
@@ -83,7 +83,9 @@ CLI:
 | `rule_same_role_other_owner` | `OwnershipRow`로 자원 R의 소유자 Y를 얻고, `AccessRow.role_id`로 Y와 **같은 role_id** 인 다른 계정 X를 찾으면 (X 실행, Y 기준, R 대상) 후보. `(actor, reference)` 순서쌍마다 1개. category=authorization, vulnerability_type=horizontal_access, expected_basis=inferred | 역할 **이름**이 아니라 role_id 동일성으로 판단. 소유자 없는 자원은 OwnershipRow가 없어 자연 제외 |
 
 - **`source_request_ids`의 출처**: 소유자(reference) 계정 Y가 자원 R에 접근한 `AccessRow`의 `request_ids`를 쓴다(verifier가 그 요청을 X로 재현). 매칭되는 AccessRow가 없으면 그 후보는 발행하지 않고 `CANDIDATE_INCOMPLETE` 오류로 남긴다(status=partial).
-- 계정·역할·자원 ID는 결과 row 값을 그대로 쓴다(#29 이후 crawl 원본 ID). 우회 변환하지 않는다.
+- 계정·역할 ID는 crawl 원본 ID(#29), 자원 ID는 KG Resource `node_id`(#41)다. 결과 row 값을 그대로 쓰고 우회 변환하지 않는다.
+- **`resource_ids`는 KG Resource instance `node_id`다.** OwnershipRow는 계약상 instance만 오고(`resource_scope=instance`), 후보의 `resource_ids`는 그 `resource_id`를 그대로 담는다. 출력 계약·버전(0.1.0)은 바뀌지 않았다.
+- **type 접근 행(목록처럼 자원 종류 단위)은 소유자 재현 요청으로 쓰지 않는다.** 소유 행과 접근 행은 `(소유자, resource_id)`로 잇는데, type과 instance는 다른 노드라 resource_id가 겹칠 수 없어 type 행은 이 연결에 걸리지 않는다. 그래서 instance 필터를 따로 두지 않는다. 자원 종류(`resource_key`)로 묶지 않는다(목록 요청이 재현 요청으로 섞임). type 행도 계정·역할 관찰이라 같은 역할 계정 찾기에는 쓴다.
 
 ## 실패 처리
 
@@ -105,18 +107,19 @@ CLI:
 
 ## 명세(v0.1) 대비 변경
 
-출력 계약을 명세 표보다 **좁힌** 것. 우리 출력이 더 엄격해 소비자(더 느슨함)의 입력을 항상 통과한다. 소비자와 합의 전까지 임시이며 파이프라인 연결 때 노션·docs/spec에 반영한다(10/7 팀 규칙).
+출력은 명세 표보다 **좁힌** 것이다. 우리 출력이 더 엄격해 소비자(더 느슨함)의 입력을 항상 통과한다. 입력은 생산자가 올린 계약 버전을 그대로 미러링해 받아들인 것이다. 소비자와 합의 전까지 임시이며 파이프라인 연결 때 노션·docs/spec에 반영한다(10/7 팀 규칙).
 
 | 날짜 | 파일·필드 | 변경 | 근거·합의 |
 |---|---|---|---|
 | 2026-10-07 | `vulnerability_candidates` `Candidate.source_request_ids` | `array<string>` → `minItems:1` | 근거 요청을 못 채우면 후보를 발행하지 않는다(확정 답 2). 생산자: 최민준. 소비자 scenario_generator(이경준)·reporter(이동찬)는 더 느슨해 영향 없음(수동 확인) |
 | 2026-10-07 | `vulnerability_candidates` `Candidate.resource_ids` | `array<string>` → `minItems:1` | 같음. TODO(choiamj980818): `workflow_step_bypass` 규칙은 자원 없이 `workflow_id`만 가질 수 있어 그 규칙 추가 시 minItems:1을 재검토한다 |
 | 2026-10-07 | `vulnerability_candidates` `Candidate.reference_account_id`·`workflow_id` | `string/null` → `nonEmptyString/null` | 빈 문자열 금지. reporter 입력 Schema와 일치시킴(수동 확인: reporter·scenario_generator 입력 통과) |
+| 2026-10-08 | 입력 `graph_query_result` | `schema_version` `0.1.0` → `0.2.0` 수용. OwnershipRow·AccessRow에 `resource_key`·`resource_scope`·`match_key` 추가(OwnershipRow는 instance만), structure_snapshot Resource 노드 properties 규칙. 0.1.0 입력은 묵시 변환 없이 `INPUT_CONTRACT_INVALID`(failed)로 거절 | KG 출력 계약 0.2.0(#41, 이동찬)을 그대로 미러링(수동 확인: KG 출력 Schema와 title·description 외 동일). 출력 `vulnerability_candidates` 계약·버전은 그대로 |
 
 ## 연결 때 다른 모듈과 맞춘 것 (전부 해결, 10/7)
 
 입력 사본 Schema는 생산자 실제 출력과 일치. 아래 연결 과제는 모두 머지로 해결됐다.
 
-- **A2 (결과 row의 계정·역할 ID 형식) → #29(이동찬)로 해결.** ownership `owner_account_id`·access `account_id`·`role_id`가 crawl 원본 ID로 나온다(KG observation 기반). resource_id는 `resource:<key>`, endpoint_id는 `endpoint:<METHOD>:<path>`.
+- **A2 (결과 row의 계정·역할 ID 형식) → #29(이동찬)로 해결.** ownership `owner_account_id`·access `account_id`·`role_id`가 crawl 원본 ID로 나온다(KG observation 기반). endpoint_id는 `endpoint:<METHOD>:<path>`. resource_id는 0.2.0(#41)부터 KG Resource `node_id`(생산자가 만든 불투명 ID, type·instance가 다른 노드)라 형식을 가정하지 않는다.
 - **A3 (후보 `source_request_ids`의 출처) → #32(이동찬)로 해결, 입력 사본 미러링 #33.** `AccessRow.request_ids`(원본 수집 요청 ID, `minItems:1`·`uniqueItems`)를 Rule A가 소유자 접근 행에서 읽어 `source_request_ids`를 채운다. 매칭 AccessRow가 없으면 발행하지 않고 errors로 둔다(안전장치).
 - **reporter crawl_result Page.account_id → #35로 해결.** (우리 모듈 무관이지만 파이프라인 연결 과제로 추적했던 항목.)

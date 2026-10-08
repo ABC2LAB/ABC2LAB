@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "graph_query_result",
   "artifact_id": "graph_query_result-run_demo_001-000-feed0002",
   "run_id": "run_demo_001",
@@ -22,7 +22,7 @@
         "query_key": "resource_ownership",
         "status": "completed",
         "rows": [
-          {"resource_id": "resource:order", "owner_account_id": "acc_alice", "basis": "inferred", "evidence_refs": []}
+          {"resource_id": "resource:order_001", "resource_key": "order", "resource_scope": "instance", "match_key": {"resource_key": "order", "identifiers": [{"key": "order_id", "value": "001"}]}, "owner_account_id": "acc_alice", "basis": "inferred", "evidence_refs": []}
         ],
         "errors": []
       },
