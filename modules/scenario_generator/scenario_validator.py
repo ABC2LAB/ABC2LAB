@@ -42,7 +42,7 @@ class ValidationContext:
 def _get_scenario_validator() -> Draft202012Validator:
     schema = json.loads(OUTPUT_SCHEMA_PATH.read_text(encoding="utf-8"))
     return Draft202012Validator(
-        {"$schema": schema["$schema"], "$ref": "#/$defs/Scenario", "$defs": schema["$defs"]}
+        {"$schema": schema["$schema"], "$ref": "#/$defs/scenario", "$defs": schema["$defs"]}
     )
 
 
@@ -174,16 +174,16 @@ def _check_steps(scenario: dict[str, Any], context: ValidationContext) -> list[s
         allowed_accounts[matched.reference_account["account_id"]] = matched.reference_account
 
     order_by_step_id = {step["step_id"]: step["order"] for step in scenario["steps"]}
-    visible_binding_ids: set[str] = set()
     problems: list[str] = []
     for step in scenario["steps"]:
         problems += _check_step_account(step, allowed_accounts)
         problems += _check_step_request(step, context.index)
         for binding in step["bindings"]:
             problems += _check_binding(step, binding, order_by_step_id)
-            visible_binding_ids.add(binding["binding_id"])
-        problems += _check_url(step, context.target_url, visible_binding_ids)
-        problems += _check_parameters(step, visible_binding_ids)
+        # 소비자(safety_policy·verifier·reporter)는 그 단계의 bindings만 치환에 쓴다. 앞 단계에 정의한 바인딩은 보이지 않는다.
+        step_binding_ids = {binding["binding_id"] for binding in step["bindings"]}
+        problems += _check_url(step, context.target_url, step_binding_ids)
+        problems += _check_parameters(step, step_binding_ids)
     return problems
 
 

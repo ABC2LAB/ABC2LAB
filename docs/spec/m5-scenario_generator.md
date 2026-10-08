@@ -61,7 +61,7 @@
 | --- | --- | --- |
 | vulnerability_candidates.json | `access_analyzer` | data.candidates의 candidate_id·actor 계정/역할·resource_ids·source_request_ids·workflow_id·expected_basis와 근거. |
 | crawl_result.json 및 근거 파일 참조 | `collector / input_refs` | 선택한 source_request_id의 요청·응답, 계정·역할·session_ref와 본문 참조. 명시된 참조로 읽는다. |
-| 실행 인자 / 자기 모델 설정 | `사용자 실행 인자 / modules 내 자기 configs` | 실행 식별 정보, 모델·프롬프트 설정과 신뢰된 대상 범위. |
+| 실행 인자 / 자기 모델 설정 | `사용자 실행 인자` | 실행 식별 정보, 모델·프롬프트 설정과 신뢰된 대상 범위. 모델 설정은 configs 파일 없이 CLI 옵션으로 받는다(`--llm-provider replay\|ollama`, `--model-id`, `--base-url`, `--temperature`, `--seed`, `--timeout`). 신뢰된 대상 범위는 `crawl_result.target_url`의 origin이다. |
 
 **입력 파일의 전체 필드:** [vulnerability_candidates.json 필드](m4-access_analyzer.md) · [crawl_result.json 필드](m1-collector.md).
 
@@ -94,6 +94,15 @@
 - request.parameters는 원본 요청의 해당 위치에 적용할 변경값이다. 일반 헤더·본문 형식은 원본에서 복원하고 인증·CSRF·동적 비밀값은 보호된 실행 컨텍스트에서 주입한다.
 - Check는 조건 비교 규약이다. 상태 확인에 HTTP 요청이 필요하면 steps에 명시하여 Policy 예산과 실제 실행 근거에 포함한다.
 - state_change는 생성기의 추정이다. 최종 안전 평가와 실행 허용은 safety_policy가 담당한다.
+- 바인딩은 그 값을 **쓰는** 단계의 `bindings`에 두고 `source_step_id`로 앞 단계를 가리킨다. verifier는 단계마다 그 단계의 `bindings`만 읽어 `url_template`·`binding_ref`를 치환한다.
+- `url_template`의 `{...}`는 `binding_id`만 쓴다. scheme·host·port는 `crawl_result.target_url`과 같아야 하고 주소 부분에는 바인딩·사용자 정보를 쓸 수 없다.
+- 단계의 계정은 후보의 실행 계정 또는 기준 계정만 쓴다. `method`는 원본 요청과 같고 `body_ref`는 null이거나 원본 요청의 것이다.
+- `scenario_id`(`"scenario_" + candidate_id`)·`candidate_id`·`expected_basis`는 프로그램이 원본 후보에서 채운다. LLM 초안은 `preconditions`·`steps`·`assertions`만 만든다. 후보 1개당 시나리오 1개다.
+- **판정 조건 필수 규칙.** HTTP 상태 코드만으로 위반을 확정하지 않는다(m7). 다음을 만족하지 않는 초안은 버린다.
+    - `preconditions`: steps에 쓰인 계정마다 `session_valid`(`subject_ref`=account_id, `operator=eq`, `expected=true`). `exists`는 세션이 무효여도 참이 되므로 쓰지 않는다.
+    - `assertions`: 실행 계정 단계 하나에 `response_status`와 `response_json`이 함께 있다.
+    - `resource_state`·`resource_owner`·`baseline_match`는 쓸 수 있지만 verifier가 아직 평가하지 않아(판단불가) 필수 조건을 대신하지 못한다. 이 세 종류의 `subject_ref`·`selector` 규약은 verifier와 합의 전이다.
+- LLM 입력에는 헤더·쿠키·응답 본문·근거 파일 경로·민감 파라미터 값을 넣지 않는다. LLM 초안은 데이터로 보고 위 규칙과 Schema로 전부 다시 검증한다.
 
 ## 입력·출력 JSON 필드
 
@@ -119,9 +128,9 @@
 | `scenario_id` | `string` | 필수 | 재현 시나리오 ID. |
 | `candidate_id` | `string` | 필수 | 원본 검증 후보 ID. |
 | `expected_basis` | `enum: rule, inferred, unknown` | 필수 | 원본 후보의 기대 조건 근거. |
-| `preconditions` | `array<Check>` | 필수 | 실행 전 확인할 세션·자원·기준 상태 조건. |
-| `steps` | `array<ScenarioStep>` | 필수 | 순서가 있는 재현 요청 목록. |
-| `assertions` | `array<Check>` | 필수 | 위반 재현 여부를 판단할 응답·상태·최종 결과 조건. |
+| `preconditions` | `array<Check>` | 필수 | 실행 전 확인할 세션·자원·기준 상태 조건. 하나라도 거짓·판단불가면 verifier는 재현 여부를 판정하지 않는다(indeterminate). |
+| `steps` | `array<ScenarioStep>` | 필수 | 순서가 있는 재현 요청 목록. 비어 있으면 안 된다. |
+| `assertions` | `array<Check>` | 필수 | 위반 재현 여부를 판단할 응답·상태·최종 결과 조건. **모두 참이면 위반이 재현된 것**으로 읽는다. 비어 있으면 안 된다. |
 
 ### ScenarioStep
 
@@ -170,12 +179,20 @@
 | --- | --- | --- | --- |
 | `check_id` | `string` | 필수 | 사전조건·판정 조건 ID. |
 | `kind` | `enum: session_valid, response_status, response_json, resource_state, resource_owner, baseline_match` | 필수 | 검증기가 구현한 조건 종류. |
-| `subject_ref` | `string` | 필수 | 세션·단계·자원 등 검사 대상 참조. |
+| `subject_ref` | `string` | 필수 | 세션·단계·자원 등 검사 대상 참조. `response_status`·`response_json`은 steps의 `step_id`, `session_valid`는 steps에 쓰인 `account_id`. |
 | `selector` | `string / null` | 필수 | JSON Pointer 또는 검사 위치. 필요 없으면 null. |
 | `operator` | `enum: exists, eq, ne, in, contains` | 필수 | 허용된 비교 연산. |
 | `expected` | `JsonValue` | 필수 | 기대 비교값. |
 
 **재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [EvidenceRef](02-common-contract.md), [ModelInfo](02-common-contract.md), [RuntimeMetrics](02-common-contract.md).
+
+## 변경 이력
+
+필드·타입·enum(출력 계약)은 v0.1 그대로다. 아래는 의미·검증 규칙을 구현에 맞춰 적은 것이다.
+
+| 날짜 | 변경 | 근거 |
+| --- | --- | --- |
+| 2026-10-08 | 판정 조건 필수 규칙(`session_valid` 사전조건, 실행 계정 단계의 `response_status`+`response_json`), `assertions` 의미, `Check.subject_ref` 규약, 바인딩 위치, 초안 검증 규칙, 모델 설정을 CLI 옵션으로 받는 것을 명시 | #40(판정 조건 강화), verifier Check 평가 구현(#38) |
 
 ---
 

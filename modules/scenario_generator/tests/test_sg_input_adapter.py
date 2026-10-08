@@ -90,7 +90,7 @@ def test_unsupported_schema_version_is_rejected(tmp_path: Path) -> None:
         lambda doc: doc["data"].pop("accounts"),
         lambda doc: doc["data"]["requests"][0].pop("session_ref"),
         lambda doc: doc["data"].update({"unexpected_key": 1}),
-        lambda doc: doc["data"]["requests"][0].update({"method": "get"}),
+        lambda doc: doc["data"]["requests"][0].update({"method": 1}),
         lambda doc: doc.update({"producer": "someone_else"}),
         lambda doc: doc.update({"errors": [UPSTREAM_ERROR]}),  # completed인데 errors가 있다
     ],
@@ -105,11 +105,11 @@ def test_schema_violations_are_rejected(tmp_path: Path, mutate: Any) -> None:
 def test_schema_error_message_never_contains_input_values(tmp_path: Path) -> None:
     secret_like_value = "super-secret-value-123"
     document = read_fixture(CRAWL_RELATIVE_PATH)
-    document["data"]["requests"][0]["method"] = secret_like_value
+    document["status"] = secret_like_value
     path = write_run_file(tmp_path, CRAWL_RELATIVE_PATH, document)
     error = expect_error(InputErrorCode.SCHEMA_INVALID, path, tmp_path)
     assert secret_like_value not in error.message
-    assert "$.data.requests[0].method" in error.message
+    assert "$.status" in error.message
 
 
 def test_wrong_artifact_type_is_rejected_by_schema(tmp_path: Path) -> None:
