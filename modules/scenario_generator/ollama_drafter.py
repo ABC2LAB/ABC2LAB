@@ -16,7 +16,7 @@ from typing import Any
 
 from modules.scenario_generator.scenario_drafter import Draft, DrafterError
 
-PROMPT_VERSION = "ollama-scenario-v2"
+PROMPT_VERSION = "ollama-scenario-v3"
 _GENERATE_PATH = "/api/generate"
 
 # 상위 3키뿐 아니라 중첩 레코드(ScenarioStep·RequestPlan·ParameterValue·Binding·Check)의
@@ -37,8 +37,11 @@ _SYSTEM = (
     "kind(session_valid|response_status|response_json|resource_state|resource_owner|baseline_match), "
     "subject_ref(string, e.g. an account_id or step_id), selector(JSON Pointer string or null), "
     "operator(exists|eq|ne|in|contains), expected(any JSON).\n"
-    "preconditions: >=1 (e.g. session_valid for the actor). assertions: >=1 (e.g. response_status eq 200 "
-    "meaning the actor could access the resource = violation reproduced).\n"
+    "preconditions: >=1 (e.g. session_valid for the actor). assertions: >=1; ALL assertions true = violation "
+    "reproduced. An HTTP status alone NEVER proves a violation: assertions MUST include at least one check that "
+    "looks at response content or resource state (response_json, resource_state, resource_owner, baseline_match), "
+    "usually response_json on the actor's step proving the response actually carries the target resource. "
+    "response_status/response_json subject_ref MUST be a step_id from steps; session_valid subject_ref is an account_id.\n"
     "Each PARAMETER in request.parameters has EXACTLY: name(string), location(path|query|body), "
     "value(literal JSON or null), binding_ref(string or null; null when value is literal). "
     "NEVER include is_sensitive or any other key in a parameter.\n"
@@ -57,7 +60,9 @@ _SYSTEM = (
     '"request":{"method":"GET","url_template":"http://localhost:8001/products/1","parameters":[],"body_ref":null},'
     '"bindings":[]}],'
     '"assertions":[{"check_id":"a1","kind":"response_status","subject_ref":"s1","selector":null,'
-    '"operator":"eq","expected":200}]}'
+    '"operator":"eq","expected":200},'
+    '{"check_id":"a2","kind":"response_json","subject_ref":"s1","selector":"/id",'
+    '"operator":"exists","expected":true}]}'
 )
 
 Transport = Callable[[str, bytes, float], bytes]

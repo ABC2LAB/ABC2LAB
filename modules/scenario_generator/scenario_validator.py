@@ -25,6 +25,10 @@ JSON_POINTER_PATTERN = re.compile(r"^(/([^/~]|~[01])*)*$")
 HEADER_NAME_PATTERN = re.compile(r"^[^A-Z\s]+$")
 PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]*)\}")
 MAX_REPORTED_PROBLEMS = 5
+# 응답 내용을 보지 않는 조건. 이것만으로는 위반 재현을 판정할 수 없다(명세 m7: HTTP 200만으로 확정 금지).
+STATUS_ONLY_CHECK_KINDS = frozenset({"response_status", "session_valid"})
+# 단계의 응답을 검사하는 조건. subject_ref가 steps의 step_id여야 평가할 수 있다.
+STEP_RESPONSE_CHECK_KINDS = frozenset({"response_status", "response_json"})
 
 
 @dataclass(frozen=True)
@@ -185,13 +189,19 @@ def _check_steps(scenario: dict[str, Any], context: ValidationContext) -> list[s
 
 def _check_conditions(scenario: dict[str, Any]) -> list[str]:
     problems = []
+    step_ids = {step["step_id"] for step in scenario["steps"]}
     for check in scenario["preconditions"] + scenario["assertions"]:
         check_id = check["check_id"]
         selector = check["selector"]
         if check["kind"] == "response_json" and selector is not None and not JSON_POINTER_PATTERN.fullmatch(selector):
             problems.append(f"조건 {check_id}의 selector가 JSON Pointer가 아니다")
+        if check["kind"] in STEP_RESPONSE_CHECK_KINDS and check["subject_ref"] not in step_ids:
+            problems.append(f"조건 {check_id}는 응답 조건인데 subject_ref가 steps의 step_id가 아니다")
         if check["operator"] == "in" and not isinstance(check["expected"], list):
             problems.append(f"조건 {check_id}는 operator=in인데 expected가 배열이 아니다")
+    assertion_kinds = {check["kind"] for check in scenario["assertions"]}
+    if assertion_kinds and assertion_kinds <= STATUS_ONLY_CHECK_KINDS:
+        problems.append("assertions가 상태 코드·세션 조건뿐이다(응답 내용·자원 상태를 보는 조건이 최소 1개 필요)")
     return problems
 
 
