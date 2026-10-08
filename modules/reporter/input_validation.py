@@ -218,7 +218,7 @@ def validate_ground_truth(value: Mapping[str, Any], dataset_name: str) -> None:
         if relationship["source_gt_id"] not in entity_ids:
             raise ContractValidationError("ground truth relation source가 없음")
         if relationship["target_gt_id"] not in entity_ids:
-            raise ContractValidationError("ground truth relation target이 없음")
+            raise ContractValidationError("ground truth relation target가 없음")
 
 
 def validate_evaluation_revisions(
@@ -691,5 +691,3 @@ def _validate_scenario_crawl_links(
                 raise ContractValidationError("scenario 계정·역할 연결이 다름")
             if account.session_ref != step["session_ref"]:
                 raise ContractValidationError("scenario session_ref 연결이 다름")
-            if source.account_id != step["account_id"]:
-                raise ContractValidationError("scenario source_request 계정이 다름")
