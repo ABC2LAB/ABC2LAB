@@ -14,6 +14,7 @@ from typing import Any
 
 PRODUCER = "verifier"
 ARTIFACTS_DIR_NAME = "artifacts"
+EVIDENCE_DIR_NAME = "evidence"
 ITERATION_DIR_FORMAT = "iteration-{:03d}"
 PARENT_PART = ".."
 TEMP_SUFFIX = ".tmp"
@@ -43,6 +44,22 @@ def prepare_output_dir(run_root: Path, iteration: int, output_dir: Path) -> Path
     expected.mkdir(parents=True, exist_ok=True)
     if expected.resolve() != expected:
         raise OutputPathError("출력 폴더가 symlink로 run_root 밖을 가리킴")
+    return expected
+
+
+def prepare_evidence_dir(run_root: Path, iteration: int) -> Path:
+    """run_root/evidence/verifier/iteration-<NNN>를 만든다(회차 포함 — verifier는 회차마다 다시 실행).
+
+    바깥을 가리키는 symlink가 끼면 거절한다.
+    """
+    if PARENT_PART in run_root.parts:
+        raise OutputPathError("경로에 ..를 쓸 수 없음")
+    expected = run_root.resolve() / EVIDENCE_DIR_NAME / PRODUCER / ITERATION_DIR_FORMAT.format(iteration)
+    if expected.exists() and expected.resolve() != expected:
+        raise OutputPathError("근거 폴더가 symlink로 run_root 밖을 가리킴")
+    expected.mkdir(parents=True, exist_ok=True)
+    if expected.resolve() != expected:
+        raise OutputPathError("근거 폴더가 symlink로 run_root 밖을 가리킴")
     return expected
 
 

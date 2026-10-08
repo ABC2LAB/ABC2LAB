@@ -4,11 +4,19 @@ verifier는 collector 코드·브라우저/세션 객체를 import하지 않는�
 주입하고, verifier는 이 Protocol로만 쓴다. 실행 모델은 (a) 리스가 요청을 대신 전송 — 세션 쿠키는 collector 안에만
 머물고 verifier는 resolve한 요청을 넘겨 응답을 받는다. 비밀값(쿠키·토큰)은 ReplayRequest/Response에 담지 않는다.
 
-이 PR(1)은 게이트만 구현하므로 verify가 send를 호출하지 않는다. 실제 실행은 PR2.
+게이트를 통과한 allow 시나리오만 이 창구로 실행한다. 실제 collector 창구 바인딩은 PR3이고 그 전까지는 테스트 대역을 쓴다.
 """
 
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
+
+
+class SessionTransportError(RuntimeError):
+    """창구가 요청을 끝내지 못했다(통신 실패·타임아웃 등). 위반 재현이 아니라 판단불가로 기록한다."""
+
+
+class SessionExpiredError(RuntimeError):
+    """실행 도중 세션이 만료됐다. 위반 재현이 아니라 판단불가로 기록한다."""
 
 
 @dataclass(frozen=True)
@@ -38,7 +46,10 @@ class SessionLease(Protocol):
         ...
 
     def send(self, request: ReplayRequest) -> ReplayResponse:
-        """자동 리다이렉트를 따르지 않는다. verifier가 Location을 effective_origins로 다시 검사한다."""
+        """자동 리다이렉트를 따르지 않는다. verifier가 Location을 effective_origins로 다시 검사한다.
+
+        통신 실패는 SessionTransportError, 실행 중 세션 만료는 SessionExpiredError를 던진다.
+        """
         ...
 
     def release(self) -> None:
