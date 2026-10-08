@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "semantic_analysis",
   "artifact_id": "semantic_compatibility_001",
   "run_id": "run_compatibility_001",
@@ -93,7 +93,17 @@
         "node_id": "resource:order",
         "node_type": "Resource",
         "properties": {
-          "name": "order"
+          "resource_key": "order",
+          "resource_scope": "instance",
+          "match_key": {
+            "resource_key": "order",
+            "identifiers": [
+              {
+                "key": "order_id",
+                "value": "example-order"
+              }
+            ]
+          }
         },
         "basis": "inferred",
         "evidence_refs": []

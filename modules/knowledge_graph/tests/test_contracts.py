@@ -84,6 +84,148 @@ def test_ingest_rejects_duplicate_node_id(fixture_root: Path, tmp_path: Path) ->
         prepare_ingest(input_path)
 
 
+def test_ingest_accepts_type_resource(fixture_root: Path, tmp_path: Path) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    resource = _resource_node(source)
+    resource["properties"] = {
+        "resource_key": "order",
+        "resource_scope": "type",
+        "match_key": None,
+    }
+
+    artifact, _ = prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+    assert artifact["schema_version"] == "0.2.0"
+
+
+def test_ingest_accepts_composite_resource_match_key(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    _resource_node(source)["properties"]["match_key"]["identifiers"] = [
+        {"key": "tenant_id", "value": "company-a"},
+        {"key": "order_id", "value": "001"},
+    ]
+
+    artifact, _ = prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+    assert artifact["schema_version"] == "0.2.0"
+
+
+@pytest.mark.parametrize("property_name", ["resource_key", "resource_scope", "match_key"])
+def test_ingest_rejects_resource_without_required_property(
+    fixture_root: Path,
+    tmp_path: Path,
+    property_name: str,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    del _resource_node(source)["properties"][property_name]
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+@pytest.mark.parametrize(
+    ("resource_scope", "match_key"),
+    [
+        (
+            "type",
+            {
+                "resource_key": "order",
+                "identifiers": [{"key": "order_id", "value": "001"}],
+            },
+        ),
+        ("instance", None),
+    ],
+)
+def test_ingest_rejects_resource_scope_match_key_mismatch(
+    fixture_root: Path,
+    tmp_path: Path,
+    resource_scope: str,
+    match_key: dict[str, object] | None,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    properties = _resource_node(source)["properties"]
+    properties["resource_scope"] = resource_scope
+    properties["match_key"] = match_key
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+def test_ingest_rejects_empty_resource_identifiers(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    _resource_node(source)["properties"]["match_key"]["identifiers"] = []
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+def test_ingest_rejects_unknown_resource_scope(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    _resource_node(source)["properties"]["resource_scope"] = "collection"
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+@pytest.mark.parametrize("field_name", ["key", "value"])
+def test_ingest_rejects_empty_resource_identifier_field(
+    fixture_root: Path,
+    tmp_path: Path,
+    field_name: str,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    identifier = _resource_node(source)["properties"]["match_key"]["identifiers"][0]
+    identifier[field_name] = ""
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+def test_ingest_rejects_duplicate_resource_identifier_key(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    _resource_node(source)["properties"]["match_key"]["identifiers"] = [
+        {"key": "order_id", "value": "001"},
+        {"key": "order_id", "value": "002"},
+    ]
+
+    with pytest.raises(ContractValidationError, match="중복 Resource identifier key"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+def test_ingest_rejects_resource_key_mismatch(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    _resource_node(source)["properties"]["match_key"]["resource_key"] = "invoice"
+
+    with pytest.raises(ContractValidationError, match="resource_key가 노드 속성과"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+def test_ingest_rejects_legacy_semantic_version(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    source["schema_version"] = "0.1.0"
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
 def test_ingest_rejects_unknown_relationship_target(
     fixture_root: Path,
     tmp_path: Path,
@@ -149,3 +291,11 @@ def _write_test_json(path: Path, value: dict[str, object]) -> Path:
 
     path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
     return path
+
+
+def _resource_node(artifact: dict[str, object]) -> dict[str, object]:
+    data = artifact["data"]
+    assert isinstance(data, dict)
+    nodes = data["nodes"]
+    assert isinstance(nodes, list)
+    return next(item for item in nodes if item["node_type"] == "Resource")

@@ -135,6 +135,24 @@ def _validate_user_role_relationships(
     return role_id_by_user_node_id
 
 
+def _validate_resource_nodes(nodes: list[dict[str, Any]]) -> None:
+    for node in nodes:
+        if node["node_type"] != "Resource":
+            continue
+        properties = node["properties"]
+        if properties["resource_scope"] == "type":
+            continue
+        match_key = properties["match_key"]
+        if match_key["resource_key"] != properties["resource_key"]:
+            raise ContractValidationError(
+                "Resource match_key의 resource_key가 노드 속성과 일치하지 않음"
+            )
+        _require_unique(
+            (item["key"] for item in match_key["identifiers"]),
+            f"Resource identifier key ({node['node_id']})",
+        )
+
+
 def validate_semantic_analysis_semantics(artifact: dict[str, Any]) -> None:
     data = artifact["data"]
     nodes = data["nodes"]
@@ -150,6 +168,7 @@ def validate_semantic_analysis_semantics(artifact: dict[str, Any]) -> None:
     )
     request_ids = _require_unique((item["request_id"] for item in requests), "request_id")
     _require_unique((item["workflow_id"] for item in workflows), "workflow_id")
+    _validate_resource_nodes(nodes)
 
     for relationship in relationships:
         if relationship["source_id"] not in node_ids:
