@@ -37,11 +37,11 @@ _SYSTEM = (
     "kind(session_valid|response_status|response_json|resource_state|resource_owner|baseline_match), "
     "subject_ref(string, e.g. an account_id or step_id), selector(JSON Pointer string or null), "
     "operator(exists|eq|ne|in|contains), expected(any JSON).\n"
-    "preconditions: >=1 (e.g. session_valid for the actor). assertions: >=1; ALL assertions true = violation "
-    "reproduced. An HTTP status alone NEVER proves a violation: assertions MUST include at least one check that "
-    "looks at response content or resource state (response_json, resource_state, resource_owner, baseline_match), "
-    "usually response_json on the actor's step proving the response actually carries the target resource. "
-    "response_status/response_json subject_ref MUST be a step_id from steps; session_valid subject_ref is an account_id.\n"
+    "preconditions MUST contain one session_valid check (operator eq, expected true) for EVERY account_id used "
+    "in steps; its subject_ref is that account_id. ALL assertions true = violation reproduced. An HTTP status alone "
+    "NEVER proves a violation: on the actor's step, assertions MUST contain BOTH a response_status check AND a "
+    "response_json check proving the response actually carries the target resource. "
+    "response_status/response_json subject_ref MUST be a step_id from steps.\n"
     "Each PARAMETER in request.parameters has EXACTLY: name(string), location(path|query|body), "
     "value(literal JSON or null), binding_ref(string or null; null when value is literal). "
     "NEVER include is_sensitive or any other key in a parameter.\n"
@@ -54,7 +54,7 @@ _SYSTEM = (
     "Below is the required SHAPE. The literal values shown are only illustrative; replace every value with the "
     "matching real value from actor_account and source_requests:\n"
     '{"preconditions":[{"check_id":"pc1","kind":"session_valid","subject_ref":"account_user_a",'
-    '"selector":null,"operator":"exists","expected":true}],'
+    '"selector":null,"operator":"eq","expected":true}],'
     '"steps":[{"step_id":"s1","order":0,"source_request_id":"request_1",'
     '"account_id":"account_user_a","role_id":"role_user","session_ref":"session_user_a",'
     '"request":{"method":"GET","url_template":"http://localhost:8001/products/1","parameters":[],"body_ref":null},'

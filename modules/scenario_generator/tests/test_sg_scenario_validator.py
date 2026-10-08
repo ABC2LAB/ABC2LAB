@@ -171,13 +171,33 @@ def mutate_duplicate_check_id(s: dict[str, Any], env: dict[str, Any]) -> None:
     s["preconditions"].append(copy.deepcopy(s["assertions"][0]))
 
 
-def mutate_status_only_assertions(s: dict[str, Any], env: dict[str, Any]) -> None:
-    s["assertions"] = [check for check in s["assertions"] if check["kind"] == "response_status"]
+def remove_assertions_of_kind(kind: str) -> Mutation:
+    def mutate(s: dict[str, Any], env: dict[str, Any]) -> None:
+        s["assertions"] = [check for check in s["assertions"] if check["kind"] != kind]
+    return mutate
 
 
 def mutate_response_check_unknown_step(s: dict[str, Any], env: dict[str, Any]) -> None:
     content_check = next(check for check in s["assertions"] if check["kind"] == "response_json")
     content_check["subject_ref"] = get_consumer(s)["account_id"]
+
+
+def mutate_actor_assertions_moved_to_reference_step(s: dict[str, Any], env: dict[str, Any]) -> None:
+    for check in s["assertions"]:
+        check["subject_ref"] = get_producer(s)["step_id"]
+
+
+def mutate_missing_reference_session(s: dict[str, Any], env: dict[str, Any]) -> None:
+    reference_account_id = get_producer(s)["account_id"]
+    s["preconditions"] = [check for check in s["preconditions"] if check["subject_ref"] != reference_account_id]
+
+
+def mutate_session_check_unused_account(s: dict[str, Any], env: dict[str, Any]) -> None:
+    s["preconditions"][0]["subject_ref"] = env["other_account_id"]
+
+
+def mutate_session_check_uses_exists(s: dict[str, Any], env: dict[str, Any]) -> None:
+    s["preconditions"][0]["operator"] = "exists"
 
 
 PROBLEM_CASES: list[tuple[str, Mutation, str]] = [
@@ -209,8 +229,13 @@ PROBLEM_CASES: list[tuple[str, Mutation, str]] = [
     ("header selector is not lowercase", mutate_uppercase_header_selector, "소문자 헤더"),
     ("response_json check has bad pointer", mutate_response_json_bad_selector, "JSON Pointer"),
     ("operator in needs a list", mutate_operator_in_without_list, "operator=in"),
-    ("assertions are status only", mutate_status_only_assertions, "상태 코드·세션 조건뿐"),
     ("response check subject is not a step", mutate_response_check_unknown_step, "subject_ref가 steps의 step_id가 아니다"),
+    ("actor step has no response_json", remove_assertions_of_kind("response_json"), "실행 계정 단계에 response_status와 response_json"),
+    ("actor step has no response_status", remove_assertions_of_kind("response_status"), "실행 계정 단계에 response_status와 response_json"),
+    ("assertions only on reference step", mutate_actor_assertions_moved_to_reference_step, "실행 계정 단계에 response_status와 response_json"),
+    ("account used in steps has no session check", mutate_missing_reference_session, "session_valid 사전조건이 없다"),
+    ("session check on account not in steps", mutate_session_check_unused_account, "steps에 쓰인 계정이 아니다"),
+    ("session check uses exists", mutate_session_check_uses_exists, "operator=eq, expected=true"),
     ("state_change outside enum", lambda s, e: get_consumer(s).update({"state_change": "maybe"}), "Schema 위반"),
     ("unknown key in step", lambda s, e: get_consumer(s).update({"extra": 1}), "Schema 위반"),
     ("candidate_id differs from candidate", lambda s, e: s.update({"candidate_id": "another"}), "candidate_id가"),
