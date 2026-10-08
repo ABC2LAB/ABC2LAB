@@ -3,7 +3,7 @@
 | 항목 | 값 |
 |---|---|
 | module_id | `verifier` |
-| 공개 operation | `verify` (이 PR은 **안전 게이트**까지 — 실제 HTTP 전송은 PR2) |
+| 공개 operation | `verify` (안전 게이트 + allow 재현 실행·Check 판정. 실물 collector 창구 연결은 PR3) |
 | 명세 | `docs/spec/m7-verifier.md`, `02-common-contract.md`, `03-runner-layout.md` |
 | 계약 버전 | `schema_version = 0.1.0` |
 
@@ -40,7 +40,7 @@ result = run(
     output_dir="runs/<run_id>/artifacts/iteration-000/verifier",
     context={"run_id": "run_example", "iteration": 0, "mode": "development",
              "run_root": "runs/run_example", "source_graph_revision": 1},
-    session_executor=None,  # 런너가 collector 세션 창구 구현을 주입(명세 03). 이 PR은 게이트만이라 쓰지 않음
+    session_executor=None,  # 런너가 collector 세션 창구 구현을 주입(명세 03). 없으면 allow는 SESSION_UNAVAILABLE로 미실행
 )
 ```
 
@@ -65,11 +65,38 @@ CLI:
 2. **계획 해시 게이트(전역)**: `test_scenarios` 파일의 실제 바이트 SHA-256 == `safety_decisions.scenarios_sha256`. 다르면 **어떤 요청도 보내지 않고** `failed`(data=null, `SCENARIOS_HASH_MISMATCH`).
 3. 시나리오별 Policy 판정(`scenario_id`로 대응):
    - **block·require_approval** → 요청 전송 없이 `blocked`(execution_status=not_executed, steps=[]).
-   - **allow** → 각 step의 계정이 `effective_account_ids`·crawl 계정·역할·세션과 맞는지 확인. 어긋나면 `indeterminate`(not_executed)로 사유 코드(`ACCOUNT_SCOPE_MISMATCH`·`ROLE_MISMATCH`·`SESSION_INVALID`)를 남긴다.
-4. 이 PR(1)은 **실행 기능이 없어** 게이트를 통과한 allow도 실행하지 않고 `indeterminate`+`not_executed`로 두되, 진짜 판단불가와 구분되게 **`EXECUTION_PENDING`** 코드를 남긴다. PR2에서 실제 실행(success/failure)로 대체한다.
+   - **allow** → 각 step의 계정이 `effective_account_ids`·crawl 계정·역할·세션과 맞는지 확인(미실행 pre-flight). 어긋나면 `indeterminate`(not_executed)로 `ACCOUNT_SCOPE_MISMATCH`·`ROLE_MISMATCH`·`SESSION_INVALID`.
+4. 게이트를 통과한 allow는 세션 창구가 주입됐으면 실행한다(아래 "재현 실행"). 창구가 없으면 `indeterminate`+`not_executed`+`SESSION_UNAVAILABLE`.
 
 - **판정 누락 처리**: 시나리오에 대응하는 Policy 판정이 없으면 `VerificationItem`을 만들 수 없다(`policy_decision`·`decision_id`가 필수라 results에 넣을 값이 없다). 숨기지 않고 envelope `errors`에 `POLICY_DECISION_MISSING`(item_ref=scenario_id)로 남기고 `status=partial`로 둔다.
-- `graph_updates`는 `basis=verified`와 실제 실행 근거(evidence_refs≥1)가 있는 성공 결과만 출처로 삼는다. 이 PR은 실행이 없어 항상 비어 있다.
+
+## 재현 실행 (allow)
+
+- 각 단계마다 `url_template`의 `{binding_id}`·경로 파라미터를 치환(치환값은 경로 한 조각으로 인코딩)하고 query를 붙여 **최종 URL을 만든 뒤, 전송 직전** origin이 `effective_origins`에 있는지 검사한다. 밖이면 보내지 않는다(`ORIGIN_OUT_OF_SCOPE`).
+- **리다이렉트는 자동으로 따르지 않는다**(기본 `max_redirects=0`). 0보다 크면 hop마다 Location origin을 다시 검사해 안쪽이면 따라가고 `max_requests`에 센다. 따라갔을 때 `request_url`·`request_ref`·`response_status`·`response_ref`는 **마지막 hop 기준**, 앞 hop 근거는 `evidence_refs`에 순서대로.
+- `limits.max_requests`(리다이렉트 포함 실제 전송 수)·`max_duration_ms`(주입 시계)를 넘으면 남은 단계는 `skipped`로 두고 보내지 않는다(`LIMIT_EXCEEDED`).
+- `state_change≠none` 단계는 보내지 않는다 — `allow_state_change=false`면 `STATE_CHANGE_NOT_ALLOWED`, true여도 초기화 훅이 PR3이라 `STATE_RESET_UNAVAILABLE`.
+- `body_ref`가 필요한 단계는 원문을 역참조하지 않으므로 보내지 않는다(`BODY_REF_UNAVAILABLE`). 본문 뺀 요청으로 판정하지 않는다.
+- 세션 무효·만료·통신 오류는 `indeterminate`(`SESSION_INVALID`/`SESSION_EXPIRED`/`TRANSPORT_ERROR`)로 남긴다. failure로 합치지 않는다. lease는 계정별로 캐시하되 단계마다 `is_valid()`를 다시 확인하고, 끝나면 반드시 release한다.
+- `ExecutedStep.request_ref`·`response_ref`는 EvidenceWriter로 만든 비밀 제거 근거다. 미전송 단계는 두 참조와 `request_url`이 null.
+- **execution_status 규칙**(result 분류와 독립, `execution_status_for`): 중단 없이 전부 전송되면 `completed`, 중단됐으면 전송 0건은 `not_executed`·1건 이상은 `error`.
+
+## Check 평가와 result 분류
+
+`assertions`는 "모두 참이면 위반 재현"으로 읽는다(생산자 해석). `subject_ref`는 샘플대로 단계 ID 또는 계정 ID. HTTP 상태 코드 하나만으로 success를 확정하지 않는다(명세 m7 51·96행).
+
+| kind | PR2 평가 | 방법 |
+|---|---|---|
+| `session_valid` | 평가 | subject 계정의 `lease.is_valid()`. 어느 단계에도 안 쓰인 계정은 `passed=null`(안 써본 세션을 유효로 기록하지 않음) |
+| `response_status` | 평가 | subject 단계 응답 status_code |
+| `response_json` | 평가 | subject 단계 응답 body에 JSON Pointer(selector) |
+| `resource_state`·`resource_owner`·`baseline_match` | **미평가** | `passed=null` → 그 시나리오 indeterminate. 완전 평가는 뒤 PR |
+
+- operator: `exists`(값/경로 존재) · `eq` · `ne` · `in`(observed ∈ expected) · `contains`(expected ∈ observed). 관찰값이 없으면(`exists` 제외) `passed=null`(불일치 failure로 단정하지 않음). `subject_ref`를 못 찾으면 `passed=null`.
+- **status-only 규칙(m7 51행)**: assertions가 전부 참이어도 참인 조건이 `response_status`·`session_valid`뿐이면(응답 내용 미확인) success 대신 `indeterminate`(`ASSERTION_STATUS_ONLY`). 응답 내용을 본 조건(`response_json` 등)이 하나 이상 참이어야 success로 올린다.
+- **result 분류**: preconditions 중 하나라도 거짓/판단불가 → `indeterminate`(전제 미충족·판단불가, failure 아님). 모두 참이면 assertions 중 하나라도 판단불가 → `indeterminate`, 모두 참 → `success`, 하나 이상 거짓 → `failure`.
+- **CheckResult 부착**: subject가 단계면 그 단계의 `check_results`에, 계정이면 그 계정이 처음 쓰인 단계에, 둘 다 못 찾으면 첫 단계에 붙인다. `observed`는 비밀 제거(민감 키 selector로 뽑은 스칼라도 가림).
+- `graph_updates`는 `basis=verified`와 실제 실행 근거가 있는 success만 출처로 삼는다. PR2는 **빈 배열**로 둔다 — verified 노드·관계의 `node_id`(source/target) 매핑이 `test_scenarios`에 없어, 지어내지 않고 KG와 합의한 뒤 PR3에서 생성한다.
 
 ## 실패 처리
 
@@ -83,15 +110,17 @@ CLI:
 - 실행 모델: **리스가 요청을 대신 전송**한다 — verifier가 resolve한 요청을 넘기면 창구가 그 계정 세션으로 보내고 응답을 돌려준다. 세션 쿠키·토큰은 창구(collector) 안에만 머물고 전달 JSON·근거에 넣지 않는다.
 - 규약: `lease(account_id)` → `is_valid()`(session_ref 있어도 실제 유효성 재확인) · `send()`(자동 리다이렉트 끔) · `release()`. 접근·만료·대여/반납·종료·오류 규약은 collector와 구현 전 확정한다.
 
-## 명세(v0.1) 대비 (출력)
+## 명세(v0.1) 대비
 
-출력 `graph_updates`의 node/edge는 `basis`를 `const "verified"`로, `evidence_refs`를 `minItems:1`로 **명세 m7("basis=verified와 실제 실행 근거만")에 맞춰** 소비자(KG·reporter)보다 좁게 둔다. 우리 출력이 더 엄격해 소비자 입력을 항상 통과한다.
+- 출력 `graph_updates`의 node/edge는 `basis`를 `const "verified"`로, `evidence_refs`를 `minItems:1`로 **명세 m7("basis=verified와 실제 실행 근거만")에 맞춰** 소비자(KG·reporter)보다 좁게 둔다. 우리 출력이 더 엄격해 소비자 입력을 항상 통과한다.
+- `max_redirects` 기본 **0**: 명세는 리다이렉트 처리를 세부로 규정하지 않는데, 로그인 리다이렉트를 자동으로 따라가면 최종 200을 "접근 성공"으로 **오탐**한다. 그래서 기본은 따라가지 않고 3xx를 그 단계 응답으로 기록한다(`configs/verifier.toml`에서 조정).
+- 비밀값 제거는 collector와 같은 기준(민감 키 이름·cookie/authorization 헤더 → `***`). **다른 점**: verifier는 계정 비밀번호를 쥐지 않으므로(세션은 collector 창구 안) 알려진 비밀값 스크럽 목록이 보통 비어 있고 구조적 마스킹만 적용한다. 근거 파일 이름에는 회차를 담는다(verifier는 회차마다 다시 실행).
 
 ## PR 분할
 
-- **PR1(이것)**: 계약 Schema·utils·안전 게이트. HTTP 전송 없음.
-- **PR2**: 세션 창구로 allow 실행 — url_template·parameters·bindings resolve, `effective_origins`·`limits`·리다이렉트 재검사, `assertions`(Check) 평가, ExecutedStep/CheckResult 근거, result 분류(success/failure/indeterminate), graph_updates 생성.
-- **PR3**: 실제 collector 세션 창구 바인딩 + 상태 변경 시 테스트 앱 DB 초기화(reset 훅, config) + 하드닝.
+- **PR1**: 계약 Schema·utils·안전 게이트. HTTP 전송 없음.
+- **PR2(이것)**: 세션 창구 Protocol로 allow 실행 — URL resolve·`effective_origins`(최종 URL)·리다이렉트 재검사·`limits`·state_change·body_ref·세션 오류, `assertions`/`preconditions`(Check) 평가, ExecutedStep/CheckResult 근거, result 분류(success/failure/indeterminate). 세션 대역으로 개발·테스트.
+- **PR3**: 실제 collector 세션 창구 바인딩 + 상태 변경 시 테스트 앱 DB 초기화(reset 훅, config) + `graph_updates`(KG node_id 매핑) + 하드닝.
 
 ## 독립 실행·테스트
 
@@ -99,4 +128,4 @@ CLI:
 .venv/bin/python -m pytest modules/verifier/
 ```
 
-다른 모듈의 실제 구현 없이 자기 fixture·세션 대역(CountingExecutor)으로 검증한다. 게이트 실패(block·require_approval·해시 불일치·범위 밖·세션 무효)에서 세션 창구 `send` 호출이 0건임을 테스트로 고정한다.
+다른 모듈의 실제 구현 없이 자기 fixture·세션 대역(`ScriptedExecutor`, 주입 시계 `FakeClock`)으로 검증한다. 게이트 실패(block·require_approval·해시 불일치·범위 밖·세션 무효)와 범위 밖 리다이렉트·바인딩에서 세션 창구 `send` 호출이 0건임을 테스트로 고정한다.

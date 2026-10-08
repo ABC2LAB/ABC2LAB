@@ -14,7 +14,7 @@
   "data": {
     "policy_id": "abc2lab-default",
     "policy_version": "0.1.0",
-    "scenarios_sha256": "5976ac731f57484d3c2d658ecbd7ced1806e5b301701ed32afc20654931a833a",
+    "scenarios_sha256": "6a4a3d8fc10706b23cfb2528118b1f99e0b17bb7dfdb279b5441234d7b77590e",
     "decisions": [
       {
         "decision_id": "decision_allow",

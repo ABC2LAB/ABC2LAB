@@ -1,14 +1,15 @@
-"""verifier 처리 로직. 이 PR(1)은 안전 게이트만 — 실제 HTTP 전송은 PR2.
+"""verifier 처리 로직. 안전 게이트 + allow 재현 실행(PR2).
 
 게이트: 계획 해시 == Policy.scenarios_sha256 확인(전역) → 시나리오별 Policy 판정 대응 → allow는 계정·역할·세션
-대응 확인. block·require_approval은 요청 없이 blocked(steps=[]). 게이트를 통과한 allow도 이 PR에선 실행하지 않고
-indeterminate+not_executed로 두되, 진짜 판단불가와 구분되게 EXECUTION_PENDING 코드를 남긴다(PR2에서 실행으로 대체).
+대응 확인. block·require_approval은 요청 없이 blocked(steps=[]). 게이트를 통과한 allow는 세션 창구가 주입되면 실행하고
+(execution.py), 주입되지 않았으면 indeterminate+SESSION_UNAVAILABLE로 둔다. 실행·Check 판정은 execution 모듈.
 """
 
 from dataclasses import dataclass
 from typing import Any
 
-from modules.verifier.executor import SessionExecutor
+from modules.verifier import execution
+from modules.verifier.execution import ExecutionContext
 from modules.verifier.utils.envelope import ErrorCode, Status, make_error_item
 
 
@@ -26,12 +27,9 @@ def build_verification_results(
     crawl_artifact: dict[str, Any],
     scenarios_file_sha256: str,
     source_graph_revision: int,
-    session_executor: SessionExecutor | None = None,
+    execution_context: ExecutionContext | None = None,
 ) -> VerifyOutcome:
-    """게이트를 돌려 verification_results의 status·errors·data를 만든다.
-
-    session_executor는 PR2 실행용으로 받아 두지만 이 PR은 호출하지 않는다(게이트만).
-    """
+    """게이트를 돌리고, allow는 execution_context가 있으면 실행해 verification_results의 status·errors·data를 만든다."""
     decisions_data = decisions_artifact["data"]
     # 전역 해시 게이트: 실행 직전 계획의 정확한 해시가 Policy가 판정한 해시와 같아야 한다(명세 m7).
     if scenarios_file_sha256 != decisions_data["scenarios_sha256"]:
@@ -60,13 +58,13 @@ def build_verification_results(
                 )
             )
             continue
-        results.append(_verify_scenario(scenario, decision, accounts_by_id))
+        results.append(_verify_scenario(scenario, decision, accounts_by_id, execution_context))
 
     data = {
         "source_graph_revision": source_graph_revision,
         "scenarios_sha256": scenarios_file_sha256,
         "results": results,
-        # 이 PR은 실행하지 않으므로 검증된 graph_updates가 없다.
+        # graph_updates(검증된 success 근거)는 Check 평가가 들어오는 다음 단계부터 채운다. 지금은 비어 있다.
         "graph_updates": {"source_verification_ids": [], "nodes": [], "relationships": []},
     }
     status = Status.PARTIAL if envelope_errors else Status.COMPLETED
@@ -74,13 +72,14 @@ def build_verification_results(
 
 
 def _verify_scenario(
-    scenario: dict[str, Any], decision: dict[str, Any], accounts_by_id: dict[str, dict[str, Any]]
+    scenario: dict[str, Any],
+    decision: dict[str, Any],
+    accounts_by_id: dict[str, dict[str, Any]],
+    execution_context: ExecutionContext | None,
 ) -> dict[str, Any]:
     policy_decision = decision["decision"]
     if policy_decision in {"block", "require_approval"}:
-        reason = (
-            "Policy가 차단함" if policy_decision == "block" else "사용자 승인 대기 — 실행하지 않음"
-        )
+        reason = "Policy가 차단함" if policy_decision == "block" else "사용자 승인 대기 — 실행하지 않음"
         return _item(scenario, decision, result="blocked", execution_status="not_executed", reason=reason)
 
     # allow: 계정·역할·세션 대응을 먼저 확인한다(미실행). 어긋나면 그 시나리오는 실행하지 않는다.
@@ -90,17 +89,19 @@ def _verify_scenario(
             scenario, decision, result="indeterminate", execution_status="not_executed",
             reason="allow이지만 계정·역할·세션 대응이 맞지 않아 실행하지 않음", errors=[gate_error],
         )
-    # 게이트 통과 allow. 이 PR은 실행 기능이 없어 발행 보류(진짜 판단불가와 구분되는 EXECUTION_PENDING 코드).
-    pending = make_error_item(
-        ErrorCode.EXECUTION_PENDING,
-        "allow 판정 통과, 실행은 PR2에서 구현 예정",
-        item_ref=scenario["scenario_id"],
-        is_retryable=True,
-    )
-    return _item(
-        scenario, decision, result="indeterminate", execution_status="not_executed",
-        reason="allow 판정 통과 — 실행 기능 미구현(PR2)", errors=[pending],
-    )
+    # 세션 공개 창구가 주입되지 않으면(CLI 등) 실행할 수 없다.
+    if execution_context is None or execution_context.executor is None:
+        unavailable = make_error_item(
+            ErrorCode.SESSION_UNAVAILABLE, "세션 공개 창구가 주입되지 않아 실행할 수 없음",
+            item_ref=scenario["scenario_id"], is_retryable=True,
+        )
+        return _item(
+            scenario, decision, result="indeterminate", execution_status="not_executed",
+            reason="allow 판정 통과 — 세션 창구 미연결", errors=[unavailable],
+        )
+    # 게이트 통과 allow를 실행하고 결과를 분류한다.
+    outcome = execution.execute_scenario(scenario, decision, execution_context)
+    return execution.classify_scenario(scenario, decision, outcome)
 
 
 def _account_gate(
