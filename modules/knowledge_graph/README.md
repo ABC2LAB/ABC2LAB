@@ -70,6 +70,9 @@ Neo4j
 access_analyzer/graph_query.json
 ```
 
+입력 `graph_query.json`은 `schema_version=0.2.0`만 지원한다. `0.1.0`과
+미지원 버전은 거절하며 입력을 묵시적으로 변환하지 않는다.
+
 출력:
 
 ```text
@@ -249,7 +252,7 @@ python -m pytest modules/knowledge_graph/ -q
 현재 기본 테스트 결과:
 
 ```text
-121 passed, 4 skipped
+160 passed, 4 skipped
 ```
 
 skip 4건은 실제 Neo4j가 필요한 통합 테스트다.
@@ -569,3 +572,54 @@ knowledge_graph 전체
 ```
 
 Neo4j `5.26.31-community` 일회성 컨테이너에서 실제 통합 테스트 4건과 knowledge_graph 전체 테스트를 실행했다. ingest·query·apply_verification·revision·snapshot 경로가 모두 통과했다.
+
+---
+
+## 2026-10-09 — graph_query 입력 계약 0.2.0 동기화
+
+팀의 공통 산출물 `0.2.0` 전환 합의와 access_analyzer의 질의 출력 계약에 맞춰
+KG의 `graph_query.json` 입력 Schema와 기본 질의 fixture를 `0.2.0`으로 변경했다.
+버전 이외의 질의 필드·타입·허용값은 그대로 유지하며, 입력 Schema 정의는
+생산자 출력 Schema와 일치한다(제목·설명 제외).
+
+`0.1.0`과 미지원 버전은 입력 검증에서 거절한다. 기존 질의 파일을 묵시적으로
+변환하거나 지원 버전을 넓혀 수용하지 않는다.
+
+### 독립 fixture와 회귀 검증
+
+- 기준 커밋 `82d3864`의 access_analyzer 공개 fixture를 바이트 그대로
+  `tests/fixtures/access_analyzer_current/graph_query.json`에 고정했다.
+- 원본 위치는
+  `modules/access_analyzer/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/access_analyzer/graph_query.json`이다.
+- KG 테스트는 자기 fixture와 저장소 대역만 사용한다. 다른 모듈 코드나 Schema를
+  import하거나 `$ref`하지 않는다.
+- 최신 fixture 수신, `0.1.0`·미지원 버전 거절, 공개 `query` 실행의
+  `query_id`·`query_key` 대응을 검증했다.
+- 결과의 `input_refs`가 원본 artifact ID·경로·정확한 파일 SHA-256을 보존하고,
+  완료 응답의 SHA-256이 실제 출력 파일과 일치함을 확인했다.
+
+Resource 모델, Neo4j 저장·질의 템플릿, `graph_query_result` 출력 계약,
+`ingest`·`apply_verification` 로직과 revision 규칙은 변경하지 않았다.
+
+검증 명령과 결과:
+
+```bash
+.venv/bin/python -m pytest modules/knowledge_graph -q
+```
+
+```text
+160 passed, 4 skipped
+```
+
+이번 단계에서 실제 Neo4j 통합 테스트는 활성화하지 않았다. skip 4건은 해당
+통합 테스트이며, 위 Resource 전환 단계의 실제 Neo4j 검증 기록과 구분한다.
+
+연관 모듈 회귀 검증:
+
+```bash
+.venv/bin/python -m pytest modules/knowledge_graph modules/access_analyzer modules/safety_policy modules/reporter -q
+```
+
+```text
+518 passed, 4 skipped
+```
