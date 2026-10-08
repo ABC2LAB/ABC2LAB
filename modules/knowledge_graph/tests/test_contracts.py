@@ -379,6 +379,35 @@ def test_ingest_rejects_owns_to_resource_type(
         prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
 
 
+def test_ingest_rejects_verified_access_to_endpoint(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    relationship = _relationship(source, "OWNS")
+    relationship["relation_type"] = "VERIFIED_ACCESS"
+    relationship["target_id"] = "endpoint_orders"
+
+    with pytest.raises(ContractValidationError, match="User에서 Resource"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+def test_ingest_rejects_verified_denial_to_resource_type(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    _resource_node(source)["properties"] = {
+        "resource_key": "order",
+        "resource_scope": "type",
+        "match_key": None,
+    }
+    _relationship(source, "OWNS")["relation_type"] = "VERIFIED_DENIAL"
+
+    with pytest.raises(ContractValidationError, match="Resource instance"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
 def test_ingest_rejects_legacy_semantic_version(
     fixture_root: Path,
     tmp_path: Path,
@@ -446,7 +475,7 @@ def test_verification_requires_verified_basis(
     source["data"]["graph_updates"]["relationships"][0]["basis"] = "inferred"
     input_path = _write_test_json(tmp_path / "verification.json", source)
 
-    with pytest.raises(ContractValidationError, match="basis는 verified"):
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
         prepare_verification(input_path)
 
 

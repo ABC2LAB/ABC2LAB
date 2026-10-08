@@ -104,7 +104,8 @@ verifier/verification_results.json
 - update의 `basis`는 `verified`
 - 실제 실행 EvidenceRef와 연결되어야 함
 - `source_graph_revision`이 현재 revision과 일치해야 함
-- 관계 source/target이 유효해야 함
+- 관계 source는 기존 User, target은 기존 Resource instance여야 함
+- verifier가 신규 Resource 노드를 생성하지 않아야 함
 
 새로운 verification을 반영하면 graph revision이 증가한다.
 
@@ -121,7 +122,7 @@ RequestObservation
       +
 User ──HAS_ROLE──> Role
       +
-User ──ACCESS|VERIFIED_ACCESS──> Endpoint
+User ──ACCESS──> Endpoint
 ```
 
 반환되는 주요 값은 다음과 같다.
@@ -132,6 +133,14 @@ User ──ACCESS|VERIFIED_ACCESS──> Endpoint
   "role_id": "role_user",
   "endpoint_id": "endpoint:GET:/orders/{id}",
   "resource_id": "resource:order",
+  "resource_key": "order",
+  "resource_scope": "instance",
+  "match_key": {
+    "resource_key": "order",
+    "identifiers": [
+      {"key": "order_id", "value": "example-order"}
+    ]
+  },
   "action": "read_order",
   "request_ids": [
     "request_order_alice"
@@ -145,7 +154,7 @@ User ──ACCESS|VERIFIED_ACCESS──> Endpoint
 
 `action`은 `normalized_requests.action_meaning`을 사용한다.
 
-Resource가 여러 개이면 Resource별 AccessRow를 생성하며, Resource가 없으면 `resource_id=null`인 row를 생성한다.
+Resource가 여러 개이면 Resource별 AccessRow를 생성한다. Resource가 없으면 `resource_id`, `resource_key`, `resource_scope`, `match_key`가 모두 `null`인 row를 생성한다.
 
 동일한
 
@@ -360,7 +369,7 @@ Neo4j에는 `ABC2RequestObservation`으로 저장한다.
 - `action_meaning` 기반 action 반환
 - 요청별 Resource 연결 유지
 - User→Role `HAS_ROLE` 검증
-- User→Endpoint `ACCESS|VERIFIED_ACCESS` 검증
+- User→Endpoint `ACCESS` 검증
 - Resource가 여러 개인 요청 지원
 - Resource가 없는 요청 지원
 - 동일 접근 관찰 병합
@@ -491,3 +500,72 @@ A3 실제 Neo4j 재검증              보류
 ```
 
 외부 소비자 모듈의 입력 Schema 및 `Candidate.source_request_ids` 연결은 각 소비자 모듈의 계약 반영 범위에서 처리한다.
+
+---
+
+## Resource Type/Instance 계약 전환 이력
+
+Resource 종류와 실제 자원 인스턴스를 구분하고, 검증 결과가 정확한 KG 노드를 참조할 수 있도록 Resource 계약을 `0.2.0`으로 전환했다.
+
+### 모델과 입력
+
+Resource 노드는 다음 필드를 필수로 가진다.
+
+```text
+resource_key
+resource_scope: type | instance
+match_key
+```
+
+`type`은 `match_key=null`, `instance`는 하나 이상의 문자열 식별값으로 구성된 `match_key`를 사용한다. 복합 식별값은 key 순서와 무관하게 같은 인스턴스로 판단하며, 동일 `match_key`가 다른 `node_id`로 중복되면 ingest를 거절한다. `node_id`는 생산자가 생성하고 knowledge_graph는 불투명 식별자로 검증·저장한다.
+
+### Neo4j 저장과 조회
+
+원본 Resource 속성은 `properties_json`에 보존한다. Cypher 조회용으로 다음 속성을 함께 저장한다.
+
+```text
+resource_key
+resource_scope
+resource_match_key_json
+```
+
+`resource_ownership`은 Resource 인스턴스만 반환한다. `role_resource_access`와 `resource_ownership`의 Resource 결과에는 기존 `resource_id`와 함께 `resource_key`, `resource_scope`, `match_key`를 제공한다. 여기서 `resource_id`는 실제 KG `node_id`다. 연결된 Resource가 없는 AccessRow는 네 필드를 모두 `null`로 반환한다.
+
+`graph_query_result.json`은 `schema_version=0.2.0`을 사용한다.
+
+### 검증 결과 반영
+
+`verification_results.json` 입력은 `schema_version=0.2.0`을 사용한다. 검증 관계는 다음 구조만 허용한다.
+
+```text
+User ── VERIFIED_ACCESS | VERIFIED_DENIAL ──> Resource Instance
+```
+
+관계의 source와 target은 현재 `run_id`와 `graph_id`에 이미 존재해야 한다. target이 Endpoint, Resource Type 또는 존재하지 않는 노드이면 반영하지 않는다. verifier는 `graph_updates.nodes`에서 신규 Resource 노드를 생성할 수 없으며, 앞 단계에서 전달받은 Resource `node_id`를 `target_id`로 사용해야 한다.
+
+기존 verification 중복 방지와 revision 규칙은 유지한다. 같은 `verification_id`와 원본 산출물을 다시 적용하면 revision을 올리지 않고, 새로운 유효 검증 관계를 반영한 경우에만 revision을 증가시킨다.
+
+### 적용과 호환성
+
+`0.1.0` Resource 관련 산출물을 묵시적으로 변환하지 않는다.
+
+```text
+semantic_analysis 0.2 재생성
+        ↓
+신규 KG ingest
+        ↓
+graph_query_result 0.2 소비
+        ↓
+verification_results 0.2 반영
+```
+
+외부 생산자와 소비자는 각 담당 모듈에서 `0.2.0` 계약과 Resource `node_id` 전달을 반영해야 한다. knowledge_graph는 다른 모듈 코드를 직접 수정하거나 import하지 않는다.
+
+검증 결과:
+
+```text
+knowledge_graph 전체
+156 passed, 4 skipped
+```
+
+실제 Neo4j 통합 테스트 4건은 현재 실행 환경에서 Docker 명령을 사용할 수 없어 보류했다.

@@ -65,6 +65,63 @@ def test_prepare_and_execute_verification(
     assert repository.update.source_graph_revision == 1
     assert repository.update.verification_ids == ("verification_001",)
     assert repository.update.relationships[0].basis == "verified"
+    assert repository.update.relationships[0].target_id == "resource_order_001"
+
+
+def test_prepare_verification_rejects_legacy_version(
+    verification_run_root: Path,
+) -> None:
+    input_path = verification_run_root / INPUT_PATH
+    artifact = json.loads(input_path.read_text(encoding="utf-8"))
+    artifact["schema_version"] = "0.1.0"
+    input_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        prepare_verification_operation(_request(verification_run_root))
+
+
+def test_prepare_verification_rejects_new_resource_node(
+    verification_run_root: Path,
+) -> None:
+    input_path = verification_run_root / INPUT_PATH
+    artifact = json.loads(input_path.read_text(encoding="utf-8"))
+    evidence_refs = artifact["data"]["results"][0]["evidence_refs"]
+    artifact["data"]["graph_updates"]["nodes"] = [
+        {
+            "node_id": "resource_new_001",
+            "node_type": "Resource",
+            "properties": {
+                "resource_key": "order",
+                "resource_scope": "instance",
+                "match_key": {
+                    "resource_key": "order",
+                    "identifiers": [
+                        {"key": "order_id", "value": "new-001"},
+                    ],
+                },
+            },
+            "basis": "verified",
+            "evidence_refs": evidence_refs,
+        }
+    ]
+    input_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        prepare_verification_operation(_request(verification_run_root))
+
+
+def test_prepare_verification_rejects_non_verification_relationship(
+    verification_run_root: Path,
+) -> None:
+    input_path = verification_run_root / INPUT_PATH
+    artifact = json.loads(input_path.read_text(encoding="utf-8"))
+    artifact["data"]["graph_updates"]["relationships"][0][
+        "relation_type"
+    ] = "ACCESS"
+    input_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        prepare_verification_operation(_request(verification_run_root))
 
 
 def test_partial_input_errors_are_preserved(

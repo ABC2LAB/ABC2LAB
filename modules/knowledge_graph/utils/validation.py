@@ -190,6 +190,18 @@ def _validate_resource_relationships(
             raise ContractValidationError(
                 "REFERENCE 관계는 Endpoint에서 Resource로 연결되어야 함"
             )
+        if relation_type in {"VERIFIED_ACCESS", "VERIFIED_DENIAL"}:
+            if (
+                node_type_by_id[source_id] != "User"
+                or node_type_by_id[target_id] != "Resource"
+            ):
+                raise ContractValidationError(
+                    "검증 관계는 User에서 Resource로 연결되어야 함"
+                )
+            if resource_scope_by_id[target_id] != "instance":
+                raise ContractValidationError(
+                    "검증 관계의 target은 Resource instance여야 함"
+                )
         if relation_type != "OWNS":
             continue
         if (
@@ -363,6 +375,20 @@ def validate_verification_results_semantics(artifact: dict[str, Any]) -> None:
 
     nodes = graph_updates["nodes"]
     relationships = graph_updates["relationships"]
+    if any(node["node_type"] == "Resource" for node in nodes):
+        raise ContractValidationError(
+            "verifier는 graph_updates에서 Resource 노드를 생성할 수 없음"
+        )
+    for relationship in relationships:
+        if relationship["relation_type"] not in {
+            "VERIFIED_ACCESS",
+            "VERIFIED_DENIAL",
+        }:
+            raise ContractValidationError("허용되지 않은 verification 관계 유형")
+        if relationship["source_id"] == relationship["target_id"]:
+            raise ContractValidationError(
+                "verification 관계의 source와 target은 달라야 함"
+            )
     has_updates = bool(nodes or relationships)
     if has_updates != bool(source_ids):
         raise ContractValidationError(

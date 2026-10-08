@@ -72,6 +72,10 @@ ALLOWED_QUERY_KEYS = frozenset(
     }
 )
 
+ALLOWED_VERIFICATION_RELATIONSHIP_TYPES = frozenset(
+    {"VERIFIED_ACCESS", "VERIFIED_DENIAL"}
+)
+
 SCHEMA_QUERIES = (
     "CREATE CONSTRAINT abc2_graph_identity IF NOT EXISTS "
     "FOR (graph:ABC2Graph) REQUIRE (graph.run_id, graph.graph_id) IS UNIQUE",
@@ -237,13 +241,17 @@ class Neo4jGraphRepository:
             raise ContractValidationError("graph_id와 run_id는 비어 있을 수 없음")
         if len(update.verification_ids) != len(set(update.verification_ids)):
             raise ContractValidationError("verification_id가 중복됨")
+        if any(node.node_type == "Resource" for node in update.nodes):
+            raise ContractValidationError(
+                "verifier는 Resource 노드를 새로 생성할 수 없음"
+            )
         invalid_types = {
             edge.relation_type
             for edge in update.relationships
-            if edge.relation_type not in ALLOWED_RELATIONSHIP_TYPES
+            if edge.relation_type not in ALLOWED_VERIFICATION_RELATIONSHIP_TYPES
         }
         if invalid_types:
-            raise ContractValidationError("허용되지 않은 verification relationship type")
+            raise ContractValidationError("허용되지 않은 verification 관계 유형")
         self.initialize_schema()
         try:
             with self._driver.session(database=self._settings.database) as session:
@@ -368,7 +376,7 @@ class Neo4jGraphRepository:
                     "MATCH (account)-[access]->(endpoint) "
                     "WHERE access.graph_id = $graph_id "
                     "AND access.run_id = $run_id "
-                    "AND type(access) IN ['ACCESS', 'VERIFIED_ACCESS'] "
+                    "AND type(access) = 'ACCESS' "
                     "} "
                     "RETURN observation.request_id AS request_id, "
                     "observation.account_id AS account_id, "
@@ -670,27 +678,42 @@ class Neo4jGraphRepository:
                 "기존 node_id가 다른 node_type으로 갱신됨"
             )
 
-        endpoint_ids = {
-            endpoint_id
+        referenced_node_ids = {
+            node_id
             for edge in update.relationships
-            for endpoint_id in (edge.source_id, edge.target_id)
+            for node_id in (edge.source_id, edge.target_id)
         }
-        stored_node_ids = {
-            record["node_id"]
+        stored_node_by_id = {
+            record["node_id"]: record
             for record in transaction.run(
                 "MATCH (node:ABC2Entity {graph_id: $graph_id, run_id: $run_id}) "
                 "WHERE node.node_id IN $node_ids "
-                "RETURN node.node_id AS node_id",
+                "RETURN node.node_id AS node_id, node.node_type AS node_type, "
+                "node.resource_scope AS resource_scope",
                 graph_id=graph_id,
                 run_id=run_id,
-                node_ids=list(endpoint_ids),
+                node_ids=list(referenced_node_ids),
             )
         }
-        update_node_ids = {node.node_id for node in update.nodes}
-        if not endpoint_ids.issubset(stored_node_ids | update_node_ids):
+        if set(stored_node_by_id) != referenced_node_ids:
             raise GraphUpdateReferenceError(
                 "검증 관계가 존재하지 않는 node_id를 참조함"
             )
+        for edge in update.relationships:
+            source = stored_node_by_id[edge.source_id]
+            target = stored_node_by_id[edge.target_id]
+            if source["node_type"] != "User":
+                raise GraphUpdateReferenceError(
+                    "검증 관계의 source는 기존 User 노드여야 함"
+                )
+            if target["node_type"] != "Resource":
+                raise GraphUpdateReferenceError(
+                    "검증 관계의 target은 기존 Resource 노드여야 함"
+                )
+            if target["resource_scope"] != "instance":
+                raise GraphUpdateReferenceError(
+                    "검증 관계의 target은 Resource instance여야 함"
+                )
 
         edge_by_id = {edge.relationship_id: edge for edge in update.relationships}
         stored_edges = list(

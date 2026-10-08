@@ -164,6 +164,8 @@ def test_role_resource_access_maps_request_observation_resources() -> None:
     query, parameters = transaction.calls[0]
     assert "ABC2RequestObservation" in query
     assert "MATCH (account)-[access]->" in query
+    assert "type(access) = 'ACCESS'" in query
+    assert "VERIFIED_ACCESS" not in query
     assert "observation.request_id AS request_id" in query
     assert "MATCH (account)-[has_role:HAS_ROLE]->(role)" in query
     assert "observation.role_id IN $role_ids" in query
