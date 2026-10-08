@@ -92,6 +92,14 @@ def test_ingest_accepts_type_resource(fixture_root: Path, tmp_path: Path) -> Non
         "resource_scope": "type",
         "match_key": None,
     }
+    relationship = _relationship(source, "OWNS")
+    relationship.update(
+        {
+            "relationship_id": "relationship_reference_type_001",
+            "source_id": "endpoint_orders",
+            "relation_type": "REFERENCE",
+        }
+    )
 
     artifact, _ = prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
 
@@ -215,6 +223,114 @@ def test_ingest_rejects_resource_key_mismatch(
         prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
 
 
+def test_ingest_rejects_duplicate_resource_match_key_regardless_of_order(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    resource = _resource_node(source)
+    resource["properties"]["match_key"]["identifiers"] = [
+        {"key": "tenant_id", "value": "company-a"},
+        {"key": "order_id", "value": "001"},
+    ]
+    duplicate = copy.deepcopy(resource)
+    duplicate["node_id"] = "resource_order_duplicate"
+    duplicate["properties"]["match_key"]["identifiers"].reverse()
+    source["data"]["nodes"].append(duplicate)
+
+    with pytest.raises(ContractValidationError, match="동일 Resource match_key"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+def test_ingest_rejects_duplicate_request_resource_id(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    resource_id = _resource_node(source)["node_id"]
+    source["data"]["normalized_requests"][0]["resource_ids"] = [
+        resource_id,
+        resource_id,
+    ]
+
+    with pytest.raises(ContractValidationError, match="중복 resource_id"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+@pytest.mark.parametrize(
+    ("resource_id", "error_pattern"),
+    [
+        ("missing_resource", "존재하지 않는 Resource node_id"),
+        ("endpoint_orders", "Resource 노드가 아님"),
+    ],
+)
+def test_ingest_rejects_invalid_request_resource_reference(
+    fixture_root: Path,
+    tmp_path: Path,
+    resource_id: str,
+    error_pattern: str,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    source["data"]["normalized_requests"][0]["resource_ids"] = [resource_id]
+
+    with pytest.raises(ContractValidationError, match=error_pattern):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+@pytest.mark.parametrize(
+    ("source_id", "target_id"),
+    [
+        ("account_user", "resource_order_001"),
+        ("endpoint_orders", "role_user"),
+    ],
+)
+def test_ingest_rejects_invalid_reference_relationship_direction(
+    fixture_root: Path,
+    tmp_path: Path,
+    source_id: str,
+    target_id: str,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    relationship = _relationship(source, "OWNS")
+    relationship.update(
+        {
+            "relationship_id": "relationship_invalid_reference",
+            "source_id": source_id,
+            "target_id": target_id,
+            "relation_type": "REFERENCE",
+        }
+    )
+
+    with pytest.raises(ContractValidationError, match="Endpoint에서 Resource"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+def test_ingest_rejects_owns_from_non_user(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    _relationship(source, "OWNS")["source_id"] = "role_user"
+
+    with pytest.raises(ContractValidationError, match="User에서 Resource"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
+def test_ingest_rejects_owns_to_resource_type(
+    fixture_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = load_json(fixture_root / "semantic_analyzer" / "semantic_analysis.json")
+    _resource_node(source)["properties"] = {
+        "resource_key": "order",
+        "resource_scope": "type",
+        "match_key": None,
+    }
+
+    with pytest.raises(ContractValidationError, match="Resource instance"):
+        prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
+
+
 def test_ingest_rejects_legacy_semantic_version(
     fixture_root: Path,
     tmp_path: Path,
@@ -299,3 +415,16 @@ def _resource_node(artifact: dict[str, object]) -> dict[str, object]:
     nodes = data["nodes"]
     assert isinstance(nodes, list)
     return next(item for item in nodes if item["node_type"] == "Resource")
+
+
+def _relationship(
+    artifact: dict[str, object],
+    relation_type: str,
+) -> dict[str, object]:
+    data = artifact["data"]
+    assert isinstance(data, dict)
+    relationships = data["relationships"]
+    assert isinstance(relationships, list)
+    return next(
+        item for item in relationships if item["relation_type"] == relation_type
+    )

@@ -135,7 +135,16 @@ def _validate_user_role_relationships(
     return role_id_by_user_node_id
 
 
+def _resource_match_identity(properties: dict[str, Any]) -> tuple[object, ...]:
+    match_key = properties["match_key"]
+    identifiers = tuple(
+        sorted((item["key"], item["value"]) for item in match_key["identifiers"])
+    )
+    return match_key["resource_key"], identifiers
+
+
 def _validate_resource_nodes(nodes: list[dict[str, Any]]) -> None:
+    node_id_by_match_identity: dict[tuple[object, ...], str] = {}
     for node in nodes:
         if node["node_type"] != "Resource":
             continue
@@ -151,6 +160,49 @@ def _validate_resource_nodes(nodes: list[dict[str, Any]]) -> None:
             (item["key"] for item in match_key["identifiers"]),
             f"Resource identifier key ({node['node_id']})",
         )
+        match_identity = _resource_match_identity(properties)
+        existing_node_id = node_id_by_match_identity.get(match_identity)
+        if existing_node_id is not None and existing_node_id != node["node_id"]:
+            raise ContractValidationError(
+                "동일 Resource match_key가 다른 node_id로 중복됨"
+            )
+        node_id_by_match_identity[match_identity] = node["node_id"]
+
+
+def _validate_resource_relationships(
+    nodes: list[dict[str, Any]],
+    relationships: list[dict[str, Any]],
+    node_type_by_id: dict[str, str],
+) -> None:
+    resource_scope_by_id = {
+        node["node_id"]: node["properties"]["resource_scope"]
+        for node in nodes
+        if node["node_type"] == "Resource"
+    }
+    for relationship in relationships:
+        source_id = relationship["source_id"]
+        target_id = relationship["target_id"]
+        relation_type = relationship["relation_type"]
+        if relation_type == "REFERENCE" and (
+            node_type_by_id[source_id] != "Endpoint"
+            or node_type_by_id[target_id] != "Resource"
+        ):
+            raise ContractValidationError(
+                "REFERENCE 관계는 Endpoint에서 Resource로 연결되어야 함"
+            )
+        if relation_type != "OWNS":
+            continue
+        if (
+            node_type_by_id[source_id] != "User"
+            or node_type_by_id[target_id] != "Resource"
+        ):
+            raise ContractValidationError(
+                "OWNS 관계는 User에서 Resource로 연결되어야 함"
+            )
+        if resource_scope_by_id[target_id] != "instance":
+            raise ContractValidationError(
+                "OWNS 관계의 target은 Resource instance여야 함"
+            )
 
 
 def validate_semantic_analysis_semantics(artifact: dict[str, Any]) -> None:
@@ -175,6 +227,7 @@ def validate_semantic_analysis_semantics(artifact: dict[str, Any]) -> None:
             raise ContractValidationError("관계 source_id가 nodes에 존재하지 않음")
         if relationship["target_id"] not in node_ids:
             raise ContractValidationError("관계 target_id가 nodes에 존재하지 않음")
+    _validate_resource_relationships(nodes, relationships, node_type_by_id)
 
     user_node_id_by_account_id = _build_original_id_index(
         nodes,
@@ -218,6 +271,10 @@ def validate_semantic_analysis_semantics(artifact: dict[str, Any]) -> None:
             raise ContractValidationError(
                 "정규화 요청의 endpoint_id가 Endpoint 노드가 아님"
             )
+        _require_unique(
+            request["resource_ids"],
+            f"resource_id ({request['request_id']})",
+        )
         for resource_id in request["resource_ids"]:
             if resource_id not in node_ids:
                 raise ContractValidationError(
