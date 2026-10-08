@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "semantic_analysis",
   "artifact_id": "semantic_demo_001",
   "run_id": "run_demo_001",
@@ -39,7 +39,7 @@
       {"node_id": "account_user", "node_type": "User", "properties": {"account_id": "account_user", "alias": "user", "role_id": "role_user"}, "basis": "observed", "evidence_refs": []},
       {"node_id": "role_user", "node_type": "Role", "properties": {"name": "user", "role_id": "role_user"}, "basis": "observed", "evidence_refs": []},
       {"node_id": "endpoint_orders", "node_type": "Endpoint", "properties": {"method": "GET", "path_template": "/api/orders/{order_id}"}, "basis": "observed", "evidence_refs": []},
-      {"node_id": "resource_order_001", "node_type": "Resource", "properties": {"resource_type": "order"}, "basis": "inferred", "evidence_refs": []}
+      {"node_id": "resource_order_001", "node_type": "Resource", "properties": {"resource_key": "order", "resource_scope": "instance", "match_key": {"resource_key": "order", "identifiers": [{"key": "order_id", "value": "001"}]}}, "basis": "inferred", "evidence_refs": []}
     ],
     "relationships": [
       {"relationship_id": "relationship_has_role_001", "source_id": "account_user", "target_id": "role_user", "relation_type": "HAS_ROLE", "properties": {}, "basis": "observed", "evidence_refs": []},

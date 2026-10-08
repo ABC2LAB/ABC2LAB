@@ -365,7 +365,7 @@ def _verification_repository_failure_response(
     if isinstance(error, GraphUpdateReferenceError):
         return _failed_verification_control_response(
             "GRAPH_UPDATE_REFERENCE_INVALID",
-            "검증 관계가 존재하지 않는 노드를 참조함",
+            "검증 관계가 허용된 기존 User·Resource instance를 참조하지 않음",
             retryable=False,
             graph_id=graph_id,
         )

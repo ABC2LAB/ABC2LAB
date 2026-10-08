@@ -70,12 +70,52 @@ def deserialize_request_observation(value: dict[str, Any]) -> RequestObservation
 
 
 def serialize_node(node: GraphNode) -> dict[str, Any]:
+    resource_key, resource_scope, resource_match_key_json = (
+        _resource_storage_projection(node)
+    )
     return {
         "node_id": node.node_id,
         "node_type": node.node_type,
         "properties_json": encode_json(node.properties),
+        "resource_key": resource_key,
+        "resource_scope": resource_scope,
+        "resource_match_key_json": resource_match_key_json,
         "basis": node.basis,
         "evidence_refs_json": encode_json([asdict(item) for item in node.evidence_refs]),
+    }
+
+
+def _resource_storage_projection(
+    node: GraphNode,
+) -> tuple[str | None, str | None, str | None]:
+    if node.node_type != "Resource":
+        return None, None, None
+
+    resource_key = node.properties.get("resource_key")
+    resource_scope = node.properties.get("resource_scope")
+    match_key = node.properties.get("match_key")
+    match_key_json = (
+        encode_json(_canonical_resource_match_key(match_key))
+        if isinstance(match_key, dict)
+        else None
+    )
+    return (
+        resource_key if isinstance(resource_key, str) else None,
+        resource_scope if isinstance(resource_scope, str) else None,
+        match_key_json,
+    )
+
+
+def _canonical_resource_match_key(match_key: dict[str, Any]) -> dict[str, Any]:
+    identifiers = match_key.get("identifiers")
+    if not isinstance(identifiers, list):
+        return match_key
+    return {
+        **match_key,
+        "identifiers": sorted(
+            identifiers,
+            key=lambda item: (item["key"], item["value"]),
+        ),
     }
 
 

@@ -379,7 +379,7 @@ def _query_artifact(
 ) -> dict[str, Any]:
     duration_ms = max(0, round((perf_counter() - started_at) * 1000))
     return {
-        "schema_version": "0.1.0",
+        "schema_version": "0.2.0",
         "artifact_type": "graph_query_result",
         "artifact_id": artifact_id,
         "run_id": prepared.request.run_id,

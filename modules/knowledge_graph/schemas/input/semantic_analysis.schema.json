@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "artifact_type", "artifact_id", "run_id", "iteration", "producer", "mode", "created_at", "status", "input_refs", "errors", "runtime_metrics", "data"],
   "properties": {
-    "schema_version": {"const": "0.1.0"},
+    "schema_version": {"const": "0.2.0"},
     "artifact_type": {"const": "semantic_analysis"},
     "artifact_id": {"$ref": "#/$defs/nonEmptyString"},
     "run_id": {"$ref": "#/$defs/nonEmptyString"},
@@ -72,6 +72,50 @@
         "is_sensitive": {"type": "boolean"}
       }
     },
+    "resourceIdentifier": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": {
+        "key": {"$ref": "#/$defs/nonEmptyString"},
+        "value": {"$ref": "#/$defs/nonEmptyString"}
+      }
+    },
+    "resourceMatchKey": {
+      "type": "object", "additionalProperties": false,
+      "required": ["resource_key", "identifiers"],
+      "properties": {
+        "resource_key": {"$ref": "#/$defs/nonEmptyString"},
+        "identifiers": {
+          "type": "array", "minItems": 1,
+          "items": {"$ref": "#/$defs/resourceIdentifier"}
+        }
+      }
+    },
+    "resourceProperties": {
+      "type": "object",
+      "required": ["resource_key", "resource_scope", "match_key"],
+      "properties": {
+        "resource_key": {"$ref": "#/$defs/nonEmptyString"},
+        "resource_scope": {"enum": ["type", "instance"]},
+        "match_key": {
+          "oneOf": [
+            {"$ref": "#/$defs/resourceMatchKey"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "additionalProperties": {"$ref": "#/$defs/jsonValue"},
+      "allOf": [
+        {
+          "if": {"properties": {"resource_scope": {"const": "type"}}},
+          "then": {"properties": {"match_key": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"resource_scope": {"const": "instance"}}},
+          "then": {"properties": {"match_key": {"$ref": "#/$defs/resourceMatchKey"}}}
+        }
+      ]
+    },
     "normalizedRequest": {
       "type": "object", "additionalProperties": false,
       "required": ["request_id", "endpoint_id", "method", "path_template", "account_id", "role_id", "action_meaning", "resource_ids", "parameters", "basis", "evidence_refs"],
@@ -90,7 +134,13 @@
         "node_id": {"$ref": "#/$defs/nonEmptyString"}, "node_type": {"enum": ["User", "Role", "Page", "Action", "Endpoint", "Parameter", "Resource"]},
         "properties": {"type": "object", "additionalProperties": {"$ref": "#/$defs/jsonValue"}}, "basis": {"enum": ["observed", "inferred", "verified"]},
         "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/evidenceRef"}}
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"node_type": {"const": "Resource"}}},
+          "then": {"properties": {"properties": {"$ref": "#/$defs/resourceProperties"}}}
+        }
+      ]
     },
     "graphEdge": {
       "type": "object", "additionalProperties": false,

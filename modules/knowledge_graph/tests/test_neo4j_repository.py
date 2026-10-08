@@ -17,6 +17,7 @@ from modules.knowledge_graph.neo4j_repository import (
 )
 from modules.knowledge_graph.service import prepare_ingest
 from modules.knowledge_graph.settings import Neo4jSettings
+from modules.knowledge_graph.storage import decode_json
 
 
 class FakeResult:
@@ -154,6 +155,19 @@ def test_ingest_writes_scoped_graph_records(fixture_root: Path) -> None:
         if "CREATE (:ABC2RequestObservation" in call[0]
     )
     assert len(node_call[1]["records"]) == 4
+    resource_record = next(
+        record
+        for record in node_call[1]["records"]
+        if record["node_id"] == "resource_order_001"
+    )
+    assert resource_record["resource_key"] == "order"
+    assert resource_record["resource_scope"] == "instance"
+    assert decode_json(resource_record["resource_match_key_json"]) == {
+        "resource_key": "order",
+        "identifiers": [{"key": "order_id", "value": "001"}],
+    }
+    assert "resource_scope: record.resource_scope" in node_call[0]
+    assert "resource_match_key_json: record.resource_match_key_json" in node_call[0]
     assert len(relationship_call[1]["records"]) == 1
     assert "run_id: $run_id" in relationship_call[0]
     assert observation_call[1]["records"] == [

@@ -20,7 +20,7 @@ CURRENT_SEMANTIC_FIXTURE = (
 )
 
 
-def test_current_semantic_output_matches_kg_json_schema() -> None:
+def test_agreed_resource_model_matches_kg_json_schema() -> None:
     artifact = load_json(CURRENT_SEMANTIC_FIXTURE)
 
     validate_schema(
@@ -28,11 +28,11 @@ def test_current_semantic_output_matches_kg_json_schema() -> None:
         SCHEMA_DIRECTORY / "input" / "semantic_analysis.schema.json",
     )
 
-    assert artifact["schema_version"] == "0.1.0"
+    assert artifact["schema_version"] == "0.2.0"
     assert artifact["producer"] == "semantic_analyzer"
 
 
-def test_current_semantic_output_preserves_new_identity_and_access_shape() -> None:
+def test_agreed_resource_model_preserves_identity_and_access_shape() -> None:
     data = load_json(CURRENT_SEMANTIC_FIXTURE)["data"]
     request = data["normalized_requests"][0]
     node_by_id = {item["node_id"]: item for item in data["nodes"]}
@@ -54,9 +54,20 @@ def test_current_semantic_output_preserves_new_identity_and_access_shape() -> No
     assert all(item["properties"] == {} for item in access_edges)
     assert "action" not in node_by_id[request["endpoint_id"]]["properties"]
     assert request["action_meaning"] == "read_order"
+    resource = node_by_id[request["resource_ids"][0]]
+    assert resource["properties"] == {
+        "resource_key": "order",
+        "resource_scope": "instance",
+        "match_key": {
+            "resource_key": "order",
+            "identifiers": [
+                {"key": "order_id", "value": "example-order"},
+            ],
+        },
+    }
 
 
-def test_prepare_ingest_accepts_current_semantic_output() -> None:
+def test_prepare_ingest_accepts_agreed_resource_model() -> None:
     artifact, graph = prepare_ingest(CURRENT_SEMANTIC_FIXTURE)
 
     assert artifact["artifact_id"] == "semantic_compatibility_001"

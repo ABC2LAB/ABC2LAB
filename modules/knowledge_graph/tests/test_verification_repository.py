@@ -6,6 +6,7 @@ from typing import Any, Iterator
 import pytest
 
 from modules.knowledge_graph.exceptions import (
+    ContractValidationError,
     GraphRevisionMismatchError,
     GraphUpdateConflictError,
     GraphUpdateReferenceError,
@@ -48,15 +49,23 @@ class FakeVerificationTransaction:
         self,
         revision: int = 1,
         applied_records: list[dict[str, Any]] | None = None,
-        stored_node_ids: set[str] | None = None,
+        stored_nodes: dict[str, dict[str, Any]] | None = None,
         conflicting_nodes: list[dict[str, Any]] | None = None,
         stored_edges: list[dict[str, Any]] | None = None,
     ) -> None:
         self.revision = revision
         self.applied_records = applied_records or []
-        self.stored_node_ids = stored_node_ids or {
-            "account_user",
-            "resource_order_001",
+        self.stored_nodes = stored_nodes or {
+            "account_user": {
+                "node_id": "account_user",
+                "node_type": "User",
+                "resource_scope": None,
+            },
+            "resource_order_001": {
+                "node_id": "resource_order_001",
+                "node_type": "Resource",
+                "resource_scope": "instance",
+            },
         }
         self.conflicting_nodes = conflicting_nodes or []
         self.stored_edges = stored_edges or []
@@ -74,8 +83,8 @@ class FakeVerificationTransaction:
             requested = set(parameters["node_ids"])
             return FakeResult(
                 records=[
-                    {"node_id": node_id}
-                    for node_id in sorted(requested & self.stored_node_ids)
+                    self.stored_nodes[node_id]
+                    for node_id in sorted(requested & set(self.stored_nodes))
                 ]
             )
         if "WHERE edge.relationship_id IN $relationship_ids" in query:
@@ -115,6 +124,18 @@ class FakeDriver:
 
     def close(self) -> None:
         return None
+
+
+def _stored_node(
+    node_id: str,
+    node_type: str,
+    resource_scope: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "node_id": node_id,
+        "node_type": node_type,
+        "resource_scope": resource_scope,
+    }
 
 
 def test_apply_verification_updates_graph_once(fixture_root: Path) -> None:
@@ -217,13 +238,104 @@ def test_apply_verification_rejects_reused_verification_id(
 def test_apply_verification_rejects_missing_relationship_node(
     fixture_root: Path,
 ) -> None:
-    transaction = FakeVerificationTransaction(stored_node_ids={"account_user"})
+    transaction = FakeVerificationTransaction(
+        stored_nodes={
+            "account_user": _stored_node("account_user", "User"),
+        }
+    )
 
     with pytest.raises(GraphUpdateReferenceError):
         _repository(transaction).apply_verification(
             "graph_demo_001",
             "run_demo_001",
             _update(fixture_root),
+        )
+
+
+@pytest.mark.parametrize(
+    ("stored_nodes", "error_pattern"),
+    [
+        (
+            {
+                "account_user": _stored_node("account_user", "Role"),
+                "resource_order_001": _stored_node(
+                    "resource_order_001",
+                    "Resource",
+                    "instance",
+                ),
+            },
+            "source",
+        ),
+        (
+            {
+                "account_user": _stored_node("account_user", "User"),
+                "resource_order_001": _stored_node(
+                    "resource_order_001",
+                    "Endpoint",
+                ),
+            },
+            "Resource",
+        ),
+        (
+            {
+                "account_user": _stored_node("account_user", "User"),
+                "resource_order_001": _stored_node(
+                    "resource_order_001",
+                    "Resource",
+                    "type",
+                ),
+            },
+            "instance",
+        ),
+    ],
+)
+def test_apply_verification_requires_user_to_resource_instance(
+    fixture_root: Path,
+    stored_nodes: dict[str, dict[str, Any]],
+    error_pattern: str,
+) -> None:
+    transaction = FakeVerificationTransaction(stored_nodes=stored_nodes)
+
+    with pytest.raises(GraphUpdateReferenceError, match=error_pattern):
+        _repository(transaction).apply_verification(
+            "graph_demo_001",
+            "run_demo_001",
+            _update(fixture_root),
+        )
+
+
+def test_apply_verification_rejects_new_resource_node(fixture_root: Path) -> None:
+    source_update = _update(fixture_root)
+    update = VerificationUpdate(
+        source=source_update.source,
+        source_graph_revision=source_update.source_graph_revision,
+        verification_ids=source_update.verification_ids,
+        nodes=(
+            GraphNode(
+                node_id="resource_new_001",
+                node_type="Resource",
+                properties={
+                    "resource_key": "order",
+                    "resource_scope": "instance",
+                    "match_key": {
+                        "resource_key": "order",
+                        "identifiers": [
+                            {"key": "order_id", "value": "new-001"},
+                        ],
+                    },
+                },
+                basis="verified",
+                evidence_refs=(),
+            ),
+        ),
+        relationships=source_update.relationships,
+    )
+
+    with pytest.raises(ContractValidationError, match="Resource 노드"):
+        _repository(FakeVerificationTransaction()).apply_verification(
+            "graph_demo_001",
+            "run_demo_001",
+            update,
         )
 
 

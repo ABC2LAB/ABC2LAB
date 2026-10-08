@@ -227,6 +227,11 @@ def test_public_query_returns_all_typed_rows_with_real_neo4j(
     ownership_row = results_by_key["resource_ownership"]["rows"][0]
     assert ownership_row["owner_account_id"] == "acc_alice"
     assert ownership_row["resource_id"] == "resource:order"
+    assert ownership_row["resource_key"] == "order"
+    assert ownership_row["resource_scope"] == "instance"
+    assert ownership_row["match_key"]["identifiers"] == [
+        {"key": "order_id", "value": "example-order"},
+    ]
     assert len(results_by_key["role_resource_access"]["rows"]) == 1
     access_row = results_by_key["role_resource_access"]["rows"][0]
     assert access_row["account_id"] == "acc_alice"
@@ -234,11 +239,27 @@ def test_public_query_returns_all_typed_rows_with_real_neo4j(
     assert access_row["action"] == "read_order"
     assert access_row["request_ids"] == ["request_order_alice"]
     assert access_row["resource_id"] == "resource:order"
+    assert access_row["resource_key"] == "order"
+    assert access_row["resource_scope"] == "instance"
+    assert access_row["match_key"] == ownership_row["match_key"]
     assert results_by_key["workflow_dependencies"]["rows"] == []
     snapshot = results_by_key["structure_snapshot"]["rows"][0]
     assert len(snapshot["nodes"]) == 5
     assert len(snapshot["relationships"]) == 6
     assert len(snapshot["workflows"]) == 1
+    resource_node = next(
+        node for node in snapshot["nodes"] if node["node_id"] == "resource:order"
+    )
+    assert resource_node["properties"] == {
+        "resource_key": "order",
+        "resource_scope": "instance",
+        "match_key": {
+            "resource_key": "order",
+            "identifiers": [
+                {"key": "order_id", "value": "example-order"},
+            ],
+        },
+    }
 
 
 @pytest.mark.skipif(
@@ -262,7 +283,7 @@ def test_public_verification_updates_revision_once_with_real_neo4j(
         assert isinstance(ingest_response["graph_id"], str)
         graph_id = ingest_response["graph_id"]
         initial_query = _run_public_query(run_root, graph_id, iteration=0)
-        _add_verified_node_update(run_root)
+        _add_verified_denial_update(run_root)
         applied = _run_public_verification(run_root, graph_id)
         repeated = _run_public_verification(run_root, graph_id)
         updated_query = _run_public_query(run_root, graph_id, iteration=1)
@@ -301,12 +322,13 @@ def test_public_verification_updates_revision_once_with_real_neo4j(
     )
     assert verified["basis"] == "verified"
     assert verified["relation_type"] == "VERIFIED_ACCESS"
-    verified_node = next(
+    assert verified["target_id"] == "resource_order_001"
+    verified_denial = next(
         item
-        for item in snapshot_result["rows"][0]["nodes"]
-        if item["node_id"] == "resource_verified_001"
+        for item in relationships
+        if item["relationship_id"] == "relationship_verified_denial_001"
     )
-    assert verified_node["basis"] == "verified"
+    assert verified_denial["target_id"] == "resource_order_001"
 
 
 def _run_public_ingest(run_root: Path, relative_path: str) -> dict[str, object]:
@@ -395,27 +417,18 @@ def _run_public_verification(
     )
 
 
-def _add_verified_node_update(run_root: Path) -> None:
+def _add_verified_denial_update(run_root: Path) -> None:
     input_path = run_root / (
         "artifacts/iteration-000/verifier/verification_results.json"
     )
     artifact = json.loads(input_path.read_text(encoding="utf-8"))
     evidence_refs = artifact["data"]["results"][0]["evidence_refs"]
     graph_updates = artifact["data"]["graph_updates"]
-    graph_updates["nodes"].append(
-        {
-            "node_id": "resource_verified_001",
-            "node_type": "Resource",
-            "properties": {"resource_type": "verified_resource"},
-            "basis": "verified",
-            "evidence_refs": evidence_refs,
-        }
-    )
     graph_updates["relationships"].append(
         {
             "relationship_id": "relationship_verified_denial_001",
             "source_id": "account_user",
-            "target_id": "resource_verified_001",
+            "target_id": "resource_order_001",
             "relation_type": "VERIFIED_DENIAL",
             "properties": {"action": "read_verified_resource"},
             "basis": "verified",

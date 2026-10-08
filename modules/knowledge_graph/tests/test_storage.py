@@ -8,6 +8,7 @@ from modules.knowledge_graph.models import (
     WorkflowStep,
 )
 from modules.knowledge_graph.storage import (
+    decode_json,
     deserialize_edge,
     deserialize_node,
     deserialize_request_observation,
@@ -35,7 +36,19 @@ def test_node_and_edge_round_trip_nested_json() -> None:
     node = GraphNode(
         node_id="resource_001",
         node_type="Resource",
-        properties={"nested": {"items": [1, True, None]}, "한글": "값"},
+        properties={
+            "resource_key": "order",
+            "resource_scope": "instance",
+            "match_key": {
+                "resource_key": "order",
+                "identifiers": [
+                    {"key": "tenant_id", "value": "tenant-001"},
+                    {"key": "order_id", "value": "order-001"},
+                ],
+            },
+            "nested": {"items": [1, True, None]},
+            "한글": "값",
+        },
         basis="inferred",
         evidence_refs=(EVIDENCE,),
     )
@@ -49,8 +62,40 @@ def test_node_and_edge_round_trip_nested_json() -> None:
         evidence_refs=(EVIDENCE,),
     )
 
-    assert deserialize_node(serialize_node(node)) == node
+    serialized_node = serialize_node(node)
+
+    assert deserialize_node(serialized_node) == node
+    assert serialized_node["resource_key"] == "order"
+    assert serialized_node["resource_scope"] == "instance"
+    assert decode_json(serialized_node["resource_match_key_json"]) == {
+        "resource_key": "order",
+        "identifiers": [
+            {"key": "order_id", "value": "order-001"},
+            {"key": "tenant_id", "value": "tenant-001"},
+        ],
+    }
     assert deserialize_edge(serialize_edge(edge)) == edge
+
+
+def test_type_resource_storage_projection_has_no_match_key() -> None:
+    node = GraphNode(
+        node_id="resource_type_order",
+        node_type="Resource",
+        properties={
+            "resource_key": "order",
+            "resource_scope": "type",
+            "match_key": None,
+        },
+        basis="inferred",
+        evidence_refs=(),
+    )
+
+    serialized = serialize_node(node)
+
+    assert serialized["resource_key"] == "order"
+    assert serialized["resource_scope"] == "type"
+    assert serialized["resource_match_key_json"] is None
+    assert deserialize_node(serialized) == node
 
 
 def test_request_observation_round_trip_preserves_internal_links() -> None:
