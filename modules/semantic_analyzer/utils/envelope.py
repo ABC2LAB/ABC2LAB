@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-SCHEMA_VERSION = "0.1.0"
+SCHEMA_VERSION = "0.2.0"  # Resource 입력 계약 0.2 반영(KG 합의). crawl_result 입력은 별도 버전
 ARTIFACT_TYPE = "semantic_analysis"
 PRODUCER = "semantic_analyzer"
 

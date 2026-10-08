@@ -31,7 +31,13 @@ def parameter_node_id(endpoint_id: str, location: str, name: str) -> str:
 
 
 def resource_node_id(resource_key: str) -> str:
+    """type 범위 자원 노드(특정 인스턴스가 아닌 자원 종류)."""
     return f"resource:{resource_key}"
+
+
+def resource_instance_node_id(resource_key: str, identifier_values: tuple[str, ...]) -> str:
+    """instance 범위 자원 노드. 인스턴스 식별 값으로 구분한다(예: resource:order:001)."""
+    return f"resource:{resource_key}:{':'.join(identifier_values)}"
 
 
 def relationship_id(source_id: str, relation_type: str, target_id: str) -> str:
