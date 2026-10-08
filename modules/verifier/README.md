@@ -3,7 +3,7 @@
 | 항목 | 값 |
 |---|---|
 | module_id | `verifier` |
-| 공개 operation | `verify` (안전 게이트 + allow 재현 실행·Check 판정. 실물 collector 창구 연결은 PR3) |
+| 공개 operation | `verify` (안전 게이트 + allow 재현 실행·Check 판정 + 실물 collector 세션 창구 연결) |
 | 명세 | `docs/spec/m7-verifier.md`, `02-common-contract.md`, `03-runner-layout.md` |
 | 계약 버전 | `schema_version = 0.1.0` |
 
@@ -104,23 +104,34 @@ CLI:
 - **경로 자체가 불확실하면**(잘못된 `run_id`·`run_root`, output_dir 불일치, `..`·symlink, 폴더 생성 불가) 파일을 쓰지 않고 반환값으로만 알린다. 종료코드 3. 입력 경로는 run_root 안이어야 한다.
 - 완료 파일은 한 번만 공개한다(`ARTIFACT_EXISTS`). 종료코드: 0 completed / 1 partial / 2 failed(파일 있음) / 3 파일 없음.
 
-## 세션 공개 창구 규약 (collector ↔ verifier, 둘 다 최민준 — 실물 구현 PR3)
+## 세션 공개 창구 규약 (collector ↔ verifier, 둘 다 최민준)
 
-- verifier는 `executor.py`의 Protocol(`SessionExecutor`·`SessionLease`)로만 세션을 쓴다. collector 코드·브라우저/세션 객체를 import하지 않고, 런너가 구현(또는 테스트 대역)을 주입한다(명세 03).
+- verifier는 `executor.py`의 Protocol(`SessionExecutor`·`SessionLease`)로만 세션을 쓴다. collector 코드·브라우저/세션 객체를 import하지 않고, 런너가 구현(또는 테스트 대역)을 주입한다(명세 03). 실물 구현은 collector `session_gateway.py`(`open_session_executor`).
 - 실행 모델: **리스가 요청을 대신 전송**한다 — verifier가 resolve한 요청을 넘기면 창구가 그 계정 세션으로 보내고 응답을 돌려준다. 세션 쿠키·토큰은 창구(collector) 안에만 머물고 전달 JSON·근거에 넣지 않는다.
-- 규약: `lease(account_id)` → `is_valid()`(session_ref 있어도 실제 유효성 재확인) · `send()`(자동 리다이렉트 끔) · `release()`. 접근·만료·대여/반납·종료·오류 규약은 collector와 구현 전 확정한다.
+- 규약: `lease(account_id)` → `is_valid()` · `send()`(자동 리다이렉트 끔) · `release()`. 전체 규약 표·만료 신호는 collector README "세션 공개 창구" 절. 요점:
+  - `is_valid()`는 창구가 세션을 들고 있고 만료 감지가 없었는가다(대상 앱 요청 없음). 실제 세션 만료는 `send()` 응답 신호로 잡아 `SessionExpiredError` → verifier가 indeterminate(`SESSION_EXPIRED`)로 둔다.
+  - `lease()`의 로그인 요청은 세션 준비라 `limits.max_requests`에 세지 않는다(대상 앱으로 가는 요청은 `send()`뿐).
+  - collector가 send에서 허용 origin을 한 번 더 검사한다(verifier `effective_origins`와 별개의 2차 방어).
 
 ## 명세(v0.1) 대비
 
 - 출력 `graph_updates`의 node/edge는 `basis`를 `const "verified"`로, `evidence_refs`를 `minItems:1`로 **명세 m7("basis=verified와 실제 실행 근거만")에 맞춰** 소비자(KG·reporter)보다 좁게 둔다. 우리 출력이 더 엄격해 소비자 입력을 항상 통과한다.
 - `max_redirects` 기본 **0**: 명세는 리다이렉트 처리를 세부로 규정하지 않는데, 로그인 리다이렉트를 자동으로 따라가면 최종 200을 "접근 성공"으로 **오탐**한다. 그래서 기본은 따라가지 않고 3xx를 그 단계 응답으로 기록한다(`configs/verifier.toml`에서 조정).
 - 비밀값 제거는 collector와 같은 기준(민감 키 이름·cookie/authorization 헤더 → `***`). **다른 점**: verifier는 계정 비밀번호를 쥐지 않으므로(세션은 collector 창구 안) 알려진 비밀값 스크럽 목록이 보통 비어 있고 구조적 마스킹만 적용한다. 근거 파일 이름에는 회차를 담는다(verifier는 회차마다 다시 실행).
+- `session_valid` Check 의미가 약해짐: 명세 m7의 "session_ref 능동 재확인" 대신 **"창구가 세션 보유 중 + 만료 감지 없음"**이다. 실제 세션 만료는 `send()` 응답 신호(로그인 리다이렉트 등, collector README)로 잡는다.
+
+### 한계 (라이브 1회 결과)
+
+- 같은 IDOR 시나리오(`GET /api/users/{id}`)를 docker vulnerable(:8001)·secure(:8000)에 각각 실행: vulnerable은 **success**(위반 재현), secure는 403을 그대로 받아 **indeterminate**(거짓 success를 만들지 않음). 산출물·근거에서 비밀값 0건, 세션 쿠키는 창구 안에만.
+- 403으로 거부하는 앱에서는 현재 Check 세트(`response_status`·`response_json`)로는 failure가 아니라 indeterminate가 나온다(거부 응답엔 내용 조건을 평가할 값이 없어 그 Check가 `passed=null`). 깔끔한 failure 판정은 `baseline_match` 등 Check 3종 평가가 들어와야 한다(PR3-c 뒤 작업).
 
 ## PR 분할
 
 - **PR1**: 계약 Schema·utils·안전 게이트. HTTP 전송 없음.
-- **PR2(이것)**: 세션 창구 Protocol로 allow 실행 — URL resolve·`effective_origins`(최종 URL)·리다이렉트 재검사·`limits`·state_change·body_ref·세션 오류, `assertions`/`preconditions`(Check) 평가, ExecutedStep/CheckResult 근거, result 분류(success/failure/indeterminate). 세션 대역으로 개발·테스트.
-- **PR3**: 실제 collector 세션 창구 바인딩 + 상태 변경 시 테스트 앱 DB 초기화(reset 훅, config) + `graph_updates`(KG node_id 매핑) + 하드닝.
+- **PR2**: 세션 창구 Protocol로 allow 실행 — URL resolve·`effective_origins`(최종 URL)·리다이렉트 재검사·`limits`·state_change·body_ref·세션 오류, `assertions`/`preconditions`(Check) 평가, ExecutedStep/CheckResult 근거, result 분류(success/failure/indeterminate). 세션 대역으로 개발·테스트.
+- **PR3-a(이것)**: 실제 collector 세션 창구(`session_gateway.py`) 바인딩 + 라이브 실행 1회 확인.
+- **PR3-b**: 상태 변경 시 테스트 앱 DB 초기화(reset 훅, config).
+- **PR3-c**: `graph_updates`(KG node_id 매핑) + Check 3종 평가 + 하드닝.
 
 ## 독립 실행·테스트
 
