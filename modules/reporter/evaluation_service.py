@@ -162,7 +162,7 @@ def _validate_ground_truth_for_profile(inputs: EvaluationInputs) -> None:
             raise ContractValidationError("ground truth entity match_key가 비어 있음")
         signature = (
             entity["entity_type"],
-            mapping_signature(entity["match_key"]),
+            mapping_signature(entity["match_key"], entity_type=entity["entity_type"]),
         )
         if signature in entity_signatures:
             raise ContractValidationError(
@@ -309,7 +309,9 @@ def _build_structure_metrics(
         ]
         matched_count = sum(
             any(
-                matches_key(item["match_key"], observed.properties)
+                matches_key(
+                    item["match_key"], observed.properties, entity_type=entity_type,
+                )
                 for observed in observations[entity_type]
             )
             for item in expected
@@ -342,7 +344,10 @@ def _relationship_metric(inputs: EvaluationInputs) -> Metric:
             node["node_id"]
             for node in snapshot.nodes
             if node["node_type"] == entity["entity_type"]
-            and matches_key(entity["match_key"], node["properties"])
+            and matches_key(
+                entity["match_key"], node["properties"],
+                entity_type=entity["entity_type"],
+            )
         }
     matched_count = 0
     for expected in inputs.ground_truth.relationships:
@@ -451,7 +456,7 @@ def _compatible_case_indexes(
         == normalize_text(case["vulnerability_type"])
         and normalize_text(actor_alias) == normalize_text(case["actor_alias"])
         and any(
-            matches_key(case["resource_match_key"], resource)
+            matches_key(case["resource_match_key"], resource, entity_type="Resource")
             for resource in resources
         )
     ]

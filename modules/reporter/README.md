@@ -241,7 +241,7 @@ Ground Truth와 분석 결과는 내부 ID 문자열을 직접 비교하지 않�
 - Endpoint method + path template
 - Parameter 위치·이름
 - Role 이름
-- Resource 정규화 키
+- Resource 종류와 원문 식별키·값
 
 ### KG 0.2 Resource 정규화
 
@@ -289,6 +289,20 @@ match_key.identifiers[]
 따라서 기존 Ground Truth의 표현을 유지하면서 최신 KG 0.2 Resource를 평가할 수 있다.
 
 실제 KG artifact 자체를 변환하거나 수정하지 않는다.
+
+### Resource 식별값 원문 보존
+
+Resource의 정규화는 **비교용 표현을 맞추는 것**이며 문자열을 소문자로 바꾸거나 공백을 제거하는 것이 아니다.
+
+- `resource_key`와 identifier의 `key`, `value`는 대소문자·앞뒤 공백·연속 공백을 그대로 비교한다.
+- 예를 들어 `Ab`와 `ab`, `item-1`과 ` item-1 `은 서로 다른 자원 식별값이다.
+- identifier 이름이 `method`, `path`, `url`이어도 HTTP Method·경로용 정규화를 적용하지 않는다.
+- 복합키는 모든 지정된 식별값을 비교한다. KG 형태의 `match_key.identifiers`는 나열 순서만 무시하며 키·값은 변경하지 않는다.
+- Ground Truth의 Resource entity와 case 중복 검사에도 같은 원문 보존 기준을 적용한다. 대소문자·공백이 다른 자원을 중복으로 거절하지 않고, 같은 복합키는 나열 순서가 달라도 중복으로 거절한다.
+
+구조·관계·후보/case 매칭에서 Resource 여부를 명시적으로 전달한다. 기존 Ground Truth의 `resource_type`, `name` 호환 표현은 유지한다.
+
+Role 이름·일반 엔티티 텍스트·HTTP Method·Page/Endpoint 경로·Workflow의 기존 정규화는 유지한다. matching profile은 계속 `default-v1`이며 입력·출력 Schema와 버전도 변경하지 않는다.
 
 ### 평가 대상
 
@@ -388,7 +402,7 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-290 passed
+356 passed
 ```
 
 계약 테스트:
@@ -427,11 +441,55 @@ python -m modules.reporter.entrypoint evaluate \
 74 passed
 ```
 
+Resource 식별값 회귀 테스트:
+
+```bash
+.venv/bin/python -m pytest modules/reporter/tests/test_resource_matching.py -q
+```
+
+현재 결과:
+
+```text
+66 passed
+```
+
 추가 실행 의존성 없이 팀 공통 Python 환경과 루트 의존성을 사용한다.
 
 ---
 
 ## 변경 이력
+
+### 2026-10-09 — 5단계: Resource 식별값 원문 보존
+
+기준 커밋 `41717e7`에서 reporter의 일반 텍스트 정규화가 Resource 식별값에도 적용되어 서로 다른 자원을 같은 대상으로 매칭하거나 Ground Truth 중복으로 거절하는 문제를 수정했다.
+
+변경 내용:
+
+- `matching.py`에 Resource 전용 비교·중복 signature를 추가했다. 식별키·문자열의 대소문자와 공백을 보존하고, JSON 값의 타입도 구분한다.
+- KG 0.2 Resource의 비교용 alias와 identifier 펼침을 유지했다. `match_key.identifiers`의 순서는 비교용 signature에서만 정렬하며 실제 입력을 변경하지 않는다.
+- `evaluation_service.py`의 구조 평가·관계 평가·후보/case 매칭·GT entity 중복 검사에 Resource 비교 기준을 명시적으로 적용했다. GT case 중복 검사도 동일한 기준을 사용한다.
+- `test_resource_matching.py`에 원문 차이, 복합키 순서, 동일 자원 중복 거절, 일반 엔티티 정규화 유지, 공개 `evaluate` 출력·해시 검증을 추가했다.
+
+다른 모듈, Schema, 버전, fixture 원본, 진단 상태 분류, HTML, CLI, 의존성은 변경하지 않았다. 평가 계산식은 유지하되 Resource의 실제 매칭 건수는 원문 일치 여부에 따라 달라진다. `IMPLEMENTATION.md`는 만들지 않고 README에 이력을 누적한다.
+
+검증 결과:
+
+```text
+test_resource_matching.py
+66 passed
+
+reporter 전체
+356 passed
+
+knowledge_graph + access_analyzer + safety_policy + reporter
+741 passed, 4 skipped
+```
+
+공개 `evaluate` 테스트는 reporter 소유 fixture의 임시 복사본만 사용한다. 대소문자·공백만 다른 GT Resource가 별개 평가 대상으로 유지되는지 실제 결과 건수로 확인하고, 출력 Schema·GT 참조 해시·입력 파일 불변성을 검증했다. 이는 독립·회귀 검증이며 전체 파이프라인 연결 완료를 뜻하지 않는다.
+
+다음은 6단계: 담당 모듈과 생산자 공개 산출물의 최종 회귀 검증 및 남은 계약 불일치 점검이다.
+
+건너뛴 4개는 `KG_RUN_NEO4J_INTEGRATION=1` 설정이 필요한 실제 Neo4j 통합 테스트다. 이번 reporter 수정 검증에서는 해당 테스트를 실행하지 않았다.
 
 ### 2026-10-09 — 4단계: 원본 계정·역할 ID 참조 검증 수정
 

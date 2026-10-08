@@ -44,11 +44,14 @@ def require_supported_profile(profile: str | None) -> str:
 def matches_key(
     expected: Mapping[str, Any],
     observed: Mapping[str, Any],
+    *,
+    entity_type: str | None = None,
 ) -> bool:
     """Ground Truth match_key가 관찰된 속성에 포함되는지 비교한다.
 
     일반 엔티티는 기존 deterministic normalization 규칙을 그대로 사용한다.
 
+    Resource는 문자열과 필드 이름을 원문 그대로 비교한다.
     KG 0.2 Resource 속성은 비교 시에만 호환 view로 정규화한다.
     이를 통해 기존 Ground Truth의 다음 표현을 유지하면서도 최신 KG Resource와
     비교할 수 있다.
@@ -82,10 +85,15 @@ def matches_key(
             "비어 있는 정규화 match_key는 평가할 수 없음"
         )
 
-    normalized_expected = normalized_mapping(expected)
-    normalized_observed = normalized_mapping(
-        _comparison_view(observed)
+    is_resource = entity_type == "Resource" or (
+        entity_type is None and _is_resource_v0_2(observed)
     )
+    if is_resource:
+        normalized_expected = _resource_mapping(expected)
+        normalized_observed = _resource_mapping(_comparison_view(observed))
+    else:
+        normalized_expected = normalized_mapping(expected)
+        normalized_observed = normalized_mapping(observed)
 
     return all(
         key in normalized_observed
@@ -136,7 +144,7 @@ def _comparison_view(
                 key = identifier.get("key")
                 value = identifier.get("value")
 
-                if not isinstance(key, str) or not key.strip():
+                if not isinstance(key, str) or not key:
                     continue
 
                 # Resource instance identity의 canonical identifier가
@@ -175,8 +183,61 @@ def normalized_mapping(
 
 def mapping_signature(
     value: Mapping[str, Any],
+    *,
+    entity_type: str | None = None,
 ) -> tuple[tuple[str, Hashable], ...]:
-    return tuple(sorted(normalized_mapping(value).items()))
+    comparison = (
+        _resource_mapping(value)
+        if entity_type == "Resource" else normalized_mapping(value)
+    )
+    return tuple(sorted(comparison.items()))
+
+
+def _resource_mapping(value: Mapping[str, Any]) -> dict[str, Hashable]:
+    """Resource 식별 문자열에는 표시용 정규화를 적용하지 않는다."""
+    return {
+        key: (
+            _resource_match_key_value(item)
+            if key == RESOURCE_MATCH_KEY_FIELD and isinstance(item, Mapping)
+            else _exact_value(item)
+        )
+        for key, item in value.items()
+    }
+
+
+def _resource_match_key_value(value: Mapping[str, Any]) -> Hashable:
+    # 복합 식별자는 KG와 동일하게 나열 순서가 자원 식별에 영향을 주지 않는다.
+    comparison: dict[str, Hashable] = {}
+    for key, item in value.items():
+        if key == RESOURCE_IDENTIFIERS_FIELD and isinstance(item, list):
+            comparison[key] = (
+                "array",
+                tuple(sorted(_exact_value(identifier) for identifier in item)),
+            )
+        else:
+            comparison[key] = _exact_value(item)
+    return ("object", tuple(sorted(comparison.items())))
+
+
+def _exact_value(value: Any) -> Hashable:
+    if value is None:
+        return ("null",)
+    if isinstance(value, bool):
+        return ("boolean", value)
+    if isinstance(value, (int, float)):
+        return ("number", value)
+    if isinstance(value, str):
+        return ("string", value)
+    if isinstance(value, Mapping):
+        return (
+            "object",
+            tuple(sorted((key, _exact_value(item)) for key, item in value.items())),
+        )
+    if isinstance(value, list):
+        return ("array", tuple(_exact_value(item) for item in value))
+    raise ContractValidationError(
+        f"match_key에 지원하지 않는 값 형식: {type(value).__name__}"
+    )
 
 
 def normalize_text(value: str) -> str:
@@ -272,5 +333,5 @@ def case_signature(
         normalize_text(value["category"]),
         normalize_text(value["vulnerability_type"]),
         normalize_text(value["actor_alias"]),
-        mapping_signature(value["resource_match_key"]),
+        mapping_signature(value["resource_match_key"], entity_type="Resource"),
     )
