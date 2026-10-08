@@ -43,6 +43,54 @@ def test_contract_fixtures_are_valid(fixture_root: Path) -> None:
     assert len(semantic_graph.workflows) == 1
     assert len(query_artifact["data"]["queries"]) == 4
     assert len(verification_artifact["data"]["graph_updates"]["relationships"]) == 1
+    assert output_artifact["schema_version"] == "0.2.0"
+
+
+def test_graph_query_result_rejects_legacy_version(fixture_root: Path) -> None:
+    artifact = load_json(
+        fixture_root / "knowledge_graph" / "graph_query_result.json"
+    )
+    artifact["schema_version"] = "0.1.0"
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        validate_schema(
+            artifact,
+            SCHEMA_DIRECTORY / "output" / "graph_query_result.schema.json",
+        )
+
+
+def test_graph_query_result_requires_complete_resource_identity(
+    fixture_root: Path,
+) -> None:
+    artifact = load_json(
+        fixture_root / "knowledge_graph" / "graph_query_result.json"
+    )
+    access_result = next(
+        result
+        for result in artifact["data"]["results"]
+        if result["query_key"] == "role_resource_access"
+    )
+    access_result["rows"] = [
+        {
+            "account_id": "account_user",
+            "role_id": "role_user",
+            "endpoint_id": "endpoint_orders",
+            "resource_id": "resource_order_001",
+            "resource_key": "order",
+            "resource_scope": "instance",
+            "match_key": None,
+            "action": "read_order",
+            "request_ids": ["request_001"],
+            "access_observed": True,
+            "evidence_refs": [],
+        }
+    ]
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        validate_schema(
+            artifact,
+            SCHEMA_DIRECTORY / "output" / "graph_query_result.schema.json",
+        )
 
 
 def test_all_schemas_are_valid() -> None:

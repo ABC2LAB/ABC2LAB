@@ -60,6 +60,7 @@ def test_run_query_writes_valid_artifact(
     assert response["output_path"].endswith("graph_query_result.json")
     assert len(response["sha256"]) == 64
     assert artifact["artifact_type"] == "graph_query_result"
+    assert artifact["schema_version"] == "0.2.0"
     assert artifact["input_refs"][0]["artifact_id"] == "graph_query_demo_001"
 
 

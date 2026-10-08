@@ -333,6 +333,9 @@ class Neo4jGraphRepository:
                 "OR observation.account_id IN $account_ids) "
                 "AND (size($resource_ids) = 0 OR resource.node_id IN $resource_ids) "
                 "RETURN DISTINCT resource.node_id AS resource_id, "
+                "resource.resource_key AS resource_key, "
+                "resource.resource_scope AS resource_scope, "
+                "resource.resource_match_key_json AS resource_match_key_json, "
                 "observation.account_id AS owner_account_id, edge.basis AS basis, "
                 "edge.evidence_refs_json AS evidence_refs_json "
                 "ORDER BY resource.node_id, owner_account_id",
@@ -342,41 +345,57 @@ class Neo4jGraphRepository:
             )
             return [cls._ownership_row(record) for record in records]
         if query_key == "role_resource_access":
-            records = transaction.run(
-                "MATCH (observation:ABC2RequestObservation {"
-                "graph_id: $graph_id, run_id: $run_id}) "
-                "MATCH (account:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
-                "node_type: 'User'}) "
-                "MATCH (role:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
-                "node_type: 'Role'}) "
-                "MATCH (endpoint:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
-                "node_type: 'Endpoint'}) "
-                "WHERE account.node_id = observation.user_node_id "
-                "AND role.node_id = observation.role_node_id "
-                "AND endpoint.node_id = observation.endpoint_id "
-                "AND (size($role_ids) = 0 OR observation.role_id IN $role_ids) "
-                "AND EXISTS { "
-                "MATCH (account)-[has_role:HAS_ROLE]->(role) "
-                "WHERE has_role.graph_id = $graph_id AND has_role.run_id = $run_id "
-                "} "
-                "AND EXISTS { "
-                "MATCH (account)-[access]->(endpoint) "
-                "WHERE access.graph_id = $graph_id AND access.run_id = $run_id "
-                "AND type(access) IN ['ACCESS', 'VERIFIED_ACCESS'] "
-                "} "
-                "RETURN observation.request_id AS request_id, "
-                "observation.account_id AS account_id, "
-                "observation.role_id AS role_id, endpoint.node_id AS endpoint_id, "
-                "observation.action AS action, "
-                "observation.resource_ids_json AS resource_ids_json, "
-                "observation.evidence_refs_json AS evidence_refs_json "
-                "ORDER BY observation.account_id, observation.role_id, "
-                "endpoint.node_id, observation.request_id",
-                graph_id=graph_id,
-                run_id=run_id,
-                **parameters,
+            records = list(
+                transaction.run(
+                    "MATCH (observation:ABC2RequestObservation {"
+                    "graph_id: $graph_id, run_id: $run_id}) "
+                    "MATCH (account:ABC2Entity {graph_id: $graph_id, "
+                    "run_id: $run_id, node_type: 'User'}) "
+                    "MATCH (role:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
+                    "node_type: 'Role'}) "
+                    "MATCH (endpoint:ABC2Entity {graph_id: $graph_id, "
+                    "run_id: $run_id, node_type: 'Endpoint'}) "
+                    "WHERE account.node_id = observation.user_node_id "
+                    "AND role.node_id = observation.role_node_id "
+                    "AND endpoint.node_id = observation.endpoint_id "
+                    "AND (size($role_ids) = 0 OR observation.role_id IN $role_ids) "
+                    "AND EXISTS { "
+                    "MATCH (account)-[has_role:HAS_ROLE]->(role) "
+                    "WHERE has_role.graph_id = $graph_id "
+                    "AND has_role.run_id = $run_id "
+                    "} "
+                    "AND EXISTS { "
+                    "MATCH (account)-[access]->(endpoint) "
+                    "WHERE access.graph_id = $graph_id "
+                    "AND access.run_id = $run_id "
+                    "AND type(access) IN ['ACCESS', 'VERIFIED_ACCESS'] "
+                    "} "
+                    "RETURN observation.request_id AS request_id, "
+                    "observation.account_id AS account_id, "
+                    "observation.role_id AS role_id, "
+                    "endpoint.node_id AS endpoint_id, "
+                    "observation.action AS action, "
+                    "observation.resource_ids_json AS resource_ids_json, "
+                    "observation.evidence_refs_json AS evidence_refs_json "
+                    "ORDER BY observation.account_id, observation.role_id, "
+                    "endpoint.node_id, observation.request_id",
+                    graph_id=graph_id,
+                    run_id=run_id,
+                    **parameters,
+                )
             )
-            return cls._access_rows(records)
+            resource_ids = {
+                resource_id
+                for record in records
+                for resource_id in _decode_string_list(record["resource_ids_json"])
+            }
+            resource_by_id = cls._load_resource_identities(
+                transaction,
+                graph_id,
+                run_id,
+                resource_ids,
+            )
+            return cls._access_rows(records, resource_by_id)
         records = transaction.run(
             "MATCH (workflow:ABC2Workflow {graph_id: $graph_id, run_id: $run_id})"
             "-[:ABC2_HAS_DEPENDENCY]->(dependency:ABC2WorkflowDependency {"
@@ -397,18 +416,27 @@ class Neo4jGraphRepository:
 
     @staticmethod
     def _ownership_row(record: Any) -> dict[str, Any]:
+        resource = _resource_identity_from_record(record)
+        if resource["resource_scope"] != "instance":
+            raise QueryResultValidationError(
+                "소유 관계의 Resource가 instance가 아님"
+            )
         return {
-            "resource_id": record["resource_id"],
+            **resource,
             "owner_account_id": record["owner_account_id"],
             "basis": record["basis"],
             "evidence_refs": _decode_list(record["evidence_refs_json"]),
         }
 
     @classmethod
-    def _access_rows(cls, records: Iterable[Any]) -> list[dict[str, Any]]:
+    def _access_rows(
+        cls,
+        records: Iterable[Any],
+        resource_by_id: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         row_by_identity: dict[tuple[Any, ...], dict[str, Any]] = {}
         for record in records:
-            for row in cls._access_rows_for_record(record):
+            for row in cls._access_rows_for_record(record, resource_by_id):
                 identity = (
                     row["account_id"],
                     row["role_id"],
@@ -431,7 +459,10 @@ class Neo4jGraphRepository:
         return list(row_by_identity.values())
 
     @staticmethod
-    def _access_rows_for_record(record: Any) -> list[dict[str, Any]]:
+    def _access_rows_for_record(
+        record: Any,
+        resource_by_id: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         request_id = record["request_id"]
         if not isinstance(request_id, str) or not request_id:
             raise QueryResultValidationError(
@@ -441,21 +472,57 @@ class Neo4jGraphRepository:
         if not isinstance(action, str) or not action:
             raise QueryResultValidationError("요청 관찰 레코드의 action이 올바르지 않음")
         resource_ids = _decode_string_list(record["resource_ids_json"])
-        resources: list[str | None] = resource_ids or [None]
+        resources: list[dict[str, Any]] = [
+            resource_by_id[resource_id] for resource_id in resource_ids
+        ] or [_empty_resource_identity()]
         evidence_refs = _decode_list(record["evidence_refs_json"])
         return [
             {
                 "account_id": record["account_id"],
                 "role_id": record["role_id"],
                 "endpoint_id": record["endpoint_id"],
-                "resource_id": resource_id,
+                **resource,
                 "action": action,
                 "request_ids": [request_id],
                 "access_observed": True,
                 "evidence_refs": list(evidence_refs),
             }
-            for resource_id in resources
+            for resource in resources
         ]
+
+    @staticmethod
+    def _load_resource_identities(
+        transaction: ManagedTransaction,
+        graph_id: str,
+        run_id: str,
+        resource_ids: set[str],
+    ) -> dict[str, dict[str, Any]]:
+        if not resource_ids:
+            return {}
+        records = transaction.run(
+            "MATCH (resource:ABC2Entity {graph_id: $graph_id, run_id: $run_id, "
+            "node_type: 'Resource'}) "
+            "WHERE resource.node_id IN $resource_ids "
+            "RETURN resource.node_id AS resource_id, "
+            "resource.resource_key AS resource_key, "
+            "resource.resource_scope AS resource_scope, "
+            "resource.resource_match_key_json AS resource_match_key_json",
+            graph_id=graph_id,
+            run_id=run_id,
+            resource_ids=sorted(resource_ids),
+        )
+        resource_by_id: dict[str, dict[str, Any]] = {}
+        for record in records:
+            resource = _resource_identity_from_record(record)
+            resource_id = resource["resource_id"]
+            if resource_id in resource_by_id:
+                raise QueryResultValidationError("중복 Resource node_id가 조회됨")
+            resource_by_id[resource_id] = resource
+        if set(resource_by_id) != resource_ids:
+            raise QueryResultValidationError(
+                "요청 관찰의 Resource node_id를 그래프에서 찾을 수 없음"
+            )
+        return resource_by_id
 
     @staticmethod
     def _flow_row(record: Any) -> dict[str, Any]:
@@ -1099,6 +1166,87 @@ def _decode_string_list(value: str) -> list[str]:
         raise QueryResultValidationError(
             "저장된 request resource_ids 형식이 올바르지 않음"
         )
+    return decoded
+
+
+def _empty_resource_identity() -> dict[str, Any]:
+    return {
+        "resource_id": None,
+        "resource_key": None,
+        "resource_scope": None,
+        "match_key": None,
+    }
+
+
+def _resource_identity_from_record(record: Any) -> dict[str, Any]:
+    resource_id = record["resource_id"]
+    resource_key = record["resource_key"]
+    resource_scope = record["resource_scope"]
+    if not isinstance(resource_id, str) or not resource_id:
+        raise QueryResultValidationError("Resource node_id가 올바르지 않음")
+    if not isinstance(resource_key, str) or not resource_key:
+        raise QueryResultValidationError("Resource resource_key가 올바르지 않음")
+    if resource_scope not in {"type", "instance"}:
+        raise QueryResultValidationError("Resource resource_scope가 올바르지 않음")
+    match_key = _decode_resource_match_key(record["resource_match_key_json"])
+    if resource_scope == "type" and match_key is not None:
+        raise QueryResultValidationError("Resource type의 match_key는 null이어야 함")
+    if resource_scope == "instance" and match_key is None:
+        raise QueryResultValidationError("Resource instance의 match_key가 없음")
+    if match_key is not None and match_key["resource_key"] != resource_key:
+        raise QueryResultValidationError(
+            "Resource match_key의 resource_key가 일치하지 않음"
+        )
+    return {
+        "resource_id": resource_id,
+        "resource_key": resource_key,
+        "resource_scope": resource_scope,
+        "match_key": match_key,
+    }
+
+
+def _decode_resource_match_key(value: str | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    try:
+        decoded = decode_json(value)
+    except (TypeError, ValueError) as error:
+        raise QueryResultValidationError(
+            "저장된 Resource match_key JSON을 읽을 수 없음"
+        ) from error
+    if not isinstance(decoded, dict) or set(decoded) != {
+        "resource_key",
+        "identifiers",
+    }:
+        raise QueryResultValidationError("저장된 Resource match_key 형식이 올바르지 않음")
+    resource_key = decoded["resource_key"]
+    identifiers = decoded["identifiers"]
+    if not isinstance(resource_key, str) or not resource_key:
+        raise QueryResultValidationError("저장된 Resource match_key 형식이 올바르지 않음")
+    if not isinstance(identifiers, list) or not identifiers:
+        raise QueryResultValidationError("저장된 Resource match_key 형식이 올바르지 않음")
+    identifier_keys: set[str] = set()
+    for identifier in identifiers:
+        if not isinstance(identifier, dict) or set(identifier) != {
+            "key",
+            "value",
+        }:
+            raise QueryResultValidationError(
+                "저장된 Resource match_key 식별값 형식이 올바르지 않음"
+            )
+        key = identifier["key"]
+        item_value = identifier["value"]
+        if (
+            not isinstance(key, str)
+            or not key
+            or not isinstance(item_value, str)
+            or not item_value
+            or key in identifier_keys
+        ):
+            raise QueryResultValidationError(
+                "저장된 Resource match_key 식별값 형식이 올바르지 않음"
+            )
+        identifier_keys.add(key)
     return decoded
 
 

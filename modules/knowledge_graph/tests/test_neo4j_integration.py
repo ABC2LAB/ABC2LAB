@@ -227,6 +227,11 @@ def test_public_query_returns_all_typed_rows_with_real_neo4j(
     ownership_row = results_by_key["resource_ownership"]["rows"][0]
     assert ownership_row["owner_account_id"] == "acc_alice"
     assert ownership_row["resource_id"] == "resource:order"
+    assert ownership_row["resource_key"] == "order"
+    assert ownership_row["resource_scope"] == "instance"
+    assert ownership_row["match_key"]["identifiers"] == [
+        {"key": "order_id", "value": "example-order"},
+    ]
     assert len(results_by_key["role_resource_access"]["rows"]) == 1
     access_row = results_by_key["role_resource_access"]["rows"][0]
     assert access_row["account_id"] == "acc_alice"
@@ -234,6 +239,9 @@ def test_public_query_returns_all_typed_rows_with_real_neo4j(
     assert access_row["action"] == "read_order"
     assert access_row["request_ids"] == ["request_order_alice"]
     assert access_row["resource_id"] == "resource:order"
+    assert access_row["resource_key"] == "order"
+    assert access_row["resource_scope"] == "instance"
+    assert access_row["match_key"] == ownership_row["match_key"]
     assert results_by_key["workflow_dependencies"]["rows"] == []
     snapshot = results_by_key["structure_snapshot"]["rows"][0]
     assert len(snapshot["nodes"]) == 5
@@ -419,7 +427,16 @@ def _add_verified_node_update(run_root: Path) -> None:
         {
             "node_id": "resource_verified_001",
             "node_type": "Resource",
-            "properties": {"resource_type": "verified_resource"},
+            "properties": {
+                "resource_key": "verified_resource",
+                "resource_scope": "instance",
+                "match_key": {
+                    "resource_key": "verified_resource",
+                    "identifiers": [
+                        {"key": "resource_id", "value": "verified-001"},
+                    ],
+                },
+            },
             "basis": "verified",
             "evidence_refs": evidence_refs,
         }

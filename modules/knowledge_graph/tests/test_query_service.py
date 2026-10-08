@@ -70,6 +70,14 @@ def test_execute_and_publish_completed_query(query_run_root: Path) -> None:
             "resource_ownership": [
                 {
                     "resource_id": "resource_order_001",
+                    "resource_key": "order",
+                    "resource_scope": "instance",
+                    "match_key": {
+                        "resource_key": "order",
+                        "identifiers": [
+                            {"key": "order_id", "value": "001"},
+                        ],
+                    },
                     "owner_account_id": "account_user",
                     "basis": "observed",
                     "evidence_refs": [],
@@ -81,6 +89,14 @@ def test_execute_and_publish_completed_query(query_run_root: Path) -> None:
                     "role_id": "role_user",
                     "endpoint_id": "endpoint_orders",
                     "resource_id": "resource_order_001",
+                    "resource_key": "order",
+                    "resource_scope": "instance",
+                    "match_key": {
+                        "resource_key": "order",
+                        "identifiers": [
+                            {"key": "order_id", "value": "001"},
+                        ],
+                    },
                     "action": "read_order",
                     "request_ids": ["request_order_001"],
                     "access_observed": True,
@@ -103,6 +119,7 @@ def test_execute_and_publish_completed_query(query_run_root: Path) -> None:
     response = publish_query_artifact(prepared, artifact)
 
     assert artifact["status"] == "completed"
+    assert artifact["schema_version"] == "0.2.0"
     assert artifact["data"]["graph_revision"] == 1
     assert len(artifact["data"]["results"]) == 4
     assert response.output_path == OUTPUT_PATH

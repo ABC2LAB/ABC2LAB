@@ -14,12 +14,19 @@ from modules.knowledge_graph.storage import encode_json
 
 
 class FakeQueryTransaction:
-    def __init__(self, records: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        records: list[dict[str, Any]],
+        resource_records: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.records = records
+        self.resource_records = resource_records or []
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def run(self, query: str, **parameters: Any) -> list[dict[str, Any]]:
         self.calls.append((query, parameters))
+        if "WHERE resource.node_id IN $resource_ids" in query:
+            return self.resource_records
         return self.records
 
 
@@ -53,6 +60,13 @@ def test_resource_ownership_uses_parameterized_template() -> None:
         [
             {
                 "resource_id": "resource:instance:order:001",
+                "resource_key": "order",
+                "resource_scope": "instance",
+                "resource_match_key_json": _match_key_json(
+                    "order",
+                    "order_id",
+                    "001",
+                ),
                 "owner_account_id": "account_001",
                 "basis": "observed",
                 "evidence_refs_json": "[]",
@@ -79,6 +93,8 @@ def test_resource_ownership_uses_parameterized_template() -> None:
     assert "observation.account_id AS owner_account_id" in query
     assert "resource.resource_scope = 'instance'" in query
     assert rows[0]["resource_id"] == "resource:instance:order:001"
+    assert rows[0]["resource_scope"] == "instance"
+    assert rows[0]["match_key"]["identifiers"][0]["value"] == "001"
 
 
 def test_role_resource_access_maps_request_observation_resources() -> None:
@@ -93,7 +109,17 @@ def test_role_resource_access_maps_request_observation_resources() -> None:
                 "resource_ids_json": encode_json(["resource:order", "resource:audit"]),
                 "evidence_refs_json": "[]",
             }
-        ]
+        ],
+        resource_records=[
+            _resource_record(
+                "resource:order",
+                "order",
+                "instance",
+                "order_id",
+                "001",
+            ),
+            _resource_record("resource:audit", "audit", "type"),
+        ],
     )
     repository = _repository(transaction)
 
@@ -110,6 +136,12 @@ def test_role_resource_access_maps_request_observation_resources() -> None:
             "role_id": "role_user",
             "endpoint_id": "endpoint:GET:/orders/{id}",
             "resource_id": "resource:order",
+            "resource_key": "order",
+            "resource_scope": "instance",
+            "match_key": {
+                "resource_key": "order",
+                "identifiers": [{"key": "order_id", "value": "001"}],
+            },
             "action": "read_order",
             "request_ids": ["request_order_alice"],
             "access_observed": True,
@@ -120,6 +152,9 @@ def test_role_resource_access_maps_request_observation_resources() -> None:
             "role_id": "role_user",
             "endpoint_id": "endpoint:GET:/orders/{id}",
             "resource_id": "resource:audit",
+            "resource_key": "audit",
+            "resource_scope": "type",
+            "match_key": None,
             "action": "read_order",
             "request_ids": ["request_order_alice"],
             "access_observed": True,
@@ -135,6 +170,10 @@ def test_role_resource_access_maps_request_observation_resources() -> None:
     assert "role.node_id IN $role_ids" not in query
     assert "OPTIONAL MATCH" not in query
     assert parameters["role_ids"] == ["role_user"]
+    assert transaction.calls[1][1]["resource_ids"] == [
+        "resource:audit",
+        "resource:order",
+    ]
 
 
 def test_role_resource_access_uses_null_when_request_has_no_resource() -> None:
@@ -161,7 +200,11 @@ def test_role_resource_access_uses_null_when_request_has_no_resource() -> None:
 
     assert len(rows) == 1
     assert rows[0]["resource_id"] is None
+    assert rows[0]["resource_key"] is None
+    assert rows[0]["resource_scope"] is None
+    assert rows[0]["match_key"] is None
     assert rows[0]["request_ids"] == ["request_logout_alice"]
+    assert len(transaction.calls) == 1
 
 
 def test_role_resource_access_merges_repeated_observation_evidence() -> None:
@@ -192,7 +235,16 @@ def test_role_resource_access_merges_repeated_observation_evidence() -> None:
                 "action": "download_order",
                 "evidence_refs_json": "[]",
             },
-        ]
+        ],
+        resource_records=[
+            _resource_record(
+                "resource:order",
+                "order",
+                "instance",
+                "order_id",
+                "001",
+            )
+        ],
     )
 
     rows = _repository(transaction).query(
@@ -245,6 +297,7 @@ def test_role_resource_access_rejects_invalid_stored_resource_ids() -> None:
             {"role_ids": []},
         )
 
+
 def test_role_resource_access_rejects_invalid_request_id() -> None:
     transaction = FakeQueryTransaction(
         [
@@ -257,7 +310,16 @@ def test_role_resource_access_rejects_invalid_request_id() -> None:
                 "resource_ids_json": encode_json(["resource:order"]),
                 "evidence_refs_json": "[]",
             }
-        ]
+        ],
+        resource_records=[
+            _resource_record(
+                "resource:order",
+                "order",
+                "instance",
+                "order_id",
+                "001",
+            )
+        ],
     )
 
     with pytest.raises(
@@ -270,6 +332,31 @@ def test_role_resource_access_rejects_invalid_request_id() -> None:
             "role_resource_access",
             {"role_ids": []},
         )
+
+
+def test_role_resource_access_rejects_missing_resource_node() -> None:
+    transaction = FakeQueryTransaction(
+        [
+            {
+                "request_id": "request_missing_resource",
+                "account_id": "acc_alice",
+                "role_id": "role_user",
+                "endpoint_id": "endpoint:GET:/orders/{id}",
+                "action": "read_order",
+                "resource_ids_json": encode_json(["resource:missing"]),
+                "evidence_refs_json": "[]",
+            }
+        ]
+    )
+
+    with pytest.raises(QueryResultValidationError, match="찾을 수 없음"):
+        _repository(transaction).query(
+            "graph_001",
+            "run_001",
+            "role_resource_access",
+            {"role_ids": []},
+        )
+
 
 def test_workflow_dependencies_returns_typed_rows() -> None:
     transaction = FakeQueryTransaction(
@@ -347,4 +434,41 @@ def _evidence(evidence_id: str) -> dict[str, Any]:
         "path": f"evidence/semantic_analyzer/{evidence_id}.json",
         "sha256": "a" * 64,
         "redacted": True,
+    }
+
+
+def _match_key_json(
+    resource_key: str,
+    identifier_key: str,
+    identifier_value: str,
+) -> str:
+    return encode_json(
+        {
+            "resource_key": resource_key,
+            "identifiers": [
+                {"key": identifier_key, "value": identifier_value},
+            ],
+        }
+    )
+
+
+def _resource_record(
+    resource_id: str,
+    resource_key: str,
+    resource_scope: str,
+    identifier_key: str | None = None,
+    identifier_value: str | None = None,
+) -> dict[str, Any]:
+    match_key_json = None
+    if identifier_key is not None and identifier_value is not None:
+        match_key_json = _match_key_json(
+            resource_key,
+            identifier_key,
+            identifier_value,
+        )
+    return {
+        "resource_id": resource_id,
+        "resource_key": resource_key,
+        "resource_scope": resource_scope,
+        "resource_match_key_json": match_key_json,
     }
