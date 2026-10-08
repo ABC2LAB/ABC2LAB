@@ -87,7 +87,7 @@
 ## 구현 주의사항
 
 - 세션·브라우저 객체와 실제 쿠키·토큰은 수집기 내부에 둔다. session_ref는 해당 상태를 찾는 불투명 참조값이다.
-- 재현·검증기는 자기 adapter로 공개 세션 창구를 사용한다. 허용 계정의 실행 컨텍스트는 합의된 값·불투명 핸들·사용 규약이며 내부 브라우저/세션 객체를 직접 공유한다는 뜻이 아니다. 접근 방식·요청/응답·오류·만료·대여/반납·종료 규약은 collector와 verifier가 연결 구현 전에 확정한다. JSON의 참조 문자열만으로 세션 객체가 복원되지는 않는다.
+- 재현·검증기는 자기 adapter로 공개 세션 창구를 사용한다. 허용 계정의 실행 컨텍스트는 합의된 값·불투명 핸들·사용 규약이며 내부 브라우저/세션 객체를 직접 공유한다는 뜻이 아니다. 접근 방식·요청/응답·오류·만료·대여/반납·종료 규약은 확정됐다(`modules/collector/README.md` "세션 공개 창구"). 요점: lease 때 재로그인, send가 그 세션으로 대신 전송(쿠키는 collector 안), `is_valid`는 대상 앱 요청 없이 보유·만료만, 만료는 send 응답 신호로 감지, send에서 허용 origin 2차 검사. JSON의 참조 문자열만으로 세션 객체가 복원되지는 않는다.
 - 관찰하지 못한 행동은 actions=[]로, 관찰하지 못한 페이지·행동 연결은 허용된 null로 기록한다. 추측으로 관찰 필드를 채우지 않는다.
 - 같은 역할에 여러 계정을 둘 수 있어야 한다. 수평 인가 검증에서는 계정 A/B와 각자의 소유 자원을 구분한다.
 
@@ -95,7 +95,7 @@
 
 ### crawl_result.json
 
-- 고정 값: `artifact_type=crawl_result`, `producer=collector`.
+- 고정 값: `artifact_type=crawl_result`, `producer=collector`, `schema_version=0.2.0`(전원 동시 0.2.0 전환).
 - 예상 Schema 경로: `modules/collector/schemas/output/crawl_result.schema.json`.
 - 예상 출력 fixture 경로: `modules/collector/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/collector/crawl_result.json`.
 
@@ -133,6 +133,7 @@
 | 필드 | 타입·허용값 | 필수 | 의미 |
 | --- | --- | --- | --- |
 | `page_id` | `string` | 필수 | 관찰 페이지 ID. |
+| `account_id` | `string` | 필수 | 이 페이지를 관찰한 계정 ID(0.2.0 추가). |
 | `url` | `string` | 필수 | 관찰한 페이지 URL. |
 | `title` | `string / null` | 필수 | 페이지 제목. 관찰하지 못하면 null. |
 | `evidence_refs` | `array<EvidenceRef>` | 필수 | 페이지·DOM·스크린샷 근거 참조. |
@@ -193,6 +194,15 @@
 | `evidence_refs` | `array<EvidenceRef>` | 필수 | 이 요청의 관찰 근거 참조. |
 
 **재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [EvidenceRef](02-common-contract.md), [RuntimeMetrics](02-common-contract.md).
+
+## 변경 이력 (0.1.0 → 0.2.0)
+
+출력 파일 `crawl_result.json`과 근거 파일(`response_evidence`·`dom_evidence`)의 `schema_version`을 0.2.0으로 올렸다(전원 동시 전환). 필드 의미 변경은 아래뿐이고 나머지는 버전 상수만 바뀌었다. 근거 파일을 읽는 모듈은 2단계에서 맞춘다.
+
+- **`Page.account_id` 추가**: 이 페이지를 관찰한 계정 ID(필수). 수평 인가 분석에서 페이지를 계정에 귀속시킨다.
+- **자원 식별자 보존**: 소유 관계 관찰을 위해 JSON 응답 근거에 `shape`(키·타입 구조)와 `identifiers`(`[{pointer, value}]`, 키 `id`·`*_id`·`*Id`의 숫자·UUID 값만, 민감 키 제외)를 남기고 `ObservedRequest.response.body_ref`로 연결한다. 응답 원문·HTML은 남기지 않는다.
+- **역할당 복수 계정**: 같은 역할에 여러 계정을 둔다(`Account.role_id`). 수평 인가 검증에서 A/B 계정과 각자의 소유 자원을 구분한다.
+- **세션 공개 창구 확정**: 규약·만료 신호는 위 구현 주의사항과 `modules/collector/README.md` "세션 공개 창구".
 
 ---
 

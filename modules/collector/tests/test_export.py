@@ -385,7 +385,7 @@ def test_json_response_gets_response_evidence(tmp_path: Path, writer: EvidenceWr
         "redacted": True,
     }
     assert read_evidence(tmp_path / RUN_ID, body_ref) == {
-        "schema_version": "0.1.0",
+        "schema_version": "0.2.0",
         "kind": "response",
         "evidence_id": "evidence:response:request:1",
         "request_id": "request:1",
@@ -407,7 +407,7 @@ def test_dom_evidence_shared_by_page_and_its_actions(tmp_path: Path, writer: Evi
     assert data["pages"][1]["evidence_refs"] == []
     assert [action["evidence_refs"] for action in data["actions"]] == [[page_ref], [page_ref]]
     assert read_evidence(tmp_path / RUN_ID, page_ref) == {
-        "schema_version": "0.1.0",
+        "schema_version": "0.2.0",
         "kind": "dom",
         "evidence_id": "evidence:dom:page:1",
         "page_id": "page:1",

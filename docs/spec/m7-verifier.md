@@ -103,7 +103,7 @@
 
 ### verification_results.json
 
-- 고정 값: `artifact_type=verification_results`, `producer=verifier`.
+- 고정 값: `artifact_type=verification_results`, `producer=verifier`, `schema_version=0.2.0`(전원 동시 전환).
 - 예상 Schema 경로: `modules/verifier/schemas/output/verification_results.schema.json`.
 - 예상 출력 fixture 경로: `modules/verifier/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/verifier/verification_results.json`.
 
@@ -171,10 +171,27 @@
 | 필드 | 타입·허용값 | 필수 | 의미 |
 | --- | --- | --- | --- |
 | `source_verification_ids` | `array<string>` | 필수 | 이 갱신을 뒷받침하는 실행 검증 결과 ID. |
-| `nodes` | `array<GraphNode>` | 필수 | 새로 확인한 노드. basis=verified만 사용한다. |
-| `relationships` | `array<GraphEdge>` | 필수 | 새로 확인한 관계. basis=verified와 실행 근거를 함께 사용한다. |
+| `nodes` | `array<GraphNode>` | 필수 | 새로 확인한 노드. `basis=verified`·`evidence_refs` 1개 이상. `node_type`에 **Resource 금지**(verifier는 신규 Resource를 만들지 않고 앞 단계 node_id를 target으로 쓴다). |
+| `relationships` | `array<GraphEdge>` | 필수 | 새로 확인한 관계. `relation_type`은 **`VERIFIED_ACCESS`·`VERIFIED_DENIAL`만**, `basis=verified`·`evidence_refs` 1개 이상. KG 입력 제약과 일치시켜 소비자 입력을 항상 통과한다. |
 
 **재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [EvidenceRef](02-common-contract.md), [GraphEdge](m2-semantic_analyzer.md), [GraphNode](m2-semantic_analyzer.md), [RuntimeMetrics](02-common-contract.md).
+
+## 동작 규칙 (구현)
+
+- **실행 허용**: `test_scenarios` 파일 SHA-256 == `safety_decisions.scenarios_sha256`이고 Policy 판정이 `allow`일 때만 전송한다. block·require_approval은 요청 없이 `blocked`(`steps=[]`). allow라도 계정·역할·세션·`effective_account_ids`가 안 맞으면 미실행 indeterminate.
+- **execution_status**: 중단 없이 전부 전송=`completed`, 중단 시 전송 0건=`not_executed`·1건 이상=`error`(result 분류와 독립).
+- **`max_redirects` 기본 0**: 로그인 리다이렉트를 자동으로 따라가면 최종 200을 접근 성공으로 오탐하므로 3xx를 그 단계 응답으로 기록한다(`configs/verifier.toml`에서 조정). 따라갈 때는 hop마다 `effective_origins` 재검사.
+- **status-only 규칙**: 참인 assertion이 `response_status`·`session_valid`뿐이면(응답 내용 미확인) success 대신 indeterminate. 응답 내용을 본 조건이 하나 이상 참이어야 success.
+- **result 분류**: precondition 중 거짓/판단불가 → indeterminate. 모두 참이면 assertion 하나라도 판단불가 → indeterminate, 모두 참 → success, 하나 이상 거짓 → failure.
+- **CheckResult 부착**: subject가 단계면 그 단계에, 계정이면 그 계정이 처음 쓰인 단계에, 못 찾으면 첫 단계에. `observed`는 비밀 제거.
+- **세션 공개 창구**(collector 소유): verifier는 Protocol로만 쓰고 collector 코드를 import하지 않는다(런너 주입). `session_valid` Check 의미는 "창구 세션 보유 + 만료 감지 없음"이며 실제 만료는 send 응답 신호로 잡는다. 창구 `lease` 로그인 요청은 세션 준비라 `limits.max_requests`에 세지 않는다. 규약은 [m1-collector](m1-collector.md) "세션 공개 창구".
+
+## 변경 이력 (0.1.0 → 0.2.0)
+
+출력 `verification_results.json`의 `schema_version`을 0.2.0으로 올렸다(전원 동시 전환). 필드 의미 변경은 아래뿐이고 나머지는 버전 상수만 바뀌었다.
+
+- **`graph_updates` 제약을 KG 입력(0.2.0)에 맞춰 좁힘**: 관계 `relation_type`은 `VERIFIED_ACCESS`·`VERIFIED_DENIAL`만, 노드 `node_type`에 Resource 금지. `basis=verified`·`evidence_refs≥1`은 유지. 현재 graph_updates는 빈 배열이며 node_id 매핑은 PR3-c에서 채운다.
+- 입력 `test_scenarios`·`safety_decisions`·`crawl_result`는 각 생산자 계약 0.2.0을 미러한다(필드 정의는 [m5](m5-scenario_generator.md)·[m6](m6-safety_policy.md)·[m1](m1-collector.md), 버전 0.2.0).
 
 ---
 

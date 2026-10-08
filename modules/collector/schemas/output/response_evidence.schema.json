@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:abc2lab:collector:response_evidence:0.1.0",
+  "$id": "urn:abc2lab:collector:response_evidence:0.2.0",
   "title": "collector 응답 근거 파일 (EvidenceRef kind=response)",
   "description": "JSON 응답 하나의 키 구조+타입(shape)과 식별자 목록. 본문 값은 식별자 규칙에 맞는 것만 남긴다. 위치: evidence/collector/response/request-<N>.json. 한계: 문자열 id(slug·username), id 꼴이 아닌 키 이름, 객체 키 자리에 오는 id({\"17\": {...}})는 식별자로 잡지 않는다.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "kind", "evidence_id", "request_id", "shape", "identifiers", "identifiers_truncated"],
   "properties": {
-    "schema_version": { "const": "0.1.0" },
+    "schema_version": { "const": "0.2.0" },
     "kind": { "const": "response" },
     "evidence_id": { "type": "string" },
     "request_id": { "type": "string" },

@@ -4,6 +4,7 @@
 """
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from modules.verifier.tests.helpers import FIXTURE_RUN, schema_errors
 from modules.verifier.utils import validation as v
 
 RESULT_SCHEMA = "output/verification_results.schema.json"
+# verify를 자기 데모 입력으로 실제 실행(세션 창구 없음)해 만든 생산자 샘플. 2단계에서 소비자가 입력 사본 검증에 쓴다.
+VERIFICATION_RESULTS_FIXTURE = FIXTURE_RUN / "verifier" / "verification_results.json"
 EVIDENCE = {"evidence_id": "ev1", "kind": "execution_log", "path": "evidence/verifier/x.json", "sha256": "0" * 64, "redacted": True}
 
 
@@ -24,7 +27,7 @@ def _item(result: str, execution_status: str, policy_decision: str = "allow", st
 
 def _doc(results, graph_updates=None) -> dict:
     return {
-        "schema_version": "0.1.0", "artifact_type": "verification_results", "artifact_id": "r1",
+        "schema_version": "0.2.0", "artifact_type": "verification_results", "artifact_id": "r1",
         "run_id": "run_demo_001", "iteration": 0, "producer": "verifier", "mode": "development",
         "created_at": "2026-10-07T00:00:00Z", "status": "completed", "input_refs": [], "errors": [],
         "runtime_metrics": None,
@@ -106,3 +109,25 @@ def test_graph_update_requires_source_when_present() -> None:
     node = {"node_id": "user:a", "node_type": "User", "properties": {}, "basis": "verified", "evidence_refs": [EVIDENCE]}
     doc = _doc([_item("success", "completed")], graph_updates={"source_verification_ids": [], "nodes": [node], "relationships": []})
     assert "GRAPH_UPDATE_INVALID" in _codes(doc)
+
+
+def test_producer_sample_validates_against_output_schema() -> None:
+    # 커밋된 생산자 샘플(실제 verify 출력, 세션 창구 없음)이 자기 출력 스키마(0.2.0)를 통과하는지 고정한다.
+    doc = json.loads(VERIFICATION_RESULTS_FIXTURE.read_bytes())
+    assert doc["schema_version"] == "0.2.0"
+    assert doc["run_id"] == "run_demo_001"
+    # 데모 입력 2개 시나리오가 다 들어간다(세션 창구 없어 allow는 미실행 indeterminate, block은 blocked).
+    assert {it["scenario_id"] for it in doc["data"]["results"]} == {"scenario_allow", "scenario_block"}
+    assert schema_errors(RESULT_SCHEMA, doc) == []
+
+
+def test_producer_sample_input_refs_resolve_in_run_tree() -> None:
+    # 2단계 소비자가 이 run 트리로 검증할 수 있게: input_ref가 상대경로이고 실제 파일·해시가 맞는지 고정.
+    run_root = FIXTURE_RUN.parents[1]
+    doc = json.loads(VERIFICATION_RESULTS_FIXTURE.read_bytes())
+    assert len(doc["input_refs"]) == 3
+    for ref in doc["input_refs"]:
+        assert not ref["path"].startswith("/")
+        target = run_root / ref["path"]
+        assert target.is_file()
+        assert hashlib.sha256(target.read_bytes()).hexdigest() == ref["sha256"]
