@@ -12,7 +12,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from modules.verifier.executor import ReplayRequest, ReplayResponse
+from modules.verifier.executor import ReplayRequest, ReplayResponse, SessionTransportError
 
 MODULE_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_DIR = MODULE_ROOT / "schemas"
@@ -25,31 +25,88 @@ INPUT_RELS = {
 }
 
 
-class CountingExecutor:
-    """세션 창구 대역. lease·send 호출 수를 센다. PR1은 send가 0이어야 한다."""
+class FakeClock:
+    """주입 시계(초 단위, time.monotonic처럼). 실제 시간 대신 테스트가 진행시킨다."""
 
     def __init__(self) -> None:
+        self.milliseconds = 0
+
+    def __call__(self) -> float:
+        return self.milliseconds / 1000
+
+    def advance(self, milliseconds: int) -> None:
+        self.milliseconds += milliseconds
+
+
+class UnscriptedRequestError(AssertionError):
+    """대역에 정하지 않은 (method, url)로 전송했다. 테스트의 URL 오타가 failure 판정으로 조용히 묻히지 않게 바로 터뜨린다.
+
+    엔진은 창구 오류(SessionTransportError·SessionExpiredError)만 잡으므로 이 예외는 삼켜지지 않는다.
+    """
+
+
+class ScriptedExecutor:
+    """프로그래머블 세션 창구 대역.
+
+    (method, url)별 응답 또는 예외를 정하고, 무효 세션 계정을 지정하고, 실제로 보낸 요청을 모두 기록한다.
+    정하지 않은 (method, url)은 UnscriptedRequestError로 터진다(404가 필요하면 명시적으로 지정).
+    clock을 주면 send마다 latency_ms만큼 시계를 진행시킨다(max_duration 테스트용).
+    """
+
+    def __init__(
+        self,
+        responses: dict[tuple[str, str], ReplayResponse | Exception] | None = None,
+        invalid_accounts: tuple[str, ...] = (),
+        clock: FakeClock | None = None,
+        latency_ms: int = 0,
+    ) -> None:
+        self.responses = dict(responses or {})
+        self.invalid_accounts = set(invalid_accounts)
+        self.clock = clock
+        self.latency_ms = latency_ms
+        self.sent: list[tuple[str, ReplayRequest]] = []
         self.lease_calls = 0
-        self.send_calls = 0
+        self.release_calls = 0
 
-    def lease(self, account_id: str) -> "CountingLease":
+    @property
+    def send_calls(self) -> int:
+        return len(self.sent)
+
+    def sent_urls(self) -> list[str]:
+        return [request.url for _, request in self.sent]
+
+    def lease(self, account_id: str) -> "ScriptedLease":
         self.lease_calls += 1
-        return CountingLease(self)
+        return ScriptedLease(self, account_id)
 
 
-class CountingLease:
-    def __init__(self, parent: CountingExecutor) -> None:
+class ScriptedLease:
+    def __init__(self, parent: ScriptedExecutor, account_id: str) -> None:
         self._parent = parent
+        self._account_id = account_id
 
     def is_valid(self) -> bool:
-        return True
+        return self._account_id not in self._parent.invalid_accounts
 
     def send(self, request: ReplayRequest) -> ReplayResponse:
-        self._parent.send_calls += 1
-        return ReplayResponse(status_code=200)
+        # 보낸 시도는 응답·예외와 무관하게 먼저 기록한다(전송 0건 검사의 기준).
+        self._parent.sent.append((self._account_id, request))
+        if self._parent.clock is not None:
+            self._parent.clock.advance(self._parent.latency_ms)
+        key = (request.method, request.url)
+        if key not in self._parent.responses:
+            raise UnscriptedRequestError(f"대역에 정하지 않은 요청: {request.method} {request.url}")
+        outcome = self._parent.responses[key]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
     def release(self) -> None:
-        pass
+        self._parent.release_calls += 1
+
+
+def transport_error() -> SessionTransportError:
+    return SessionTransportError("connection refused")
 
 
 def schema_errors(relative_name: str, document: Any) -> list[str]:
@@ -93,18 +150,29 @@ def _envelope(artifact_type: str, producer: str, data: Any, status: str = "compl
     }
 
 
-def scenario(scenario_id: str, candidate_id: str, steps: list[dict[str, Any]]) -> dict[str, Any]:
+def scenario(
+    scenario_id: str, candidate_id: str, steps: list[dict[str, Any]],
+    preconditions: list[dict[str, Any]] | None = None, assertions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     return {
         "scenario_id": scenario_id, "candidate_id": candidate_id, "expected_basis": "inferred",
-        "preconditions": [], "steps": steps, "assertions": [],
+        "preconditions": preconditions or [], "steps": steps, "assertions": assertions or [],
     }
 
 
-def step(step_id: str, account_id: str, role_id: str, session_ref: str | None) -> dict[str, Any]:
+def check(check_id: str, kind: str, subject_ref: str, operator: str, expected: Any, selector: str | None = None) -> dict[str, Any]:
+    return {"check_id": check_id, "kind": kind, "subject_ref": subject_ref, "selector": selector, "operator": operator, "expected": expected}
+
+
+def step(
+    step_id: str, account_id: str, role_id: str, session_ref: str | None,
+    url_template: str = "http://127.0.0.1:8001/orders/7", order: int = 0,
+) -> dict[str, Any]:
+    # 기본 url_template은 치환자 없는 실행 가능한 GET이다. 바인딩이 필요한 테스트는 url_template을 직접 준다.
     return {
-        "step_id": step_id, "order": 0, "source_request_id": "req_x", "account_id": account_id,
+        "step_id": step_id, "order": order, "source_request_id": "req_x", "account_id": account_id,
         "role_id": role_id, "session_ref": session_ref,
-        "request": {"method": "GET", "url_template": "http://127.0.0.1:8001/orders/{binding_id}", "parameters": [], "body_ref": None},
+        "request": {"method": "GET", "url_template": url_template, "parameters": [], "body_ref": None},
         "bindings": [], "state_change": "none",
     }
 

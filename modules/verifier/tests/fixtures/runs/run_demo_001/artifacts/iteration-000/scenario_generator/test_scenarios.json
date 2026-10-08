@@ -28,7 +28,7 @@
             "session_ref": "sess_user",
             "request": {
               "method": "GET",
-              "url_template": "http://127.0.0.1:8001/orders/{binding_id}",
+              "url_template": "http://127.0.0.1:8001/orders/7",
               "parameters": [],
               "body_ref": null
             },
@@ -36,7 +36,24 @@
             "state_change": "none"
           }
         ],
-        "assertions": []
+        "assertions": [
+          {
+            "check_id": "assert_owner_read_status",
+            "kind": "response_status",
+            "subject_ref": "step_allow_1",
+            "selector": null,
+            "operator": "eq",
+            "expected": 200
+          },
+          {
+            "check_id": "assert_owner_read_body",
+            "kind": "response_json",
+            "subject_ref": "step_allow_1",
+            "selector": "/owner_id",
+            "operator": "exists",
+            "expected": true
+          }
+        ]
       },
       {
         "scenario_id": "scenario_block",

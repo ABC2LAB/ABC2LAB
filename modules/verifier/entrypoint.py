@@ -25,7 +25,10 @@ from pathlib import Path
 from typing import Any
 
 from modules.verifier import service
+from modules.verifier.execution import ExecutionContext
 from modules.verifier.executor import SessionExecutor
+from modules.verifier.utils.config import load_replay_config
+from modules.verifier.utils.evidence import EvidenceWriter
 from modules.verifier.utils.envelope import (
     ErrorCode,
     Mode,
@@ -159,8 +162,15 @@ def _verify_work(
     _, decisions_doc, _ = loaded["safety_decisions"]
     _, crawl_doc, _ = loaded["crawl_result"]
     scenarios_file_sha256 = hashlib.sha256(scenarios_path.read_bytes()).hexdigest()
+    execution_context = ExecutionContext(
+        executor=session_executor,
+        writer=EvidenceWriter(run_context.run_root, run_context.iteration),
+        clock=time.monotonic,
+        replay=load_replay_config(),
+    )
     outcome = service.build_verification_results(
-        scenarios_doc, decisions_doc, crawl_doc, scenarios_file_sha256, run_context.source_graph_revision, session_executor
+        scenarios_doc, decisions_doc, crawl_doc, scenarios_file_sha256,
+        run_context.source_graph_revision, execution_context,
     )
     return WorkResult(outcome.status, outcome.errors, outcome.data, _elapsed_ms(started)), input_refs
 
