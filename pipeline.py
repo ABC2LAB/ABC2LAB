@@ -296,9 +296,7 @@ class PipelineRun:
         return self._artifact_outcome(step_id, response, "test_scenarios")
 
     def _call_safety_policy(self, step_id: str) -> StepOutcome:
-        # TODO(최민준): 이동찬 C 머지 후 context 형태 확인.
-        # 런너는 Policy 설정 파일을 찾거나 해시하지 않는다(모듈 경계). C 전에는 safety_policy가 설정 없음으로
-        # failed를 돌려주는 게 정상이고, 런너는 우회하지 않는다.
+        # #58로 확정: context는 run_id·iteration·mode·run_root 4개, Policy 설정은 safety_policy가 SAFETY_POLICY_CONFIG_PATH로 준비
         input_paths = {"test_scenarios": self._descriptor("test_scenarios")}
         response = self._call("safety_policy", "evaluate", input_paths, self._base_context())
         return self._artifact_outcome(step_id, response, "safety_decisions")
