@@ -17,7 +17,7 @@
 **구조**
 | 경로 | 내용 |
 |---|---|
-| `entrypoint.py` | 공개 창구 `run()`과 CLI |
+| `entrypoint.py` | 공개 창구 `run()`·세션 창구 열기 `open_session_executor()`와 CLI |
 | `service.py` | 역할별 탐색과 시계 역행 집계 |
 | `core/` | 기존 탐색 core: 설정·로그인·탐색·캡처·마스킹 |
 | `core/identifiers.py` | 응답 JSON에서 식별자 추출(capture 안에서 호출, 본문 원문은 capture 밖으로 안 나감) |
@@ -328,7 +328,8 @@ issues = validate_crawl_result_file(artifact_path, run_root, known_secrets=[...]
 
 `session_gateway.py`. verifier가 허용된 재현 요청을 넘기면 그 계정 세션으로 **대신 전송**한다. verifier의
 `executor.py` Protocol을 import하지 않고 같은 모양(`lease`/`is_valid`/`send`/`release`)의 클래스를 자기 폴더에 둔다.
-런너가 `open_session_executor(config)`로 창구를 만들어 verifier에 주입한다(명세 03). 세션 쿠키·토큰은 이 모듈 안에만
+런너가 `entrypoint.open_session_executor()`로 창구를 열어 verifier에 주입한다(명세 03, 아래 사용 예). 런너는 collector
+설정 타입(`CrawlerConfig`)·예외 클래스를 몰라도 된다. 세션 쿠키·토큰은 이 모듈 안에만
 머물고 `ReplayRequest`·응답·로그·근거에 값으로 넣지 않는다. 둘 다 최민준 담당이라 규약은 아래로 확정한다.
 
 | 항목 | 규약 |
@@ -340,6 +341,38 @@ issues = validate_crawl_result_file(artifact_path, run_root, known_secrets=[...]
 | 대여/반납 | `release()`는 그 계정 context를 닫는다. 창구 `close()`는 반납 안 된 세션까지 닫고 브라우저를 종료 |
 | send 리다이렉트 | 자동으로 따라가지 않는다(`max_redirects=0`). 3xx를 그대로 돌려줘 verifier가 Location을 재검사 |
 | 외부 주소 2차 차단 | send에서 `is_request_allowed(config, url)`로 한 번 더 검사. 밖이면 보내지 않고 `SessionTransportError`(차단 URL·사유를 로그에 남김, 비밀값 제외). verifier `effective_origins`와 별개의 2차 방어 |
+| 여는 법 | `entrypoint.open_session_executor()`(인자 없음). 설정 위치는 collect와 같다: `COLLECTOR_CONFIG_PATH` > `modules/collector/configs/collector.toml`, 계정 값은 `COLLECTOR_SECRETS_PATH` > `.env`. 반환은 컨텍스트 매니저 |
+| 여는 중 오류 | 기본 타입으로 알린다. 설정이 없거나 틀리면 **호출 즉시** `ValueError`(브라우저를 띄우기 전), 브라우저를 못 띄우면 **with 진입 때** `RuntimeError`, 설정 파일을 읽을 권한이 없으면 `OSError`. 메시지에는 위치·키 이름만 있고 계정 값은 없다 |
+| 창구 수명 | 브라우저는 with 진입 때 뜨고 로그인은 `lease()` 때만 한다. with를 나오면(예외 포함) `close()`가 반납 안 된 세션과 브라우저를 닫는다. 런너는 verify 직전에 열고 verify가 끝나면 닫는다 |
+
+### 런너 사용 예
+
+런너는 collector·verifier의 `entrypoint`만 import하고 여는 중 오류는 기본 타입으로 잡는다. 창구를 못 열어도 verify는
+`session_executor=None`으로 부른다. verifier가 allow 시나리오를 `indeterminate`(`SESSION_UNAVAILABLE`)로 남기므로
+"취약점 없음"으로 바뀌지 않는다. 여는 중 오류만 잡도록 `ExitStack`으로 진입을 감싸고, verify 안에서 난 예외는 그대로 올린다.
+
+```python
+import logging
+from contextlib import ExitStack
+
+from modules.collector import entrypoint as collector_entrypoint
+from modules.verifier import entrypoint as verifier_entrypoint
+
+logger = logging.getLogger(__name__)
+
+with ExitStack() as stack:
+    try:
+        session_executor = stack.enter_context(collector_entrypoint.open_session_executor())
+    except (ValueError, RuntimeError, OSError) as error:
+        # 설정 오류·브라우저 실행 실패·설정 파일 읽기 실패. 메시지에 계정 값은 없다.
+        logger.warning("세션 창구를 열지 못함: %s %s", type(error).__name__, error)
+        session_executor = None
+    result = verifier_entrypoint.run("verify", input_paths, output_dir, context, session_executor=session_executor)
+# 여기서 창구가 닫혀 있다(남은 세션·브라우저 종료).
+```
+
+- `session_executor`는 context가 아니라 별도 인자다. 명세 03의 "context에 세션 객체를 넣지 않는다"를 지킨다.
+- 런너는 창구를 열었는지 못 열었는지를 자기 요약에 남긴다(못 열었으면 실행 결과를 정상 완료로 보이지 않게).
 
 ### 만료 감지 신호 (send 응답 → `SessionExpiredError`)
 
@@ -368,6 +401,7 @@ issues = validate_crawl_result_file(artifact_path, run_root, known_secrets=[...]
 .venv/bin/python -m pytest modules/collector/tests/test_contract.py     # 계약·fixture
 .venv/bin/python -m pytest modules/collector/tests/test_entrypoint.py   # 실행 창구(가짜 로컬 사이트)
 .venv/bin/python -m pytest modules/collector/tests/test_session_gateway.py  # 세션 창구(FakeBackend)
+.venv/bin/python -m pytest modules/collector/tests/test_open_session_executor.py  # 세션 창구 열기(설정 위치·오류, 브라우저 없음)
 ```
 
 테스트는 전부 127.0.0.1의 빈 포트에 띄운 가짜 사이트(`tests/sites.py`)·`FakeBackend`로 돈다. 실제 테스트 앱에는 요청하지 않는다(세션 창구 실물 검증은 실제 실행 1회로 한다).

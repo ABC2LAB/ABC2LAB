@@ -11,6 +11,9 @@ context 키는 명세 03 실행 값만 받는다: run_id·iteration·mode·run_r
 대상·역할·계정·실행 제한은 collector 설정 TOML에서, 계정 로그인 ID·비밀번호는 비밀값 .env에서 읽는다.
 위치는 각각 CLI 옵션 > 환경변수 > 기본값 순: --config > COLLECTOR_CONFIG_PATH > modules/collector/configs/collector.toml,
 --secrets > COLLECTOR_SECRETS_PATH > .env.
+
+세션 공개 창구: open_session_executor()가 같은 설정 위치(환경변수 > 기본값)로 창구를 열 컨텍스트 매니저를 돌려준다.
+런너가 이걸로 verifier에 창구를 주입한다(명세 03). 런너는 collector 설정 타입을 몰라도 된다.
 """
 
 import argparse
@@ -23,11 +26,12 @@ import secrets
 import sys
 import time
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from modules.collector import service
+from modules.collector import service, session_gateway
 from modules.collector.core.config import ConfigError, load_config_files
 from modules.collector.utils import export
 from modules.collector.utils.envelope import (
@@ -125,8 +129,7 @@ def parse_context(context: Mapping[str, Any]) -> RunContext:
     run_root = Path(context["run_root"])
     if run_root.name != run_id:
         raise ContextError("run_root 폴더 이름이 run_id와 같아야 함 (runs/<run_id>)")
-    config_path = resolve_path(CONFIG_PATH_ENV, DEFAULT_CONFIG_PATH)
-    secrets_path = resolve_path(SECRETS_PATH_ENV, DEFAULT_SECRETS_PATH)
+    config_path, secrets_path = _resolve_config_paths()
     return RunContext(run_id, iteration, Mode(context["mode"]), run_root, config_path, secrets_path)
 
 
@@ -134,6 +137,22 @@ def resolve_path(env_key: str, default: Path) -> Path:
     """환경변수가 있으면 그 경로, 없거나 비었으면 기본값(현재 폴더 기준)."""
     configured = os.environ.get(env_key, "").strip()
     return Path(configured) if configured else default
+
+
+def open_session_executor() -> AbstractContextManager[session_gateway.BrowserSessionExecutor]:
+    """런너가 verifier에 주입할 세션 공개 창구. 런너는 collector 설정 타입을 몰라도 된다.
+
+    설정 위치는 collect와 같다(COLLECTOR_CONFIG_PATH > 기본값, 계정 값은 COLLECTOR_SECRETS_PATH > .env).
+    설정이 없거나 틀리면 호출 즉시 ValueError(메시지는 위치·키 이름만). 브라우저를 못 띄우면 with 진입 때 RuntimeError.
+    """
+    config_path, secrets_path = _resolve_config_paths()
+    # 설정을 먼저 읽어 브라우저를 띄우기 전에 실패한다. 반환은 session_gateway의 컨텍스트 매니저 그대로.
+    return session_gateway.open_session_executor(load_config_files(config_path, secrets_path))
+
+
+def _resolve_config_paths() -> tuple[Path, Path]:
+    """collect와 세션 창구가 같은 규칙으로 설정·비밀값 파일 위치를 정한다."""
+    return resolve_path(CONFIG_PATH_ENV, DEFAULT_CONFIG_PATH), resolve_path(SECRETS_PATH_ENV, DEFAULT_SECRETS_PATH)
 
 
 def make_run_id(now: datetime) -> str:
