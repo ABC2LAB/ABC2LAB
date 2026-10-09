@@ -49,6 +49,82 @@ def test_run_evaluate_publishes_evaluation_only(
     _assert_output_integrity(input_paths, context, response)
 
 
+@pytest.mark.parametrize("operation", ["report", "evaluate"])
+@pytest.mark.parametrize("status", ["completed", "partial"])
+def test_run_with_resource_ids_preserves_result_classification(
+    request: pytest.FixtureRequest,
+    operation: str,
+    status: str,
+) -> None:
+    input_paths, output_dir, context = request.getfixturevalue(
+        f"{operation}_arguments"
+    )
+    filename = (
+        "diagnosis_report.json"
+        if operation == "report"
+        else "evaluation_results.json"
+    )
+    _remove_contract_output(context["run_root"], filename)
+    input_path = context["run_root"] / input_paths["test_scenarios"]["path"]
+    source = load_json(input_path)
+    if status == "partial":
+        source["status"] = status
+        source["errors"] = [
+            {
+                "code": "SCENARIO_GENERATION_PARTIAL",
+                "message": "일부 후보의 시나리오를 생성하지 못함",
+                "item_ref": "candidate_missing",
+                "retryable": False,
+            }
+        ]
+        input_path.write_text(json.dumps(source), encoding="utf-8")
+        _rebind_fixture_scenario_hashes(input_paths, context)
+
+    response = entrypoint.run(operation, input_paths, output_dir, context)
+
+    artifact = load_json(_contract_output(context["run_root"], filename))
+    _assert_output_integrity(input_paths, context, response)
+    assert response["status"] == status
+    assert artifact["status"] == status
+    _assert_unchanged_classification(artifact, operation)
+    assert load_json(input_path) == source
+
+
+@pytest.mark.parametrize("operation", ["report", "evaluate"])
+@pytest.mark.parametrize("is_missing", [True, False])
+def test_run_rejects_invalid_resource_ids_without_outputs(
+    request: pytest.FixtureRequest,
+    operation: str,
+    is_missing: bool,
+) -> None:
+    input_paths, output_dir, context = request.getfixturevalue(
+        f"{operation}_arguments"
+    )
+    filename = (
+        "diagnosis_report.json"
+        if operation == "report"
+        else "evaluation_results.json"
+    )
+    _remove_contract_output(context["run_root"], filename)
+    input_path = context["run_root"] / input_paths["test_scenarios"]["path"]
+    source = load_json(input_path)
+    for scenario in source["data"]["scenarios"]:
+        if is_missing:
+            scenario.pop("resource_ids")
+        else:
+            scenario["resource_ids"] = []
+    input_path.write_text(json.dumps(source), encoding="utf-8")
+    input_paths["test_scenarios"]["sha256"] = calculate_sha256(input_path)
+
+    response = entrypoint.run(operation, input_paths, output_dir, context)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "CONTRACT_INVALID"
+    assert response["output_path"] is None
+    assert not _contract_output(context["run_root"], filename).exists()
+    assert not (context["run_root"] / "reports").exists()
+
+
 @pytest.mark.parametrize(
     "artifact_type",
     tuple(name for name in INPUT_SCHEMA_BY_NAME if name != "ground_truth"),
@@ -311,6 +387,42 @@ def _assert_output_integrity(
         ground_truth_path = context["project_root"] / reference["path"]
         assert reference["sha256"] == calculate_sha256(ground_truth_path)
         assert load_json(ground_truth_path)["schema_version"] == "0.1.0"
+
+
+def _rebind_fixture_scenario_hashes(
+    input_paths: dict[str, Any],
+    context: dict[str, Any],
+) -> None:
+    scenario_descriptor = input_paths["test_scenarios"]
+    scenario_path = context["run_root"] / scenario_descriptor["path"]
+    scenario_hash = calculate_sha256(scenario_path)
+    scenario_descriptor["sha256"] = scenario_hash
+    for artifact_type in ("safety_decisions", "verification_results"):
+        descriptor = input_paths[artifact_type]
+        path = context["run_root"] / descriptor["path"]
+        artifact = load_json(path)
+        artifact["data"]["scenarios_sha256"] = scenario_hash
+        path.write_text(json.dumps(artifact), encoding="utf-8")
+        descriptor["sha256"] = calculate_sha256(path)
+
+
+def _assert_unchanged_classification(
+    artifact: dict[str, Any],
+    operation: str,
+) -> None:
+    if operation == "report":
+        assert artifact["data"]["summary"] == {
+            "candidate_count": 3,
+            "confirmed_count": 1,
+            "not_confirmed_count": 0,
+            "suspected_count": 0,
+            "indeterminate_count": 1,
+            "policy_blocked_count": 0,
+            "approval_pending_count": 1,
+        }
+    else:
+        assert artifact["data"]["candidate_counts"] == {"tp": 1, "fp": 1, "fn": 0}
+        assert artifact["data"]["confirmed_counts"] == {"tp": 1, "fp": 0, "fn": 0}
 
 
 def _contract_output(run_root: Path, filename: str) -> Path:

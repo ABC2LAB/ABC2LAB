@@ -139,6 +139,72 @@ def test_schema_rejects_undefined_key(completed_input_path: Path) -> None:
         validate_schema(artifact, TEST_SCENARIOS_SCHEMA)
 
 
+@pytest.mark.parametrize(
+    "resource_ids",
+    [
+        ["opaque-node"],
+        ["opaque-z", "opaque-a"],
+        ["opaque-node", "opaque-node"],
+    ],
+)
+def test_scenarios_accept_opaque_resource_ids_without_rewriting(
+    completed_input_path: Path,
+    tmp_path: Path,
+    resource_ids: list[str],
+) -> None:
+    artifact = load_json(completed_input_path)
+    for scenario in artifact["data"]["scenarios"]:
+        scenario["resource_ids"] = resource_ids.copy()
+    input_path = tmp_path / "test_scenarios.json"
+    input_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    loaded_artifact, scenarios = load_test_scenarios(input_path)
+
+    assert scenarios is not None
+    assert loaded_artifact["schema_version"] == "0.2.0"
+    assert all(
+        scenario["resource_ids"] == resource_ids
+        for scenario in loaded_artifact["data"]["scenarios"]
+    )
+    assert load_json(input_path) == artifact
+
+
+def test_scenario_schema_requires_resource_ids(completed_input_path: Path) -> None:
+    artifact = load_json(completed_input_path)
+    for scenario in artifact["data"]["scenarios"]:
+        scenario.pop("resource_ids")
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        validate_schema(artifact, TEST_SCENARIOS_SCHEMA)
+
+
+@pytest.mark.parametrize(
+    "resource_ids",
+    [None, [], "opaque-node", [""], [None], [7], [True], ["opaque-node", ""]],
+)
+def test_scenario_schema_rejects_invalid_resource_ids(
+    completed_input_path: Path,
+    resource_ids: object,
+) -> None:
+    artifact = load_json(completed_input_path)
+    for scenario in artifact["data"]["scenarios"]:
+        scenario["resource_ids"] = resource_ids
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        validate_schema(artifact, TEST_SCENARIOS_SCHEMA)
+
+
+def test_scenario_schema_still_rejects_undefined_keys(
+    completed_input_path: Path,
+) -> None:
+    artifact = load_json(completed_input_path)
+    for scenario in artifact["data"]["scenarios"]:
+        scenario["unexpected"] = True
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        validate_schema(artifact, TEST_SCENARIOS_SCHEMA)
+
+
 def test_schema_enforces_failed_state_contract(completed_output_path: Path) -> None:
     artifact = load_json(completed_output_path)
     artifact["status"] = "failed"

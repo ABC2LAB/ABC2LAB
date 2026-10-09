@@ -98,6 +98,63 @@ def test_load_approval_record_rejects_hash_mismatch(
 
 
 @pytest.mark.parametrize(
+    "resource_ids",
+    [
+        ["opaque-replacement"],
+        ["opaque-a", "opaque-z"],
+        ["opaque-z", "opaque-a", "opaque-extra"],
+    ],
+    ids=["replace", "reorder", "append"],
+)
+def test_load_approval_record_rejects_changed_resource_ids(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    resource_ids: list[str],
+) -> None:
+    input_paths, _, _ = evaluate_arguments
+    input_path = evaluate_run_root / input_paths["test_scenarios"]["path"]
+    source = load_json(input_path)
+    for scenario in source["data"]["scenarios"]:
+        scenario["resource_ids"] = ["opaque-z", "opaque-a"]
+    input_path.write_text(json.dumps(source), encoding="utf-8")
+    approved_hash = calculate_sha256(input_path)
+    input_paths["test_scenarios"]["sha256"] = approved_hash
+    approval_path = evaluate_run_root / APPROVAL_RELATIVE_PATH
+    approval = load_json(approval_path)
+    approval["scenarios_sha256"] = approved_hash
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+    request, prepared, configuration = _prepare_with_approval(
+        evaluate_arguments,
+        evaluate_run_root,
+    )
+    assert load_approval_record(
+        request,
+        prepared,
+        configuration,
+        now_factory=lambda: FIXED_NOW,
+    ) is not None
+
+    for scenario in source["data"]["scenarios"]:
+        scenario["resource_ids"] = resource_ids.copy()
+    input_path.write_text(json.dumps(source), encoding="utf-8")
+    input_paths["test_scenarios"]["sha256"] = calculate_sha256(input_path)
+    assert input_paths["test_scenarios"]["sha256"] != approved_hash
+    request, prepared, configuration = _prepare_with_approval(
+        evaluate_arguments,
+        evaluate_run_root,
+    )
+
+    with pytest.raises(ApprovalRecordError, match="계획 해시"):
+        load_approval_record(
+            request,
+            prepared,
+            configuration,
+            now_factory=lambda: FIXED_NOW,
+        )
+    assert load_json(approval_path) == approval
+
+
+@pytest.mark.parametrize(
     ("field", "value", "message"),
     [
         ("run_id", "run_other", "실행 범위"),

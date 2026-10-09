@@ -38,6 +38,7 @@
         "scenario_id": "scenario_read_order_001",
         "candidate_id": "candidate_idor_001",
         "expected_basis": "rule",
+        "resource_ids": ["resource:instance:fixture-read-order"],
         "preconditions": [
           {
             "check_id": "check_session_001",
@@ -111,6 +112,7 @@
         "scenario_id": "scenario_update_order_001",
         "candidate_id": "candidate_workflow_001",
         "expected_basis": "inferred",
+        "resource_ids": ["resource:instance:fixture-update-order"],
         "preconditions": [],
         "steps": [
           {

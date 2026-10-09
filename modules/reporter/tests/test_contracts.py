@@ -92,6 +92,107 @@ def test_all_contract_fixtures_are_valid(
         validate_fixture(load_json(fixture_path), schema_root)
 
 
+def test_scenario_fixture_preserves_candidate_resource_ids(
+    fixture_root: Path,
+) -> None:
+    iteration_root = (
+        fixture_root / "runs/run_demo_001/artifacts/iteration-000"
+    )
+    candidates = load_json(
+        iteration_root / "access_analyzer/vulnerability_candidates.json"
+    )["data"]["candidates"]
+    scenarios = load_json(
+        iteration_root / "scenario_generator/test_scenarios.json"
+    )["data"]["scenarios"]
+    candidate_by_id = {
+        candidate["candidate_id"]: candidate for candidate in candidates
+    }
+
+    for scenario in scenarios:
+        assert scenario["resource_ids"] == candidate_by_id[
+            scenario["candidate_id"]
+        ]["resource_ids"]
+
+
+@pytest.mark.parametrize(
+    "resource_ids",
+    [
+        ["opaque-node"],
+        ["opaque-z", "opaque-a"],
+        ["opaque-node", "opaque-node"],
+    ],
+)
+def test_scenario_contract_accepts_opaque_resource_ids(
+    fixture_root: Path,
+    schema_root: Path,
+    resource_ids: list[str],
+) -> None:
+    artifact = load_json(
+        fixture_root / "runs/run_demo_001/artifacts/iteration-000/"
+        "scenario_generator/test_scenarios.json"
+    )
+    for scenario in artifact["data"]["scenarios"]:
+        scenario["resource_ids"] = resource_ids.copy()
+
+    validate_fixture(artifact, schema_root)
+
+    assert artifact["schema_version"] == "0.2.0"
+    assert all(
+        scenario["resource_ids"] == resource_ids
+        for scenario in artifact["data"]["scenarios"]
+    )
+
+
+def test_scenario_contract_requires_resource_ids(
+    fixture_root: Path,
+    schema_root: Path,
+) -> None:
+    artifact = load_json(
+        fixture_root / "runs/run_demo_001/artifacts/iteration-000/"
+        "scenario_generator/test_scenarios.json"
+    )
+    for scenario in artifact["data"]["scenarios"]:
+        scenario.pop("resource_ids")
+
+    with pytest.raises(ValidationError):
+        validate_fixture(artifact, schema_root)
+
+
+@pytest.mark.parametrize(
+    "resource_ids",
+    [None, [], "opaque-node", [""], [None], [7], [True], ["opaque-node", ""]],
+)
+def test_scenario_contract_rejects_invalid_resource_ids(
+    fixture_root: Path,
+    schema_root: Path,
+    resource_ids: object,
+) -> None:
+    artifact = load_json(
+        fixture_root / "runs/run_demo_001/artifacts/iteration-000/"
+        "scenario_generator/test_scenarios.json"
+    )
+    for scenario in artifact["data"]["scenarios"]:
+        scenario["resource_ids"] = resource_ids
+
+    with pytest.raises(ValidationError):
+        validate_fixture(artifact, schema_root)
+
+
+def test_scenario_contract_still_rejects_undefined_keys(
+    fixture_root: Path,
+    schema_root: Path,
+) -> None:
+    artifact = load_json(
+        fixture_root / "runs/run_demo_001/artifacts/iteration-000/"
+        "scenario_generator/test_scenarios.json"
+    )
+    for scenario in artifact["data"]["scenarios"]:
+        scenario["unexpected"] = True
+
+    with pytest.raises(ValidationError):
+        validate_fixture(artifact, schema_root)
+
+
 @pytest.mark.parametrize("artifact_type", sorted(SCHEMA_PATH_BY_ARTIFACT))
 def test_contracts_reject_undefined_top_level_key(
     artifact_type: str,
