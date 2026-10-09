@@ -79,6 +79,22 @@ Ground Truth는 development 평가에서만 사용하며 다른 진단 모듈로
 
 생산자 계약이 변경된 경우 reporter는 해당 생산자의 정상 출력을 소비할 수 있도록 직접 사용하는 입력 Schema만 동기화한다.
 
+`verification_results.data.graph_updates.relationships`의 검증 관계는
+`source_account_id`에 실제 접근한 원본 계정 ID를 받고, `target_id`에 기존
+Resource instance node_id를 받는다. 버전 `0.2.0`을 유지하면서 필드를 동시
+전환하므로 이전 `source_id`, 두 source 필드의 동시 입력, source 필드 누락은 거절한다.
+
+검증 관계의 `source_account_id`를 User node_id로 해석해 DB에 반영하는 책임은 KG에 있다.
+reporter는 이 검증 관계를 변환·저장하거나 node_id를 접두사로 추측하지 않는다.
+semantic 및 KG snapshot의 일반 관계는 계속 `source_id`·`target_id`를 사용한다.
+개발 평가의 원본 계정·역할 ID 참조 검증은 아래 `GraphReferenceIndex`로 계속 수행한다.
+
+확인 기준 커밋 `b2aec96`에서 KG·Reporter의 계정 source 전환과 KG 실제 Neo4j
+검증은 완료했다. verifier 출력 Schema는 아직 `source_id`를 요구하므로
+생산자 전환·실제 동일 run 산출물 수신·전체 pipeline 검증은 후속 작업이다.
+최종 이력과 전달 체크리스트는 아래 계정 source 전환 5단계와
+[KG README](../knowledge_graph/README.md)의 같은 단계에 정리한다.
+
 진단 실행 입력의 `0.1.0` 및 미지원 버전은 거절하며, 기존 산출물의 버전을 묵시적으로 변환하지 않는다. `graph_query_result`는 이미 0.2 계약이므로 이번 동기화에서 변경하지 않았다.
 
 현재 `test_scenarios` 입력은 팀의 0.2 전환 방향을 반영한다. 6단계 확인 기준 커밋 `1b123bd`에서도 scenario_generator는 아직 0.1을 출력하므로 생산자 측 전환이 필요하다. reporter의 Safety 입력은 0.2를 수용하지만 verifier의 해당 입력 사본은 아직 0.1이다. 입력 Schema 동기화와 전체 파이프라인 호환 완료는 구분한다.
@@ -402,7 +418,7 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-356 passed
+390 passed
 ```
 
 계약 테스트:
@@ -415,6 +431,18 @@ python -m modules.reporter.entrypoint evaluate \
 
 ```text
 93 passed
+```
+
+계정 source 전환 계약·공개 실행 테스트:
+
+```bash
+.venv/bin/python -m pytest modules/reporter/tests/test_verification_account_contract.py -q
+```
+
+현재 결과:
+
+```text
+34 passed
 ```
 
 평가 테스트:
@@ -782,3 +810,137 @@ reporter 전체
 ```
 
 이번 변경은 reporter의 진단·평가 로직을 변경하지 않고 KG 입력 계약만 최신 상태로 맞춘다.
+
+### 2026-10-09 — 계정 source 전환 3단계: 검증 입력 계약 동기화
+
+기준 커밋 `5fe4057`의 KG 계정 조회·관계 저장 구현에 맞춰 reporter의
+검증 결과 입력 사본을 동기화했다. 사용자 합의대로 `schema_version=0.2.0`을
+유지하며, 같은 버전의 이전 검증 관계와는 호환되지 않는다.
+
+#### 입력 경계와 유지한 처리
+
+```text
+verification_results.graph_updates.relationships
+    source_account_id: 원본 실행 계정 ID
+    target_id: 기존 Resource instance node_id
+          ↓
+reporter 입력 Schema·artifact/해시·근거 검증
+          ↓
+results를 후보·시나리오·Safety 판정과 연결
+          ↓
+기존 진단 분류·리포트 생성 / development 평가
+```
+
+- 입력 Schema의 검증 관계 필수 필드와 속성 정의를
+  `source_id`에서 `source_account_id`로 변경했다. 이전 필드·동시 입력·누락은
+  `CONTRACT_INVALID`로 실패하고 정상 빈 결과나 리포트로 숨기지 않는다.
+- 일반 semantic 관계와 KG `structure_snapshot`의 node_id 기반 `source_id`는
+  변경하지 않았다. Reporter는 검증 관계의 계정을 KG User로 해석하거나,
+  DB 존재 여부를 조회하거나, 검증 관계를 저장하지 않는다.
+- `VERIFIED_ACCESS`·`VERIFIED_DENIAL`, `basis=verified`, 실행 근거,
+  신규 Resource 생성 금지와 기존 검증 상태·Policy·revision·계획 해시 검사는 유지했다.
+- 진단 분류, 개발 평가, 내부 모델, 공개 operation·CLI 및 출력 Schema는
+  변경하지 않았다. 운영 코드 변경 없이 입력 사본·fixture·테스트만 동기화했다.
+
+#### Fixture와 SHA-256
+
+Reporter 소유 verification fixture의 source를 `user:account_user_a`에서
+원본 계정 ID인 `account_user_a`로 변경했다. 이 값은 fixture의 User 공개 속성과
+대응하며, KG node_id를 원본 계정 ID로 간주하지 않는다.
+
+변경된 verification 파일 바이트의 실제 SHA-256을 계산해 리포트 fixture
+6개(completed 진단·평가 2개, partial/failed 진단·평가 4개)의 `input_refs`를
+갱신했다. 후보·시나리오·Safety·semantic·KG fixture는 수정하지 않았다.
+시나리오 파일이 바뀌지 않았으므로 `scenarios_sha256`도 유지했다.
+테스트용 검증 User 생성 helper는 account_id와 별도의 node_id를 사용하도록
+수정했으며, 계정 ID로 node_id를 추측하는 방식을 넣지 않았다.
+
+#### 검증과 다음 작업
+
+```text
+신규 계정 source 계약·공개 실행 테스트
+34 passed
+
+신규 계정 source + 기존 0.2 계약 이행 테스트
+89 passed
+
+reporter 전체
+390 passed
+
+knowledge_graph + safety_policy + reporter 기본 회귀
+778 passed, 4 skipped
+```
+
+신규/이전/동시/누락 source, 잘못된 계정 값·타입, 원본 계정 ID 보존,
+target 필수 제약, partial/failed envelope, 일반 그래프 관계의 node_id 계약을
+확인했다. `report`·`evaluate` 공개 실행에서도 이전 입력 거절·출력 미생성,
+계정 source 수신·입력 불변·실제 출력 참조 해시, 검증 파일 해시 불일치 차단을
+검증했다. 기존 회귀 테스트로 판정·미검증 상태·근거·평가 지표 동작을 확인했다.
+
+이번 단계의 변경은 `modules/reporter/` 내부 11개 파일뿐이다.
+다른 모듈·공용 명세·의존성·실제 실행 결과는 수정하지 않았다.
+Verifier 출력의 필드 전환은 생산자 담당 작업으로 남기며, 입력 사본의 전환과
+전체 pipeline 연결 완료를 구분한다.
+
+skip 4건은 KG 실제 Neo4j 통합 테스트다. 다음 4단계에서 새로운 계정 source의
+실제 DB 변환·저장·revision·중복 반영·snapshot·실패 시 rollback을 확인한다.
+
+### 2026-10-09 — 계정 source 전환 5단계: 소비자 완료 범위·생산자 전달
+
+기준 커밋 `b2aec96`에서 KG·Reporter의 소비자 측 변경을 최종 정리했다.
+이번 단계는 두 모듈 README만 변경하며 기존 이력은 보존한다.
+이전 이력의 테스트 건수와 다음 작업은 기록 당시 기준이며, 아래는 최신 완료 범위다.
+
+#### Reporter 완료 범위
+
+- 입력 사본·fixture·참조 해시·독립 테스트 전환은 `3143752`에 반영했다.
+  `schema_version=0.2.0`을 유지하며 검증 관계에 `source_account_id`를 필수로 받는다.
+- source는 실제 접근 계정의 원본 ID이며, target은 기존 Resource instance node_id다.
+  이전 필드·동시 입력·누락은 거절하고 입력을 묵시적으로 변환하지 않는다.
+- Reporter는 해당 검증 관계의 계정→User 변환·DB 존재 확인·관계 저장을 하지 않는다.
+  자기 Schema·해시·ID·근거·Policy·계획·revision 검증과 기존 진단 분류는 유지한다.
+- `evaluate`의 semantic/snapshot에 대한 `GraphReferenceIndex`와 원본 ID 참조
+  검증은 별도 책임이다. 검증 관계를 DB에 반영하지 않는다는 원칙과 충돌하지 않는다.
+- 일반 그래프·snapshot의 node_id 기반 `source_id`, 리포트·평가 출력 계약,
+  공개 operation·CLI·HTML 생성, 미실행·판단불가의 분류 방식은 변경하지 않았다.
+
+#### 생산자 전달과 실제 수신 확인
+
+verifier 담당자는 검증 관계 출력 Schema·직렬화·소유 fixture·테스트를 새 필드에
+맞춘다. B가 A 자원에 접근했으면 source는 B의 원본 account_id이며 소유자 A나
+User node_id로 대신하지 않는다. 버전은 `0.2.0`을 유지하고 모든 직접 소비자와
+같은 계약을 적용한다. 기존 입력 구성은 유지하며 Reporter용 별도 결과 파일을 만들지 않는다.
+
+기준 커밋에서 verifier 출력 Schema는 아직 `source_id`를 요구한다.
+빈 graph update의 수신이나 Reporter 소유 fixture 통과만으로 생산자 전환·실제
+pipeline 연결이 완료됐다고 판단하지 않는다. 공용 명세 반영도 담당자·관리자 작업이다.
+이번 단계는 전달 내용을 준비한 것이며 팀원에게 외부 메시지를 발송하지 않는다.
+
+실제 수신 확인 항목은 다음과 같다.
+
+- [ ] 생산자가 새 검증 관계 필드로 생성한 동일 run의 실제 결과 파일과 정확한 SHA-256 확보
+- [ ] 기존 후보·계획·Safety 판정과 ID·revision·계획 해시·실행 근거 대응 확인
+- [ ] `report`에서 새 필드 수신, 입력 불변과 출력 `input_refs` 해시, 미검증 상태 보존 확인
+- [ ] 이전 검증 관계 필드 입력은 `CONTRACT_INVALID`이며 리포트 파일이 생성되지 않는지 확인
+- [ ] 필요 시 development 평가 입력·정답·실제 snapshot을 확보해 `evaluate` 확인
+
+KG의 계정 조회·target·DB 반영·revision·재반영 확인 항목은
+[KG README](../knowledge_graph/README.md)의 계정 source 전환 5단계 체크리스트를 따른다.
+검증 파일을 바꿨으면 새 artifact와 정확한 참조 해시로 전달하며, 완료 파일을
+덮어쓰거나 node_id 값을 새 필드명으로 단순 변경하지 않는다.
+
+#### 검증 기록과 후속 작업
+
+3단계 Reporter 독립 검증은 390건 통과했다. 4단계 `b2aec96`의 담당 모듈
+회귀는 기본 778 passed·12 skipped, 실제 Neo4j 활성화 시 790 passed였다.
+실제 DB 결과는 KG 통합 검증이며 Reporter가 Neo4j에 직접 연결했다는 의미가 아니다.
+이번 단계는 문서 정리이고 실제 Neo4j를 다시 실행하지 않는다.
+
+5단계 문서 수정 후 담당 3개 모듈의 기본 회귀를 재실행해
+`778 passed, 12 skipped`를 확인했다. skip 12건은 이번 단계에서 활성화하지 않은
+KG 실제 Neo4j 통합 테스트다. `git diff --check`도 통과했다.
+
+소비자 측 계정 source 전환의 구현·독립 검증·문서 정리는 마무리한다.
+생산자의 출력 전환과 실제 동일 run의 산출물 수신, 전체 pipeline 연결 검증은
+후속 작업으로 남긴다. 기존에 기록한 다른 upstream 계약·Ground Truth 관련
+미해결 항목도 이번 문서 작업으로 해결됐다고 간주하지 않는다.

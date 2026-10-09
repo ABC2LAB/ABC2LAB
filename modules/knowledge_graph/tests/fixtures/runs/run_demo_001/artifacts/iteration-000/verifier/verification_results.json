@@ -37,7 +37,7 @@
       "relationships": [
         {
           "relationship_id": "relationship_verified_access_001",
-          "source_id": "account_user",
+          "source_account_id": "account_user",
           "target_id": "resource_order_001",
           "relation_type": "VERIFIED_ACCESS",
           "properties": {"action": "read_order"},

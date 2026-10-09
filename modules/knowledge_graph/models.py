@@ -112,6 +112,33 @@ class GraphEdge:
 
 
 @dataclass(frozen=True)
+class VerificationRelationship:
+    """Verifier input whose source is an account, not a graph node ID."""
+
+    relationship_id: str
+    source_account_id: str
+    target_id: str
+    relation_type: str
+    properties: dict[str, JsonValue]
+    basis: str
+    evidence_refs: tuple[EvidenceReference, ...]
+
+    @classmethod
+    def from_mapping(cls, value: dict[str, Any]) -> "VerificationRelationship":
+        return cls(
+            relationship_id=value["relationship_id"],
+            source_account_id=value["source_account_id"],
+            target_id=value["target_id"],
+            relation_type=value["relation_type"],
+            properties=value["properties"],
+            basis=value["basis"],
+            evidence_refs=tuple(
+                EvidenceReference.from_mapping(item) for item in value["evidence_refs"]
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class WorkflowStep:
     step_id: str
     order: int
@@ -350,7 +377,20 @@ class VerificationSource:
 
 
 @dataclass(frozen=True)
+class VerificationInputUpdate:
+    """Validated input before account IDs are resolved in the graph scope."""
+
+    source: VerificationSource
+    source_graph_revision: int
+    verification_ids: tuple[str, ...]
+    nodes: tuple[GraphNode, ...]
+    relationships: tuple[VerificationRelationship, ...]
+
+
+@dataclass(frozen=True)
 class VerificationUpdate:
+    """Storage update whose relationship endpoints are graph node IDs."""
+
     source: VerificationSource
     source_graph_revision: int
     verification_ids: tuple[str, ...]

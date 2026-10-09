@@ -53,9 +53,9 @@ def _graph_update_record(
     if record_type == "relationships":
         return relationship
     node = {
-        "node_id": relationship["source_id"],
+        "node_id": "verified_user_test",
         "node_type": "User",
-        "properties": {},
+        "properties": {"account_id": relationship["source_account_id"]},
         "basis": "verified",
         "evidence_refs": copy.deepcopy(relationship["evidence_refs"]),
     }

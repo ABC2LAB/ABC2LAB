@@ -17,7 +17,6 @@ from modules.knowledge_graph.exceptions import (
 )
 from modules.knowledge_graph.models import (
     ControlError,
-    GraphEdge,
     GraphNode,
     GraphSource,
     IngestControlResponse,
@@ -27,9 +26,10 @@ from modules.knowledge_graph.models import (
     QueryRequest,
     SemanticGraph,
     VerificationControlResponse,
+    VerificationInputUpdate,
+    VerificationRelationship,
     VerificationRequest,
     VerificationSource,
-    VerificationUpdate,
 )
 from modules.knowledge_graph.repositories import GraphRepository
 from modules.knowledge_graph.utils.atomic_writer import write_json_atomically
@@ -69,7 +69,7 @@ class PreparedQuery:
 @dataclass(frozen=True)
 class PreparedVerification:
     request: VerificationRequest
-    update: VerificationUpdate
+    update: VerificationInputUpdate
     errors: tuple[ControlError, ...]
 
 
@@ -461,13 +461,14 @@ def prepare_verification_operation(
         iteration=artifact["iteration"],
         status=artifact["status"],
     )
-    update = VerificationUpdate(
+    update = VerificationInputUpdate(
         source=source,
         source_graph_revision=data["source_graph_revision"],
         verification_ids=tuple(graph_updates["source_verification_ids"]),
         nodes=tuple(GraphNode.from_mapping(item) for item in graph_updates["nodes"]),
         relationships=tuple(
-            GraphEdge.from_mapping(item) for item in graph_updates["relationships"]
+            VerificationRelationship.from_mapping(item)
+            for item in graph_updates["relationships"]
         ),
     )
     return PreparedVerification(

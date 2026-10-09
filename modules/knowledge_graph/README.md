@@ -16,6 +16,22 @@ Neo4j 직접 접근과 Cypher 실행은 knowledge_graph 내부에서만 수행�
 
 ---
 
+## 검증 관계 계정 source 전환 상태
+
+`verification_results.data.graph_updates.relationships`의 source를 KG node_id가
+아닌 원본 `source_account_id`로 받는 소비자 측 변경을 완료했다.
+KG 입력·User 조회·트랜잭션 반영, Reporter 입력 사본, 실제 Neo4j 검증까지 완료했다.
+
+확인 기준 커밋 `b2aec96`에서 verifier 출력 Schema는 아직 `source_id`를
+요구한다. 생산자 전환과 동일 run의 실제 산출물 연결 검증은 후속 작업이며,
+소비자 구현 완료를 전체 pipeline 연결 완료로 해석하지 않는다.
+버전은 `0.2.0`을 유지하므로 생산자와 모든 직접 소비자의 필드 전환을 함께 적용해야 한다.
+
+최종 계약·단계별 커밋·담당자 전달 체크리스트는 아래 계정 source 전환 5단계에
+정리했다. 이전 단계의 테스트 건수와 다음 작업은 각 기록 당시 기준이다.
+
+---
+
 ## 주요 구현
 
 - JSON Schema 및 교차 ID 검증
@@ -100,6 +116,19 @@ verifier/verification_results.json
 
 검증된 graph update만 기존 그래프에 반영한다.
 
+검증 관계 입력의 source는 원본 계정 ID인 `source_account_id`다.
+`target_id`는 기존 Resource instance의 KG node_id를 사용한다.
+`schema_version=0.2.0`을 유지하며 기존 검증 관계의 `source_id`는 거절한다.
+일반 그래프 관계·snapshot의 `source_id` 계약은 변경하지 않는다.
+
+계정 source 전환의 User 조회·관계 저장과 실제 Neo4j 통합 검증을 완료했다.
+같은 `run_id`·`graph_id`의 기존 User에서 `properties.account_id`를 정확히
+대응시켜 저장용 `source_id`로 변환한다. revision 확인·계정 조회·참조 검증·
+관계 저장은 같은 쓰기 트랜잭션에서 처리하며, account_id를 node_id로
+간주하거나 접두사로 추측하지 않는다. 빈 graph update의 no-op은 유지한다.
+저장소 대역과 실제 Neo4j에서 계정 변환·범위 격리·revision·snapshot·rollback을
+검증했다. 상세 결과는 아래 계정 source 전환 4단계 이력에 기록한다.
+
 주요 조건:
 
 - source verification이 실행 가능한 결정이어야 함
@@ -108,6 +137,8 @@ verifier/verification_results.json
 - 실제 실행 EvidenceRef와 연결되어야 함
 - `source_graph_revision`이 현재 revision과 일치해야 함
 - 관계 source는 기존 User, target은 기존 Resource instance여야 함
+- 기존 User의 account_id·node_id 대응은 유효하고 중복이 없어야 함
+- verifier의 User 갱신은 account_id를 바꾸거나 중복 계정을 만들 수 없음
 - verifier가 신규 Resource 노드를 생성하지 않아야 함
 
 새로운 verification을 반영하면 graph revision이 증가한다.
@@ -252,10 +283,10 @@ NEO4J_DATABASE
 현재 기본 테스트 결과:
 
 ```text
-160 passed, 4 skipped
+243 passed, 12 skipped
 ```
 
-skip 4건은 실제 Neo4j가 필요한 통합 테스트다.
+skip 12건은 실제 Neo4j가 필요한 opt-in 통합 테스트다.
 
 실제 Neo4j 통합 테스트는 Neo4j 실행 후 명시적으로 활성화한다.
 
@@ -669,3 +700,326 @@ AST로 Python 파일 38개를 검사해 다른 모듈 import 0건을 확인했�
 ### 후속 연결 작업과 구분
 
 이번 6단계로 담당 모듈 내부 수정 목록과 최종 회귀 검증을 마쳤다. scenario_generator의 0.1 출력, verifier의 Safety 입력 0.1 사본, Ground Truth 버전 명세 불일치는 각 담당자·관리자의 확인 항목으로 남긴다. 타 모듈을 대신 수정하거나 구버전 입력을 묵시적으로 변환하지 않는다. 실제 전체 파이프라인 연결은 이 항목의 정리와 동일 실행 산출물 검증 이후 확인한다.
+
+---
+
+## 2026-10-09 — 계정 source 전환 1단계: 입력 계약·모델·파싱
+
+기준 커밋 `27b43ac`에서 팀이 제안한 검증 관계의 원본 계정 ID 전달 방식을
+KG 입력에 반영했다. 사용자의 적용 결정에 따라 `verification_results` 버전은
+`0.2.0`을 유지하고 필드를 동시 전환한다. 같은 버전이더라도 이전 검증 관계의
+`source_id`와 새 `source_account_id`는 호환되지 않으며, 자동 변환하지 않는다.
+
+### 변경 내용
+
+- 변경 대상은 `data.graph_updates.relationships`뿐이다. `source_account_id`는
+  실제 접근한 계정의 원본 ID, `target_id`는 대상 Resource instance node_id다.
+- 입력 Schema의 검증 관계 정의를 `verificationRelationship`로 분리하고
+  `source_account_id`를 필수로 지정했다. `source_id` 또는 두 필드의 동시 입력은
+  미정의 키·필수 필드 검사에서 거절한다.
+- `VerificationRelationship`·`VerificationInputUpdate`는 해석 전 계정 source를
+  보존한다. 저장용 `VerificationUpdate`·일반 `GraphEdge`는 계속 node_id를 사용한다.
+- 입력 준비 service와 repository Protocol을 새 입력 모델에 맞췄다. 계정 ID는
+  대소문자·공백을 변경하지 않고 보존하며 node_id 접두사를 계산하지 않는다.
+- account_id와 target node_id는 다른 식별 공간이므로 입력 단계에서 두 문자열을
+  비교해 자기 관계라고 판정하지 않는다. 실제 User·Resource 참조는 해석 후 검사한다.
+- 기존 검증 상태·allow·실행 근거·EvidenceRef 대응·해시 검증은 유지했다.
+- 소유 verification fixture와 denial 통합 테스트 입력 생성기를 변경했다.
+  저장 계층의 기존 회귀 테스트는 해석 완료 node_id 입력을 사용하며 실제 DB의
+  계정 조회 구현을 대신했다고 주장하지 않는다.
+
+### 중간 단계의 실행 경계
+
+2단계 User 조회가 아직 없으므로 새 관계를 가진 `VerificationInputUpdate`는
+Neo4j 제약 생성·트랜잭션 실행 전에 `GraphUpdateReferenceError`로 차단한다.
+공개 entrypoint는 `failed`·`is_applied=false`와
+`GRAPH_UPDATE_REFERENCE_INVALID`를 반환한다. 입력 수신 완료와 DB 반영 완료는
+구분한다. 관계가 없는 입력은 저장 모델로 변환해 기존 no-op·노드 처리 경로를 유지한다.
+
+### 검증과 다음 작업
+
+```text
+신규 계정 source 계약 테스트
+24 passed
+
+knowledge_graph 기본 회귀
+189 passed, 4 skipped
+
+knowledge_graph + safety_policy + reporter 기본 회귀
+690 passed, 4 skipped
+```
+
+신규/기존/동시/누락 필드, 빈 값·잘못된 타입, 원본 계정 ID 보존,
+VERIFIED_ACCESS·VERIFIED_DENIAL, verified 근거, 버전 유지, 일반 관계·snapshot
+비영향을 확인했다. unresolved 관계의 DB 미접근과 공개 실패 제어 응답,
+기존 저장 계층의 멱등성·충돌·Resource instance 제한도 회귀 검증했다.
+실제 Neo4j 통합 4건은 기존 opt-in 조건으로 skip했으며, 이번 단계에서 DB 반영
+성공을 검증하지 않았다.
+
+다음 2단계는 같은 run_id·graph_id의 기존 User에서 `properties.account_id`로
+정확히 하나의 node_id를 찾아 저장용 관계로 변환하는 작업이다. 없는 계정·중복
+대응은 거절하고 기존 revision·충돌·중복 반영 검사를 유지한다.
+Reporter 입력 사본은 3단계에서 변경한다. Verifier 출력의 필드 동시 전환은
+Verifier 담당 작업으로 남긴다. 다른 모듈·공용 명세·의존성은 수정하지 않았다.
+노션 원본은 현재 연결에서 404여서 저장소 명세와 사용자 전달 팀 합의로 작업했다.
+
+---
+
+## 2026-10-09 — 계정 source 전환 2단계: User 조회·검증 관계 저장
+
+기준 커밋 `b5eb734`의 1단계 입력 계약을 실제 저장 경로에 연결했다.
+`verification_results`의 버전은 `0.2.0`을 유지한다. 입력 검증 관계는
+`source_account_id`, DB 저장 관계와 일반 snapshot은 기존 `source_id`를 사용한다.
+
+### 변환과 트랜잭션 순서
+
+```text
+그래프 잠금·현재 revision 조회
+    ↓
+verification_id·원본 artifact/해시로 중복 반영 확인
+    ↓
+빈 갱신 no-op / 기준 revision 확인
+    ↓
+같은 run_id·graph_id의 기존 User 조회
+    ↓
+properties.account_id → User node_id 대응 검증
+    ↓
+VerificationInputUpdate → 저장용 VerificationUpdate/GraphEdge
+    ↓
+기존 User·Resource instance 참조 및 노드·관계 ID 충돌 검사
+    ↓
+노드·관계 저장 → verification 반영 기록 → revision 증가
+```
+
+위 과정은 하나의 쓰기 트랜잭션 안에서 수행한다. 같은 원본 artifact·해시의
+verification_id 재요청은 기존처럼 no-op이며, 오래된 revision이나 일부 ID만
+이미 반영된 요청은 계정 조회 전에 거절한다.
+
+User 속성은 현재 저장 형식인 `properties_json`을 읽어 복원한다.
+새 DB 속성·인덱스·제약조건은 추가하지 않는다. 모든 해당 그래프의 User가
+유효한 account_id·node_id와 중복 없는 대응을 가져야 하며, 여러 관계는 한 번
+조회한 인덱스를 공유한다. 계정의 대소문자·공백을 정규화하거나 `user:` 등의
+접두사로 node_id를 계산하지 않는다. source는 실제 접근 계정이고 자원 소유자와
+혼동하지 않는다.
+
+### 실패와 식별값 보호
+
+- source 계정 없음, 기존 User 대응 중복, 잘못된 User 속성/JSON/node_id는
+  `GraphUpdateReferenceError`이며 공개 응답은 `GRAPH_UPDATE_REFERENCE_INVALID`다.
+- verifier가 같은 입력에서 새 User를 제시해도 해당 노드를 관계 source로 쓰지
+  않는다. source는 갱신 전에 해당 그래프에 존재한 User여야 한다.
+- User 노드 갱신에 유효한 `account_id`가 없으면 거절한다. 기존 User의
+  account_id 변경이나 새 User·한 입력의 User 사이 계정 중복은
+  `GraphUpdateConflictError` / `GRAPH_UPDATE_CONFLICT`로 거절한다.
+  식별값을 유지하는 User 속성 갱신과 새 고유 계정의 노드 단독 갱신은 허용한다.
+- target은 기존 Resource instance node_id여야 하며, 신규 Resource 생성은
+  계속 금지한다. 변환된 source_id로 기존 relationship_id의 source·target·종류를
+  대조하므로 동일 ID의 연결 정보를 바꿀 수 없다.
+- 계정 조회와 사전 검증 실패는 노드·관계 저장, verification 반영 기록,
+  revision 증가 전에 발생한다. 이후 저장 단계 오류도 같은 트랜잭션의 실패로
+  처리하도록 기존 구조를 유지한다.
+
+1단계의 일괄 차단 guard와 테스트용 node_id 사전 변환은 제거했다.
+공개 repository 입력은 `VerificationInputUpdate`로 통일하고,
+`VerificationUpdate`는 트랜잭션 내부 저장 모델로만 사용한다.
+입력 관계의 target·종류·속성·basis·EvidenceRef 및 artifact/해시를 보존한다.
+
+### 검증 결과와 다음 작업
+
+```text
+verification repository + entrypoint 회귀
+80 passed
+
+knowledge_graph 기본 회귀
+243 passed, 4 skipped
+
+knowledge_graph + safety_policy + reporter 기본 회귀
+744 passed, 4 skipped
+```
+
+1단계 대비 테스트 54건을 추가했다. account_id와 node_id가 다른 임의 식별값,
+접두사·대소문자·공백 보존, account_id 문자열과 target node_id 문자열의 일치,
+VERIFIED_ACCESS·VERIFIED_DENIAL, 다중 계정, run/graph 범위 격리,
+계정 누락·중복·잘못된 저장 속성, User 갱신의 식별값 충돌,
+기존 관계 충돌·revision·중복 반영을 검증했다.
+공개 entrypoint에서 실제 repository 구현과 DB 대역을 연결해 성공 제어 응답과
+누락/중복 계정의 실패 제어 응답도 확인했다.
+
+실제 Neo4j 통합 4건은 이번 단계에서 활성화하지 않았고, 대역 검증과 실제
+DB 검증을 구분한다. 실제 DB에서 이 변환·저장·rollback·snapshot 경로를
+확인하는 작업은 4단계에 남긴다.
+
+변경 파일은 KG의 `neo4j_repository.py`, `tests/test_verification_repository.py`,
+`tests/test_verification_entrypoint.py`, `README.md`뿐이다.
+Schema·출력·의존성·다른 모듈·공용 명세는 수정하지 않았다.
+다음 3단계는 Reporter의 `verification_results` 입력 사본·fixture·해시·테스트를
+같은 0.2.0의 `source_account_id` 계약에 맞추는 작업이다.
+
+## 2026-10-09 — 계정 source 전환 4단계: 실제 Neo4j 통합 검증
+
+기준 커밋 `3143752`에서 실제 DB 검증을 보강했다. 기존 통합 테스트 4건을
+유지하고 실패·범위 격리·rollback 8건을 추가해 총 12건으로 구성했다.
+이 단계는 `tests/test_neo4j_integration.py`와 이 README만 변경했다.
+구현 코드·Schema·공개 출력·의존성·다른 모듈은 변경하지 않았다.
+
+### 확인한 동작
+
+- 임시 semantic 입력에서 원본 `account_id=account_user`와
+  `node_id=opaque-user-B`를 분리하고, 자원 소유자는 별도 User A로 구성했다.
+  `VERIFIED_ACCESS`·`VERIFIED_DENIAL`은 소유자가 아니라 실제 접근 계정 B의
+  node_id에 연결된다. 원본 계정 ID는 보존하며, `verification_results.json`의
+  적용 전후 파일 해시는 같다.
+- DB 저장 관계와 공개 `structure_snapshot`은 기존 `source_id`를 사용하며,
+  검증 입력 전용 필드인 `source_account_id`를 snapshot에 노출하지 않는다.
+- 정상 반영 예시에서 노드는 5개 그대로, 관계는 3→5개, 반영 기록은 0→1개,
+  revision은 1→2로 바뀐다. 같은 입력의 재반영은 관계·기록·revision을
+  추가하지 않는다.
+- 없는 계정·같은 범위의 중복 account_id는
+  `GRAPH_UPDATE_REFERENCE_INVALID`로 거절한다. 다른 run 또는 다른 graph의
+  동일 계정은 조회 대상에 포함하지 않고, 그 범위에만 있는 계정도 사용할 수 없다.
+  외부 범위의 그래프 내용·건수·revision·반영 기록은 그대로 유지된다.
+- 오래된 revision, 기존 관계 ID의 source 변경, 같은 verification_id의 다른
+  해시 재사용은 각각 `GRAPH_REVISION_MISMATCH`, `GRAPH_UPDATE_CONFLICT`,
+  `VERIFICATION_CONFLICT`로 거절한다.
+- 실패 전후 실제 저장 노드·관계·workflow·관찰 레코드, 건수, revision,
+  반영 기록 전체와 공개 snapshot을 비교해 변경이 없음을 확인했다.
+- rollback 테스트에서는 실제 쓰기 트랜잭션 안에서 신규 User·검증 관계·반영
+  기록 생성과 revision 증가를 확인한 뒤 commit 직전에 오류를 주입했다.
+  기존 User 속성 갱신까지 모두 취소되며, 같은 입력의 재시도는 정상 반영되고
+  이후 반복 호출은 no-op이다. 오류 주입은 테스트에만 있고 구현 코드는 바꾸지 않았다.
+
+질의 테스트 helper는 iteration과 기대 revision을 별도로 지정할 수 있도록
+보강했다. 실패 후 새 iteration으로 같은 revision의 snapshot을 조회하므로
+이미 공개된 결과 파일을 덮어쓰지 않는다. 입력 변형은 pytest 임시 디렉터리의
+소유 fixture 복사본에서만 수행하며, 저장소 fixture와 실제 `runs/`는 변경하지 않는다.
+
+### 검증 결과
+
+```text
+실제 Neo4j 통합 테스트
+12 passed
+
+knowledge_graph 기본 회귀
+243 passed, 12 skipped
+
+knowledge_graph 전체, 실제 Neo4j 통합 활성화
+255 passed
+
+knowledge_graph + safety_policy + reporter 기본 회귀
+778 passed, 12 skipped
+
+같은 담당 3개 모듈, 실제 Neo4j 통합 활성화
+790 passed
+```
+
+`neo4j:5.26.31-community` 일회성 컨테이너의 loopback 임시 포트와 테스트 전용
+인증을 사용했다. 기존 DB·볼륨이나 host 디렉터리는 연결하지 않았다.
+테스트 종료 후 DB의 잔여 노드가 0개임을 확인하고, 해당 컨테이너와 연결된
+임시 볼륨 2개를 정리했다. 컨테이너·임시 볼륨의 제거도 확인했다.
+이번 결과는 KG의 소유 fixture로 수행한 실제 DB 통합 검증이며,
+verifier의 실제 산출물 수신이나 전체 pipeline 연결 완료를 뜻하지 않는다.
+
+다음 5단계는 KG·Reporter의 최종 변경 이력을 정리하고 verifier 담당자에게
+0.2.0 동시 필드 전환, source의 실제 접근 계정 의미, 기존 Resource instance
+target, 기존 필드 거절 및 실제 산출물 수신 검증 항목을 전달하는 작업이다.
+
+## 2026-10-09 — 계정 source 전환 5단계: 최종 정리·생산자 전달
+
+기준 커밋 `b2aec96`의 구현·검증 결과를 정리했다. 이번 단계는
+`modules/knowledge_graph/README.md`와 `modules/reporter/README.md`만 변경한다.
+기존 이력은 보존하며 코드·Schema·fixture·테스트·의존성·공용 명세는 변경하지 않는다.
+아래 전달 사항은 문서로 준비한 내용이며, 팀원에게 외부 메시지를 발송한 기록은 아니다.
+
+### 완료한 소비자 작업
+
+| 단계 | 커밋 | 완료 내용 |
+|---|---|---|
+| 1 | `b5eb734` | KG 검증 관계 입력 Schema·해석 전 모델·파싱·fixture·테스트 전환 |
+| 2 | `5fe4057` | 같은 run/graph의 account_id→기존 User node_id 조회와 트랜잭션 반영 |
+| 3 | `3143752` | Reporter 검증 입력 사본·fixture·참조 해시·독립 테스트 동기화 |
+| 4 | `b2aec96` | 실제 Neo4j 계정 변환·범위 격리·revision·snapshot·rollback 검증 |
+
+### 최종 계약과 책임 경계
+
+| 위치 | source 필드 | 값의 의미 |
+|---|---|---|
+| `verification_results.data.graph_updates.relationships` | `source_account_id` | 실제 접근한 계정의 원본 account_id |
+| `semantic_analysis.data.relationships` | `source_id` | 시작 노드의 KG node_id |
+| KG·snapshot의 일반 관계 | `source_id` | 시작 노드의 KG node_id |
+| KG·snapshot의 `VERIFIED_ACCESS`·`VERIFIED_DENIAL` | `source_id` | KG가 계정을 해석한 뒤 연결한 User node_id |
+
+검증 관계의 `target_id`는 같은 run/graph에 이미 존재하는 Resource instance
+node_id다. Resource 종류 이름·실제 상품 번호·URL을 대신 넣지 않는다.
+관계는 `VERIFIED_ACCESS` 또는 `VERIFIED_DENIAL`, `basis=verified`와 실제 실행
+EvidenceRef를 사용하며 나머지 필드와 기존 근거·revision 검증은 유지한다.
+
+- verifier: 기존 pipeline에서 실제 접근 계정과 대상 Resource instance node_id,
+  검증 결과·근거를 전달한다. User node_id를 계산하거나 Neo4j에 직접 접근하지 않는다.
+- KG: `run_id`·`graph_id` 안의 기존 User `properties.account_id`를 정확히
+  대응시킨다. 계정 누락·중복·참조 충돌은 거절하고 전체 반영을 트랜잭션으로 처리한다.
+- Reporter: 자기 입력 계약·해시·ID·근거·상태를 검증하고 기존 리포트·평가를
+  생성한다. 검증 관계의 계정을 User node_id로 바꾸거나 DB에 반영하지 않는다.
+  개발 평가의 semantic/snapshot 참조 검증은 별도이며 계속 유지한다.
+
+버전 `0.2.0` 안에서 필드를 동시 전환하는 합의다. 검증 관계의 이전 `source_id`,
+두 source 필드의 동시 입력, 필드 누락은 거절하며 자동 호환·접두사 추측은 없다.
+일반 그래프 관계의 `source_id`까지 일괄 변경해서는 안 된다.
+
+### verifier 담당자 전달 내용
+
+> 검증 관계에는 User node_id 대신 실제 접근 계정의 원본 `source_account_id`를
+> 전달해 주세요. B가 A의 자원에 접근했다면 source는 B의 account_id이고,
+> target은 A 자원의 기존 Resource instance node_id입니다. KG가 같은 run/graph의
+> 기존 User를 찾아 연결합니다. `schema_version=0.2.0`은 유지하며, KG·Reporter
+> 소비자는 전환과 독립 검증을 완료했습니다. 생산자 전환 후 실제 동일 run의
+> 결과 파일로 연결 검증이 필요합니다.
+
+`b2aec96`에서 생산자 출력 Schema의 `graphUpdateEdge`는 아직 `source_id`를
+요구하지만 KG·Reporter 입력 사본은 `source_account_id`를 요구한다.
+빈 `relationships=[]`가 통과하더라도 관계 필드 전환 완료의 증거는 아니다.
+생산자 출력 Schema·직렬화·fixture·테스트 전환은 verifier 담당 작업으로 남긴다.
+공용 `docs/spec/m7-verifier.md`도 검증 관계를 일반 GraphEdge로 설명하므로,
+검증 관계 전용 필드의 원본 명세 반영은 담당자·관리자에게 전달할 후속 항목이다.
+이 단계에서 다른 모듈이나 `docs/spec/`을 직접 수정하지 않는다.
+
+이전 node_id 값을 새 필드명으로 단순히 바꿔 쓰지 않는다. 실제 실행 계정의
+원본 ID로 새 결과를 생성하고 완료 artifact를 덮어쓰지 않는다.
+새 파일의 정확한 SHA-256을 직접 소비자에게 전달하고 그 파일을 참조하는
+`input_refs`도 실제 바이트 해시로 맞춘다. 같은 verification_id의 다른 해시
+재사용은 KG에서 충돌로 처리하므로 이전 반영 기록을 덮어쓰는 전환은 하지 않는다.
+기존 pipeline의 입력 구성과 target 전달 방식은 유지하며 새 입력 파일을 요구하지 않는다.
+
+### 실제 산출물 연결 검증 체크리스트 — 후속 작업
+
+- [ ] verifier 출력 계약·직렬화·소유 fixture가 `source_account_id`로 전환됐는지 확인
+- [ ] 같은 run의 실제 입력·출력과 정확한 파일 해시, source revision·계획 해시·근거 참조 확보
+- [ ] 계정 ID와 node_id가 다른 User B가 A 자원에 접근한 사례로 KG·Reporter 수신 확인
+- [ ] KG 반영 뒤 실제 저장 관계·snapshot의 source는 B의 User node_id, target은 기존 instance인지 확인
+- [ ] 정상 반영의 revision 증가와 동일 입력 재반영 no-op, 잘못된 계정·참조 거절 확인
+- [ ] Reporter `report`의 후보·계획·Policy·검증 연결, 미검증 상태 보존과 출력 참조 해시 확인
+- [ ] development `evaluate`가 필요하면 정답과 해당 입력 계약에 맞는 snapshot을 별도로 확보해 확인
+- [ ] 원본 명세 갱신과 연결 검증 결과를 각 담당자와 공유한 뒤 pipeline 완료 여부 판단
+
+이 체크리스트는 아직 수행 완료로 표시하지 않는다. 소유 fixture 검증과 생산자의
+실제 산출물 수신은 구분하며, 실제 `runs/`나 계정 비밀정보를 문서·Git에 포함하지 않는다.
+
+### 검증 기록과 남은 범위
+
+4단계의 실제 DB 검증 기록은 통합 12건, KG 전체 255건, 담당 3개 모듈 790건 통과다.
+이번 문서 단계에서는 Neo4j를 재실행하지 않으며 실제 DB 결과는 4단계 기록을 참조한다.
+
+5단계 문서 수정 후 기본 회귀를 재실행했다.
+
+```bash
+.venv/bin/python -m pytest modules/knowledge_graph/ modules/safety_policy/ modules/reporter/ -q
+```
+
+```text
+778 passed, 12 skipped
+```
+
+skip 12건은 opt-in 실제 Neo4j 통합 테스트이며 이번 단계에서는 활성화하지 않았다.
+`git diff --check`도 통과했고 변경 파일은 두 README뿐이다.
+
+소비자 측 구현·검증·문서 정리는 5단계로 마무리하고, 이후 작업은 생산자 출력 전환,
+실제 동일 run 결과 수신, 전체 pipeline 연결 확인이다.

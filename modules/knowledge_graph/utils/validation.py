@@ -385,10 +385,8 @@ def validate_verification_results_semantics(artifact: dict[str, Any]) -> None:
             "VERIFIED_DENIAL",
         }:
             raise ContractValidationError("허용되지 않은 verification 관계 유형")
-        if relationship["source_id"] == relationship["target_id"]:
-            raise ContractValidationError(
-                "verification 관계의 source와 target은 달라야 함"
-            )
+        # account_id와 node_id는 다른 식별 공간이므로 문자열로 비교하지 않는다.
+        # 실제 User/Resource 참조는 account_id 해석 후 저장 계층에서 검증한다.
     has_updates = bool(nodes or relationships)
     if has_updates != bool(source_ids):
         raise ContractValidationError(
