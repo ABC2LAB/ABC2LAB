@@ -77,9 +77,10 @@ def test_run_id_mismatch_is_rejected(tmp_path: Path) -> None:
     expect_error(InputErrorCode.RUN_MISMATCH, path, tmp_path)
 
 
-def test_unsupported_schema_version_is_rejected(tmp_path: Path) -> None:
+@pytest.mark.parametrize("schema_version", ["9.9.9", "0.1.0"], ids=["unknown", "previous contract"])
+def test_unsupported_schema_version_is_rejected(tmp_path: Path, schema_version: str) -> None:
     document = read_fixture(CRAWL_RELATIVE_PATH)
-    document["schema_version"] = "9.9.9"
+    document["schema_version"] = schema_version
     path = write_run_file(tmp_path, CRAWL_RELATIVE_PATH, document)
     expect_error(InputErrorCode.VERSION_UNSUPPORTED, path, tmp_path)
 
