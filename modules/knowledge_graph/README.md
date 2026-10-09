@@ -16,19 +16,32 @@ Neo4j 직접 접근과 Cypher 실행은 knowledge_graph 내부에서만 수행�
 
 ---
 
-## 검증 관계 계정 source 전환 상태
+## 현재 상태 — 2026-10-10
 
-`verification_results.data.graph_updates.relationships`의 source를 KG node_id가
-아닌 원본 `source_account_id`로 받는 소비자 측 변경을 완료했다.
-KG 입력·User 조회·트랜잭션 반영, Reporter 입력 사본, 실제 Neo4j 검증까지 완료했다.
+기준 커밋은 `695b3c8`이다. Verifier 계약 갱신 PR #52와 Safety Policy·Reporter
+시나리오 자원 ID 호환 PR #53이 병합된 상태를 기록한다.
 
-확인 기준 커밋 `b2aec96`에서 verifier 출력 Schema는 아직 `source_id`를
-요구한다. 생산자 전환과 동일 run의 실제 산출물 연결 검증은 후속 작업이며,
-소비자 구현 완료를 전체 pipeline 연결 완료로 해석하지 않는다.
-버전은 `0.2.0`을 유지하므로 생산자와 모든 직접 소비자의 필드 전환을 함께 적용해야 한다.
+| 구분 | 현재 상태 |
+|---|---|
+| 독립 구현 | `ingest`·`query`·`apply_verification`, 공개 함수·CLI 구현 완료 |
+| 자원 모델 | Resource Type/Instance, 복합 `match_key`, 불투명 node_id 처리 완료 |
+| 접근 조회 | 원본 계정·역할 ID 및 `AccessRow.request_ids` provenance 제공 완료 |
+| 검증 관계 | `source_account_id`를 같은 run/graph의 기존 User node_id로 변환·저장하는 구현 완료 |
+| 공개 계약 | 입력 3종과 `graph_query_result` 출력은 `0.2.0`; Verifier 출력의 계정 source 전환 완료 |
+| 독립 회귀 | 기본 KG 테스트 `243 passed, 12 skipped` |
+| 실제 전체 연결 | 미완료. 같은 run의 실제 검증 관계 수신·반영과 전체 pipeline 검증 필요 |
 
-최종 계약·단계별 커밋·담당자 전달 체크리스트는 아래 계정 source 전환 5단계에
-정리했다. 이전 단계의 테스트 건수와 다음 작업은 각 기록 당시 기준이다.
+Verifier의 입력 3종은 `0.2.0`이며 검증 관계 출력 Schema는 `source_account_id`를
+요구한다. 이전의 입력 버전·source 필드 불일치는 해소됐다. 다만 Verifier 실행
+코드는 아직 `graph_updates`를 빈 배열로 생성한다. Schema 전환과 실제 관계 생성은
+별개이며, KG가 이를 대신 생성하지 않는다.
+
+KG·Safety Policy·Reporter·Verifier 합동 회귀는 `897 passed, 12 skipped`다.
+skip 12건은 이번에 활성화하지 않은 실제 Neo4j 통합 테스트다. 기존 실제 DB 검증은
+아래 계정 source 전환 4단계 기록을 따르며 이번에 재실행한 결과로 표시하지 않는다.
+
+현재 계약의 명세는 [m3-knowledge_graph](../../docs/spec/m3-knowledge_graph.md)를
+참고한다. 아래 변경 이력의 상태·테스트 수치·다음 작업은 각 기록 당시 기준이다.
 
 ---
 
@@ -303,6 +316,8 @@ modules/knowledge_graph/tests/test_neo4j_integration.py -q
 ---
 
 # 변경 이력
+
+기존 기록은 보존한다. 최신 구현·연결 상태는 문서 상단의 현재 상태 절을 따른다.
 
 ## 2026-10-07 — semantic_analyzer 호환성 확인
 
@@ -1023,3 +1038,26 @@ skip 12건은 opt-in 실제 Neo4j 통합 테스트이며 이번 단계에서는 
 
 소비자 측 구현·검증·문서 정리는 5단계로 마무리하고, 이후 작업은 생산자 출력 전환,
 실제 동일 run 결과 수신, 전체 pipeline 연결 확인이다.
+
+## 2026-10-10 — PR #52·#53 병합 후 현재 상태·명세 동기화
+
+기준 커밋 `695b3c8`에서 현재 상태 요약과 `docs/spec/m3-knowledge_graph.md`를
+기존 구현·공개 계약에 맞췄다. 이전 단계 이력은 수정하지 않았다.
+
+- Verifier 입력 `0.2.0` 및 검증 관계 `source_account_id` 전환 완료를 반영했다.
+  Verifier의 실제 `graph_updates` 생성은 아직 미구현이므로 전체 연결 완료로 표시하지 않는다.
+- m3에 Resource Type/Instance, OwnershipRow·AccessRow 자원 필드,
+  `request_ids` provenance, 계정→기존 User 변환·instance target 경계를 기록했다.
+- 모듈 독립 구현·계약 호환 확인·실제 동일 run 연결 검증 상태를 구분했다.
+  이번 변경은 문서 갱신이며 코드·Schema·fixture·테스트·의존성을 변경하지 않는다.
+
+검증 명령과 결과:
+
+```bash
+.venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter modules/verifier -q -rs
+# 897 passed, 12 skipped
+```
+
+skip 12건은 opt-in 실제 Neo4j 테스트이며 이번에는 실행하지 않았다. Verifier 공개
+fixture는 KG 입력 Schema를 통과하지만 검증 관계가 0개이므로, 실제 관계 생성 후
+같은 run의 계정 변환·instance 연결·revision·snapshot·중복 반영을 별도로 확인해야 한다.

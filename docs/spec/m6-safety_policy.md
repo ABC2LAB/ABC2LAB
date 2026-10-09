@@ -12,6 +12,24 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
+## 현재 구현·연결 상태 — 2026-10-10
+
+기준 커밋 `695b3c8`의 구현·공개 계약을 반영했다. PR #52·#53 병합 후 상태이며,
+이번 저장소 문서 갱신이 노션 원본의 export 갱신을 의미하지는 않는다.
+
+| 구분 | 현재 상태 |
+| --- | --- |
+| 독립 구현 | 공개 `evaluate`·CLI, 6개 assessment, 승인 기록 재평가·원자 저장 구현 완료 |
+| 공개 계약 | `test_scenarios` 입력·`safety_decisions` 출력 `0.2.0`, 필수 Scenario.resource_ids 수용 완료 |
+| 내부 설정 계약 | policy_config·approval_record는 각각 `0.1.0`; policy_version은 별도 안전 규칙 버전 |
+| 소비자 호환 | Verifier·Reporter의 safety_decisions 입력 사본 `0.2.0` 동기화 및 공개 fixture Schema 수용 확인 |
+| 독립 회귀 | Safety Policy `165 passed`; KG·Safety Policy·Reporter·Verifier 합동 `897 passed, 12 skipped` |
+| 실제 전체 연결 | 미완료. 동일 run의 계획·판정·검증·리포트 연결 및 사용자 승인 창구 통합 필요 |
+
+skip 12건은 이번에 활성화하지 않은 KG 실제 Neo4j 테스트다. 상세 구현 이력은
+[모듈 README](../../modules/safety_policy/README.md)를 따른다. 계약 호환 확인과
+독립 승인 fixture 검증을 실제 사용자 승인 수집·진위 확인 완료로 표시하지 않는다.
+
 ## 독립 동작·수정 책임
 
 **이 모듈 담당자의 전체 책임:** 명세에 맞는 입력을 받으면 입력 검증·변환·실제 처리·출력 변환·출력 검증·저장·오류 처리·설정·모듈별 의존성 선언·테스트·동작 확인을 자기 폴더 안에서 끝낸다. 실행·테스트는 팀 공통 Python과 루트 잠금 환경에서 수행한다. 외부 모듈의 내부 코드·공유 도구에 의존하지 않는다.
@@ -59,11 +77,26 @@
 
 | 입력 파일·정보 | 작성·제공 주체 | 사용할 내용 |
 | --- | --- | --- |
-| test_scenarios.json | `scenario_generator` | data.scenarios의 계정·세션·요청·순서·바인딩·사전조건·state_change. 정확한 파일 바이트를 해시 계산에 사용한다. |
+| test_scenarios.json | `scenario_generator` | data.scenarios의 계정·세션·요청·순서·바인딩·사전조건·state_change·필수 resource_ids. 정확한 파일 바이트 전체를 해시 계산에 사용한다. |
 | 신뢰된 사용자 실행 인자 / 자기 Policy 설정 | `사용자 실행 인자 / modules 내 자기 configs` | 허용 origin·경로·테스트 계정, 요청·시간·상태 변경 제한, Policy ID·버전. |
 | 실제 사용자 승인 기록 | `승인 UI/CLI / 승인 후 재평가` | 승인이 이루어진 경우에만 해당 기록을 확인한다. 승인 대기에서는 승인 완료로 취급하지 않는다. |
 
 **입력 파일의 전체 필드:** [test_scenarios.json 필드](m5-scenario_generator.md).
+
+### 현재 입력·승인 경계
+
+- `Scenario.resource_ids`는 비어 있지 않은 문자열 배열이며 최소 1개다. SG가 원본
+  Candidate.resource_ids의 값·순서를 그대로 복사한다. 누락·null·빈 배열·잘못된
+  항목 타입은 거절하지만 ID 형식·순서·중복에 별도 제약을 추가하지 않는다.
+- Safety Policy는 자원 ID를 생성·해석·정렬·중복 제거하지 않는다. 후보와의 값 일치는
+  생산자가 보장하므로 후보 파일·KG 조회를 추가 입력으로 요구하지 않는다.
+- 전체 계획 파일의 SHA-256에 resource_ids도 포함된다. 값·순서·개수가 바뀌면
+  기존 계획 해시·승인을 재사용하지 않고 새 계획·판정·필요한 승인을 받는다.
+- 승인 입력은 계획 해시·Policy ID/버전·승인 대상·승인/만료 시각 등에 바인딩한다.
+  block·unknown은 승인 기록만으로 allow로 바꾸지 않는다. 기록 생성·사용자 진위
+  확인을 연결하는 runner·UI 통합은 후속 작업이다.
+- 공개 실행 산출물 `0.1.0`과 미지원 버전은 거절한다. 구버전 계획을 묵시적으로
+  변환하지 않으며 완료된 산출물·실제 승인 기록을 수정하지 않는다.
 
 ## 구현할 일
 
@@ -83,9 +116,13 @@
 
 ## 완료 기준
 
-- [ ]  LLM과 독립된 규칙으로 allow·block·require_approval을 결정한다.
-- [ ]  판정에 정확한 계획 파일 SHA-256, Policy 버전, 평가 근거와 실행 제한을 묶는다.
-- [ ]  승인 대기는 실행하지 않으며 실제 승인 기록 확인 후 재평가로 새 allow 결정을 발급한다.
+아래 표시는 모듈 독립 구현과 소유 승인 fixture·신뢰된 승인 입력 검증 기준이다.
+실제 사용자 승인 창구 또는 전체 pipeline 통합 완료를 뜻하지 않는다.
+
+- [x]  LLM과 독립된 규칙으로 allow·block·require_approval을 결정한다.
+- [x]  판정에 정확한 계획 파일 SHA-256, Policy 버전, 평가 근거와 실행 제한을 묶는다.
+- [x]  승인 대기는 실행하지 않으며 실제 승인 기록 확인 후 재평가로 새 allow 결정을 발급한다.
+- [ ]  같은 run의 계획·판정·검증·리포트 및 실제 사용자 승인 창구를 연결해 검증한다.
 
 ## 구현 주의사항
 
@@ -99,7 +136,7 @@
 
 ### safety_decisions.json
 
-- 고정 값: `artifact_type=safety_decisions`, `producer=safety_policy`.
+- 고정 값: `artifact_type=safety_decisions`, `producer=safety_policy`, `schema_version=0.2.0`.
 - 예상 Schema 경로: `modules/safety_policy/schemas/output/safety_decisions.schema.json`.
 - 예상 출력 fixture 경로: `modules/safety_policy/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/safety_policy/safety_decisions.json`.
 
@@ -157,6 +194,17 @@
 | `allow_state_change` | `boolean` | 필수 | 상태 변경 요청 허용 여부. |
 
 **재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [RuntimeMetrics](02-common-contract.md).
+
+## 변경 이력
+
+| 날짜 | 문서 변경 | 기준·영향 |
+| --- | --- | --- |
+| 2026-10-10 | 현재 구현·소비자 연결 상태, 입출력 0.2.0, Scenario.resource_ids 및 계획 해시·승인 바인딩을 반영 | `695b3c8`, PR #52·#53 반영. 기존 6개 규칙·출력 필드·설정/승인 계약 유지 |
+
+기존 책임 경계와 독립 안전 판정 원칙은 유지하고 상세 과거 이력은 모듈 README에
+보존한다. 합동 회귀는 `897 passed, 12 skipped`이며 실제 전체 연결·사용자 승인
+창구·Neo4j 테스트는 이번 검증 범위가 아니다. 이번 변경은 기존 계약의 문서 반영이며
+노션 원본 반영·export 기준일 갱신은 별도 관리 작업으로 남긴다.
 
 ---
 

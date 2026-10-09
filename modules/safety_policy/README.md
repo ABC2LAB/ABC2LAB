@@ -3,6 +3,22 @@
 `test_scenarios.json`을 LLM과 독립된 규칙으로 평가해
 `safety_decisions.json`을 생성하는 모듈이다.
 
+## 현재 상태 — 2026-10-10
+
+기준 커밋은 `695b3c8`이다. PR #52·#53 병합 후 상태를 기록한다.
+
+| 구분 | 현재 상태 |
+|---|---|
+| 독립 구현 | 공개 `evaluate`·CLI, 6개 assessment, 승인 기록 재평가·원자 저장 구현 완료 |
+| 공개 계약 | `test_scenarios` 입력·`safety_decisions` 출력 `0.2.0`, 필수 `Scenario.resource_ids` 수용 완료 |
+| 소비자 호환 | Verifier·Reporter의 `safety_decisions` 입력 사본 `0.2.0` 동기화 완료 |
+| 독립 회귀 | `165 passed` |
+| 실제 전체 연결 | 미완료. 같은 run의 계획→판정→검증→리포트 연결 검증 필요 |
+
+승인 기록의 입력 검증·계획 바인딩·재평가는 구현됐지만, 실제 사용자 승인 수집·
+진위 확인을 연결하는 runner·UI 통합은 후속 작업이다. 현재 명세는
+[m6-safety_policy](../../docs/spec/m6-safety_policy.md)를 참고한다.
+
 ## 공개 operation
 
 - `evaluate`: 시나리오별 실행 허용·차단·승인 요청 판정
@@ -58,16 +74,17 @@ Neo4j를 조회하지 않는다.
 
 ### 현재 연결 상태
 
-2026-10-10, 검증 기준 커밋 `645efaf`의 공개 Schema·fixture 기준이다.
+2026-10-10, 기준 커밋 `695b3c8`의 공개 Schema·fixture 기준이다.
 
 | 경계 | 생산자 / 소비자 버전 | 확인 결과 |
 |---|---|---|
 | scenario_generator → safety_policy | `0.2.0` / `0.2.0` | `resource_ids`를 포함한 공개 시나리오 2개를 입력 loader가 수용 |
 | safety_policy → reporter | `0.2.0` / `0.2.0` | 공개 판정 2개의 Reporter 입력 Schema 검증 통과 |
-| safety_policy → verifier | `0.2.0` / `0.1.0` | Verifier 입력 사본 전환 필요 |
+| safety_policy → verifier | `0.2.0` / `0.2.0` | 입력 Schema 사본 일치 및 공개 판정 2개의 Schema 수용 확인 |
 
 공개 fixture 수신과 독립 회귀 검증이며 동일 run의 전체 pipeline 실행 완료를
-의미하지 않는다. Verifier의 시나리오 입력과 검증 관계 출력 전환도 후속 작업이다.
+의미하지 않는다. Verifier의 시나리오 입력·검증 관계 출력 계약 전환은 완료됐고,
+실제 `graph_updates` 생성과 동일 run의 전체 연결 검증은 남아 있다.
 
 ## 판정 계약
 
@@ -351,3 +368,23 @@ SG 공개 시나리오 2개의 Schema·의미 검증, 입력 불변, 정상/part
 소비자 호환 수정·회귀·README 정리는 마무리한다. Verifier 담당자의 입력
 `test_scenarios`·`safety_decisions` 0.2 전환과 검증 관계 `source_account_id`
 전환 이후, 같은 run의 실제 산출물로 전체 연결을 검증해야 한다.
+
+### 2026-10-10 — PR #52·#53 병합 후 현재 상태·명세 동기화
+
+기준 커밋 `695b3c8`에서 현재 연결 표를 갱신하고
+`docs/spec/m6-safety_policy.md`에 기존 구현·공개 계약과 완료 범위를 반영했다.
+이전 단계의 버전 불일치 기록은 당시 이력으로 보존했다.
+
+- Verifier의 `test_scenarios`·`safety_decisions` 입력 0.2 전환 완료를 반영했다.
+- 필수 자원 ID의 불투명 값 보존, 전체 계획 SHA-256·승인 바인딩, 구버전 거절을
+  명세에 기록했다. 기존 6개 규칙·출력 계약은 유지한다.
+- 독립 구현·공개 fixture 호환과 실제 동일 run 연결 완료를 구분했다.
+  사용자 승인 창구의 통합·진위 확인은 별도 후속 작업이다.
+
+```bash
+.venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter modules/verifier -q -rs
+# 897 passed, 12 skipped
+```
+
+skip 12건은 이번에 활성화하지 않은 KG 실제 Neo4j 테스트다. 이번 변경은 문서만
+갱신하며 코드·Schema·fixture·테스트·의존성·실제 승인 기록을 변경하지 않는다.
