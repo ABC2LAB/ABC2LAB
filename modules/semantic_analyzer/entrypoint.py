@@ -13,10 +13,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 
 from modules.semantic_analyzer.llm.adapter import LlmClient, LlmError
-from modules.semantic_analyzer.llm.factory import build_llm_client
+from modules.semantic_analyzer.llm.factory import ENV_CONFIG_PATH, build_llm_client
 from modules.semantic_analyzer.service import analyze_data
 from modules.semantic_analyzer.utils import envelope as env
 from modules.semantic_analyzer.utils.io import read_json, write_json_atomic
@@ -41,7 +42,9 @@ def run(operation: str, input_paths: dict | list | str, output_dir: str | Path,
     if operation != OPERATION_ANALYZE:
         raise ValueError(f"지원하지 않는 operation: {operation!r} (지원: {OPERATION_ANALYZE})")
     context = context or {}
-    client = client or build_llm_client()  # 설정(configs/default.toml)의 provider. 기본 fake
+    # LLM 설정 위치는 환경변수 SEMANTIC_ANALYZER_CONFIG_PATH > 기본 default.toml로 정한다.
+    # collector처럼 run()의 context에는 명세 실행 값만 두고, 설정 파일 위치는 환경변수로 받는다.
+    client = client or build_llm_client()
     output_path = Path(output_dir) / OUTPUT_FILENAME
 
     crawl_path = _select_input_path(input_paths)
@@ -206,12 +209,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--run-id")
     parser.add_argument("--iteration", type=int)
     parser.add_argument("--mode", choices=["diagnosis", "development"])
+    parser.add_argument(
+        "--config", type=Path,
+        help=f"LLM 설정 TOML (없으면 {ENV_CONFIG_PATH}, 그것도 없으면 기본 configs/default.toml)")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = _parse_args(argv)
+    # run()의 context는 명세 실행 값만 받는다. 설정 파일 위치는 collector와 같이 이 프로세스 환경변수로 넘긴다.
+    if args.config is not None:
+        os.environ[ENV_CONFIG_PATH] = str(args.config)
     context = {k: v for k, v in (
         ("run_id", args.run_id), ("iteration", args.iteration), ("mode", args.mode),
     ) if v is not None}

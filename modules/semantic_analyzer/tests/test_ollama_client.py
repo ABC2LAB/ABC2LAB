@@ -98,3 +98,36 @@ def test_factory_builds_ollama():
 def test_factory_rejects_unknown_provider():
     with pytest.raises(LlmError):
         build_llm_client({"provider": "openai"})
+
+
+def _write_toml(path, provider: str, model_id: str = "m") -> None:
+    path.write_text(f'[llm]\nprovider = "{provider}"\nmodel_id = "{model_id}"\n', encoding="utf-8")
+
+
+def test_config_path_env_var_selects_config(tmp_path, monkeypatch):
+    # SEMANTIC_ANALYZER_CONFIG_PATH로 가리킨 설정을 쓴다(커밋된 default.toml을 안 고쳐도 됨).
+    cfg = tmp_path / "ollama.toml"
+    _write_toml(cfg, "ollama")
+    monkeypatch.setenv("SEMANTIC_ANALYZER_CONFIG_PATH", str(cfg))
+    assert isinstance(build_llm_client(), OllamaClient)
+
+
+def test_explicit_config_path_overrides_env(tmp_path, monkeypatch):
+    env_cfg = tmp_path / "env.toml"
+    _write_toml(env_cfg, "ollama")
+    monkeypatch.setenv("SEMANTIC_ANALYZER_CONFIG_PATH", str(env_cfg))
+    arg_cfg = tmp_path / "arg.toml"
+    _write_toml(arg_cfg, "fake")
+    assert isinstance(build_llm_client(config_path=str(arg_cfg)), FakeClient)
+
+
+def test_missing_explicit_config_path_raises(tmp_path, monkeypatch):
+    monkeypatch.delenv("SEMANTIC_ANALYZER_CONFIG_PATH", raising=False)
+    with pytest.raises(LlmError):
+        build_llm_client(config_path=str(tmp_path / "nope.toml"))
+
+
+def test_no_env_no_arg_uses_default_fake(monkeypatch):
+    # 환경변수·인자 없으면 기본 default.toml(fake)로 동작한다.
+    monkeypatch.delenv("SEMANTIC_ANALYZER_CONFIG_PATH", raising=False)
+    assert isinstance(build_llm_client(), FakeClient)

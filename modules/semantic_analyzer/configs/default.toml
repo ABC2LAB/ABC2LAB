@@ -1,5 +1,9 @@
 # semantic_analyzer 실행 설정. 실제 비밀값은 .env로 받고 커밋하지 않는다.
 # LLM은 의미 추론에만 쓴다. 정규화·구조 그래프는 service의 규칙이 만든다.
+#
+# 이 커밋된 파일을 고치지 않고 다른 설정으로 돌리려면 경로를 넘겨라(우선순위):
+#   CLI --config <경로>  >  환경변수 SEMANTIC_ANALYZER_CONFIG_PATH  >  이 기본 파일
+# 예) SEMANTIC_ANALYZER_CONFIG_PATH=/path/ollama.toml 로 ollama 설정을 가리키면 실모델로 돈다.
 
 [llm]
 # provider = "fake"  : 네트워크 0 결정적 추론(기본, 테스트용)
