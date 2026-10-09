@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from shutil import copyfile
 from typing import Any
 
 import pytest
@@ -62,6 +63,39 @@ def test_run_query_writes_valid_artifact(
     assert artifact["artifact_type"] == "graph_query_result"
     assert artifact["schema_version"] == "0.2.0"
     assert artifact["input_refs"][0]["artifact_id"] == "graph_query_demo_001"
+
+
+def test_run_query_accepts_current_access_analyzer_fixture(
+    query_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_fixture_path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "access_analyzer_current"
+        / "graph_query.json"
+    )
+    source_sha256 = calculate_sha256(source_fixture_path)
+    input_path = query_run_root / INPUT_PATH
+    copyfile(source_fixture_path, input_path)
+    _configure_environment(monkeypatch)
+    monkeypatch.setattr(
+        entrypoint,
+        "Neo4jGraphRepository",
+        lambda settings: FakeQueryRepository(),
+    )
+
+    response = entrypoint.run(
+        "query",
+        _input_paths(query_run_root),
+        OUTPUT_DIR,
+        _context(query_run_root),
+    )
+
+    output_path = query_run_root / OUTPUT_DIR / "graph_query_result.json"
+    assert response["status"] == "completed"
+    _assert_query_output_matches_input(input_path, output_path, response)
+    assert calculate_sha256(source_fixture_path) == source_sha256
 
 
 def test_run_query_publishes_failed_artifact_for_missing_configuration(
@@ -133,6 +167,35 @@ def test_run_query_never_overwrites_output(
     assert response["status"] == "failed"
     assert response["errors"][0]["code"] == "OUTPUT_EXISTS"
     assert output_path.read_text(encoding="utf-8") == "existing"
+
+
+def _assert_query_output_matches_input(
+    input_path: Path,
+    output_path: Path,
+    response: dict[str, Any],
+) -> None:
+    source = json.loads(input_path.read_text(encoding="utf-8"))
+    artifact = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["data"]["graph_id"] == source["data"]["graph_id"]
+    assert artifact["input_refs"] == [
+        {
+            "artifact_id": source["artifact_id"],
+            "artifact_type": source["artifact_type"],
+            "iteration": source["iteration"],
+            "path": INPUT_PATH,
+            "sha256": calculate_sha256(input_path),
+        }
+    ]
+    assert {
+        (item["query_id"], item["query_key"])
+        for item in artifact["data"]["results"]
+    } == {
+        (item["query_id"], item["query_key"])
+        for item in source["data"]["queries"]
+    }
+    assert response["sha256"] == calculate_sha256(output_path)
 
 
 def _input_paths(run_root: Path) -> dict[str, dict[str, str]]:

@@ -1,4 +1,5 @@
 import copy
+import json
 from pathlib import Path
 from typing import Any, Callable
 
@@ -35,6 +36,9 @@ def test_all_schemas_are_valid() -> None:
 
     assert POLICY_CONFIG_SCHEMA in schema_paths
     assert APPROVAL_RECORD_SCHEMA in schema_paths
+    for schema_path in (POLICY_CONFIG_SCHEMA, APPROVAL_RECORD_SCHEMA):
+        schema = load_json(schema_path)
+        assert schema["properties"]["schema_version"]["const"] == "0.1.0"
 
 
 def test_completed_contract_fixtures_are_valid(
@@ -52,6 +56,8 @@ def test_completed_contract_fixtures_are_valid(
 
     assert scenarios is not None
     assert decisions is not None
+    assert scenarios_artifact["schema_version"] == "0.2.0"
+    assert decisions_artifact["schema_version"] == "0.2.0"
     assert len(scenarios.scenarios) == 2
     assert len(decisions.decisions) == 2
 
@@ -73,8 +79,56 @@ def test_partial_and_failed_contract_fixtures_are_valid(
 ) -> None:
     artifact, model = loader(fixture_root / "status" / filename)
 
+    assert artifact["schema_version"] == "0.2.0"
     assert artifact["status"] == expected_status
     assert (model is None) is (expected_status == "failed")
+
+
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+@pytest.mark.parametrize("filename", ["test_scenarios.json", "safety_decisions.json"])
+def test_contract_loaders_reject_unsupported_versions(
+    fixture_root: Path,
+    tmp_path: Path,
+    schema_version: str,
+    filename: str,
+) -> None:
+    producer = (
+        "scenario_generator"
+        if filename == "test_scenarios.json"
+        else "safety_policy"
+    )
+    source_path = (
+        fixture_root
+        / "runs/run_demo_001/artifacts/iteration-000"
+        / producer
+        / filename
+    )
+    artifact = load_json(source_path)
+    artifact["schema_version"] = schema_version
+    input_path = tmp_path / filename
+    input_path.write_text(json.dumps(artifact), encoding="utf-8")
+    loader = (
+        load_test_scenarios
+        if filename == "test_scenarios.json"
+        else load_safety_decisions
+    )
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        loader(input_path)
+
+
+def test_partial_fixture_preserves_scenario_hash(fixture_root: Path) -> None:
+    scenarios_path = fixture_root / "status/test_scenarios.partial.json"
+    scenarios_artifact, _ = load_test_scenarios(scenarios_path)
+    decisions_artifact, _ = load_safety_decisions(
+        fixture_root / "status/safety_decisions.partial.json"
+    )
+
+    validate_safety_decisions_against_scenarios(
+        decisions_artifact,
+        scenarios_artifact,
+        scenarios_path,
+    )
 
 
 def test_schema_rejects_undefined_key(completed_input_path: Path) -> None:

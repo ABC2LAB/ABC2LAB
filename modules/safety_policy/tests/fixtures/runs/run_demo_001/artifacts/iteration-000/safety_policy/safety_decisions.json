@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "safety_decisions",
   "artifact_id": "safety_decisions_demo_001",
   "run_id": "run_demo_001",
@@ -14,7 +14,7 @@
       "artifact_type": "test_scenarios",
       "iteration": 0,
       "path": "artifacts/iteration-000/scenario_generator/test_scenarios.json",
-      "sha256": "14a537dc945dd497bb8bb264ad3712bb551770c286ab3532e10ad56177f02f58"
+      "sha256": "752e8937920b8ecfe84b6c652634cb1a3295b58737aaa426639802026e57c3c8"
     }
   ],
   "errors": [],
@@ -28,7 +28,7 @@
   "data": {
     "policy_id": "abc2lab-default",
     "policy_version": "0.1.0",
-    "scenarios_sha256": "14a537dc945dd497bb8bb264ad3712bb551770c286ab3532e10ad56177f02f58",
+    "scenarios_sha256": "752e8937920b8ecfe84b6c652634cb1a3295b58737aaa426639802026e57c3c8",
     "decisions": [
       {
         "decision_id": "decision_read_order_001",

@@ -129,7 +129,7 @@ def _artifact(
     source = prepared.source
     request = prepared.request
     return {
-        "schema_version": "0.1.0",
+        "schema_version": "0.2.0",
         "artifact_type": "safety_decisions",
         "artifact_id": f"safety_decisions_{request.run_id}_{request.iteration:03d}",
         "run_id": request.run_id,

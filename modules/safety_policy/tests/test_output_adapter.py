@@ -18,6 +18,24 @@ from modules.safety_policy.service import prepare_evaluation
 from modules.safety_policy.utils.hashing import calculate_sha256
 
 
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+def test_publication_rejects_unsupported_output_version(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    schema_version: str,
+) -> None:
+    request = parse_evaluate_request(*evaluate_arguments)
+    prepared = prepare_evaluation(request)
+    configuration = load_policy_configuration(request)
+    data = evaluate_policy(prepared, configuration)
+    artifact = build_evaluation_artifact(prepared, data, perf_counter())
+    artifact["schema_version"] = schema_version
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        publish_evaluation_artifact(prepared, artifact)
+
+    assert not request.output_path.exists()
+
+
 @pytest.mark.parametrize("changed_source", ["scenarios", "policy"])
 def test_publication_rejects_source_changed_after_evaluation(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],

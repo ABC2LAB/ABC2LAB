@@ -130,7 +130,7 @@ def _artifact(
     request = inputs.request
     data = result.data.to_mapping() if result.data is not None else None
     return {
-        "schema_version": "0.1.0",
+        "schema_version": "0.2.0",
         "artifact_type": "evaluation_results",
         "artifact_id": _artifact_id(request.run_id, request.iteration),
         "run_id": request.run_id,

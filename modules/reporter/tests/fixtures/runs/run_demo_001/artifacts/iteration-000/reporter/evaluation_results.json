@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "evaluation_results",
   "artifact_id": "evaluation_demo_001",
   "run_id": "run_demo_001",
@@ -14,28 +14,28 @@
       "artifact_type": "vulnerability_candidates",
       "iteration": 0,
       "path": "artifacts/iteration-000/access_analyzer/vulnerability_candidates.json",
-      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      "sha256": "98fad01d2f671a922237e067e9421be312253fde1970192273ea030333e97703"
     },
     {
       "artifact_id": "scenarios_demo_001",
       "artifact_type": "test_scenarios",
       "iteration": 0,
       "path": "artifacts/iteration-000/scenario_generator/test_scenarios.json",
-      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      "sha256": "4ac68d87c0fde0cebf0b8df2aaf757dd51fb4a7d7ef583fcf00fd0ed25a5eb04"
     },
     {
       "artifact_id": "decisions_demo_001",
       "artifact_type": "safety_decisions",
       "iteration": 0,
       "path": "artifacts/iteration-000/safety_policy/safety_decisions.json",
-      "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      "sha256": "a71b22c22ff1ad4510c0785b8f0fdf46fded771d306aad7c63c9ab99d7aadad8"
     },
     {
       "artifact_id": "verification_demo_001",
       "artifact_type": "verification_results",
       "iteration": 0,
       "path": "artifacts/iteration-000/verifier/verification_results.json",
-      "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      "sha256": "2a018f995bdd121d41f54e44c10d4145c51bb7d2984a883b8b72bbb5db9349df"
     }
   ],
   "errors": [],
@@ -51,7 +51,7 @@
       "dataset_id": "shop_demo",
       "dataset_version": "1",
       "path": "datasets/shop_demo/ground_truth.json",
-      "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+      "sha256": "daf1cf622f6542954a1f8381892dbbe1d3e921a7f29b5aa3b03f9c88a6db65b9"
     },
     "source_graph_revision": 1,
     "matching_profile": "default-v1",

@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from modules.reporter import entrypoint
+from modules.reporter.contracts import INPUT_SCHEMA_BY_NAME
 from modules.reporter.utils.hashing import calculate_sha256
 from modules.reporter.utils.validation import load_json
 
@@ -27,6 +28,7 @@ def test_run_report_publishes_json_and_local_html(
     assert output_path.exists()
     assert report_path.is_file()
     assert "ABC2LAB" in report_path.read_text(encoding="utf-8")
+    _assert_output_integrity(input_paths, context, response)
 
 
 def test_run_evaluate_publishes_evaluation_only(
@@ -43,6 +45,37 @@ def test_run_evaluate_publishes_evaluation_only(
     assert response["status"] == "completed"
     assert artifact["artifact_type"] == "evaluation_results"
     assert "report_path" not in response
+    assert not (context["run_root"] / "reports").exists()
+    _assert_output_integrity(input_paths, context, response)
+
+
+@pytest.mark.parametrize(
+    "artifact_type",
+    tuple(name for name in INPUT_SCHEMA_BY_NAME if name != "ground_truth"),
+)
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+def test_run_evaluate_rejects_unsupported_runtime_contract_versions(
+    evaluate_arguments: Arguments,
+    artifact_type: str,
+    schema_version: str,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    _remove_contract_output(context["run_root"], "evaluation_results.json")
+    descriptor = input_paths[artifact_type]
+    input_path = context["run_root"] / descriptor["path"]
+    artifact = load_json(input_path)
+    artifact["schema_version"] = schema_version
+    input_path.write_text(json.dumps(artifact), encoding="utf-8")
+    descriptor["sha256"] = calculate_sha256(input_path)
+
+    response = entrypoint.run("evaluate", input_paths, output_dir, context)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "CONTRACT_INVALID"
+    assert response["output_path"] is None
+    assert not _contract_output(
+        context["run_root"], "evaluation_results.json"
+    ).exists()
     assert not (context["run_root"] / "reports").exists()
 
 
@@ -159,7 +192,7 @@ def test_cli_runs_report_with_contract_paths(
     report_arguments: Arguments,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _, _, context = report_arguments
+    input_paths, _, context = report_arguments
     _remove_contract_output(context["run_root"], "diagnosis_report.json")
 
     exit_code = entrypoint.main(
@@ -182,13 +215,14 @@ def test_cli_runs_report_with_contract_paths(
     assert exit_code == 0
     assert response["status"] == "completed"
     assert (context["run_root"] / response["report_path"]).exists()
+    _assert_output_integrity(input_paths, context, response)
 
 
 def test_cli_runs_evaluate_with_dataset(
     evaluate_arguments: Arguments,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _, _, context = evaluate_arguments
+    input_paths, _, context = evaluate_arguments
     _remove_contract_output(context["run_root"], "evaluation_results.json")
 
     exit_code = entrypoint.main(
@@ -215,6 +249,7 @@ def test_cli_runs_evaluate_with_dataset(
     assert exit_code == 0
     assert response["status"] == "completed"
     assert response["output_path"].endswith("evaluation_results.json")
+    _assert_output_integrity(input_paths, context, response)
 
 
 def test_cli_returns_failure_when_input_is_missing(
@@ -244,6 +279,38 @@ def test_cli_returns_failure_when_input_is_missing(
     assert exit_code == 1
     assert response["status"] == "failed"
     assert response["errors"][0]["code"] == "PATH_INVALID"
+
+
+def _assert_output_integrity(
+    input_paths: dict[str, Any],
+    context: dict[str, Any],
+    response: dict[str, Any],
+) -> None:
+    output_path = context["run_root"] / response["output_path"]
+    artifact = load_json(output_path)
+    assert artifact["schema_version"] == "0.2.0"
+    assert response["sha256"] == calculate_sha256(output_path)
+    references_by_type = {
+        item["artifact_type"]: item for item in artifact["input_refs"]
+    }
+    assert len(references_by_type) == len(artifact["input_refs"])
+    assert set(references_by_type) == set(input_paths) - {"ground_truth"}
+    for artifact_type, reference in references_by_type.items():
+        descriptor = input_paths[artifact_type]
+        source_path = context["run_root"] / descriptor["path"]
+        source = load_json(source_path)
+        assert reference == {
+            "artifact_id": source["artifact_id"],
+            "artifact_type": source["artifact_type"],
+            "iteration": source["iteration"],
+            "path": descriptor["path"],
+            "sha256": calculate_sha256(source_path),
+        }
+    if "ground_truth" in input_paths:
+        reference = artifact["data"]["ground_truth_ref"]
+        ground_truth_path = context["project_root"] / reference["path"]
+        assert reference["sha256"] == calculate_sha256(ground_truth_path)
+        assert load_json(ground_truth_path)["schema_version"] == "0.1.0"
 
 
 def _contract_output(run_root: Path, filename: str) -> Path:

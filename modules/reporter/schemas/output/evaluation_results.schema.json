@@ -21,7 +21,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "0.1.0"
+      "const": "0.2.0"
     },
     "artifact_type": {
       "const": "evaluation_results"

@@ -435,6 +435,111 @@ def test_prepare_evaluation_inputs_rejects_unknown_candidate_request(
         prepare_evaluation_inputs(request)
 
 
+def test_prepare_evaluation_inputs_accepts_source_request_from_reference_account(
+    evaluate_arguments: Arguments,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+
+    def move_crawl_request_to_reference_account(
+        value: dict[str, Any],
+    ) -> None:
+        request = next(
+            item
+            for item in value["data"]["requests"]
+            if item["request_id"] == "request_read_order"
+        )
+        request["account_id"] = "account_user_b"
+        request["role_id"] = "role_user"
+        request["session_ref"] = "session_account_user_b"
+
+    def move_semantic_request_to_reference_account(
+        value: dict[str, Any],
+    ) -> None:
+        request = next(
+            item
+            for item in value["data"]["normalized_requests"]
+            if item["request_id"] == "request_read_order"
+        )
+        request["account_id"] = "account_user_b"
+        request["role_id"] = "role_user"
+
+    _mutate_artifact(
+        input_paths,
+        context,
+        "crawl_result",
+        move_crawl_request_to_reference_account,
+    )
+    _mutate_artifact(
+        input_paths,
+        context,
+        "semantic_analysis",
+        move_semantic_request_to_reference_account,
+    )
+
+    request = parse_evaluate_request(
+        input_paths,
+        output_dir,
+        context,
+    )
+    inputs = prepare_evaluation_inputs(request)
+
+    scenario_artifact = inputs.report_inputs.artifact_by_type(
+        "test_scenarios"
+    )
+    assert scenario_artifact.data is not None
+    assert inputs.crawl_result.data is not None
+
+    step = scenario_artifact.data["scenarios"][0]["steps"][0]
+    source_request = next(
+        item
+        for item in inputs.crawl_result.data["requests"]
+        if item["request_id"] == step["source_request_id"]
+    )
+
+    assert source_request["account_id"] == "account_user_b"
+    assert step["account_id"] == "account_user_a"
+    assert source_request["account_id"] != step["account_id"]
+
+
+def test_prepare_evaluation_inputs_rejects_actor_session_mismatch(
+    evaluate_arguments: Arguments,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+
+    def rotate_actor_session(
+        value: dict[str, Any],
+    ) -> None:
+        account = next(
+            item
+            for item in value["data"]["accounts"]
+            if item["account_id"] == "account_user_a"
+        )
+        account["session_ref"] = "session_account_user_a_rotated"
+
+        for request in value["data"]["requests"]:
+            if request["account_id"] == "account_user_a":
+                request["session_ref"] = "session_account_user_a_rotated"
+
+    _mutate_artifact(
+        input_paths,
+        context,
+        "crawl_result",
+        rotate_actor_session,
+    )
+
+    request = parse_evaluate_request(
+        input_paths,
+        output_dir,
+        context,
+    )
+
+    with pytest.raises(
+        ReporterError,
+        match="scenario session_ref 연결이 다름",
+    ):
+        prepare_evaluation_inputs(request)
+
+
 def test_prepare_evaluation_inputs_rejects_ground_truth_reference(
     evaluate_arguments: Arguments,
 ) -> None:

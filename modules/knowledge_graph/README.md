@@ -70,6 +70,9 @@ Neo4j
 access_analyzer/graph_query.json
 ```
 
+입력 `graph_query.json`은 `schema_version=0.2.0`만 지원한다. `0.1.0`과
+미지원 버전은 거절하며 입력을 묵시적으로 변환하지 않는다.
+
 출력:
 
 ```text
@@ -243,13 +246,13 @@ NEO4J_DATABASE
 저장소 루트에서 실행한다.
 
 ```bash
-python -m pytest modules/knowledge_graph/ -q
+.venv/bin/python -m pytest modules/knowledge_graph/ -q
 ```
 
 현재 기본 테스트 결과:
 
 ```text
-121 passed, 4 skipped
+160 passed, 4 skipped
 ```
 
 skip 4건은 실제 Neo4j가 필요한 통합 테스트다.
@@ -261,7 +264,8 @@ KG_RUN_NEO4J_INTEGRATION=1 \
 NEO4J_URI=bolt://localhost:7687 \
 NEO4J_USERNAME=neo4j \
 NEO4J_PASSWORD='<configured-password>' \
-python -m pytest \
+NEO4J_DATABASE=neo4j \
+.venv/bin/python -m pytest \
 modules/knowledge_graph/tests/test_neo4j_integration.py -q
 ```
 
@@ -569,3 +573,99 @@ knowledge_graph 전체
 ```
 
 Neo4j `5.26.31-community` 일회성 컨테이너에서 실제 통합 테스트 4건과 knowledge_graph 전체 테스트를 실행했다. ingest·query·apply_verification·revision·snapshot 경로가 모두 통과했다.
+
+---
+
+## 2026-10-09 — graph_query 입력 계약 0.2.0 동기화
+
+팀의 공통 산출물 `0.2.0` 전환 합의와 access_analyzer의 질의 출력 계약에 맞춰
+KG의 `graph_query.json` 입력 Schema와 기본 질의 fixture를 `0.2.0`으로 변경했다.
+버전 이외의 질의 필드·타입·허용값은 그대로 유지하며, 입력 Schema 정의는
+생산자 출력 Schema와 일치한다(제목·설명 제외).
+
+`0.1.0`과 미지원 버전은 입력 검증에서 거절한다. 기존 질의 파일을 묵시적으로
+변환하거나 지원 버전을 넓혀 수용하지 않는다.
+
+### 독립 fixture와 회귀 검증
+
+- 기준 커밋 `82d3864`의 access_analyzer 공개 fixture를 바이트 그대로
+  `tests/fixtures/access_analyzer_current/graph_query.json`에 고정했다.
+- 원본 위치는
+  `modules/access_analyzer/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/access_analyzer/graph_query.json`이다.
+- KG 테스트는 자기 fixture와 저장소 대역만 사용한다. 다른 모듈 코드나 Schema를
+  import하거나 `$ref`하지 않는다.
+- 최신 fixture 수신, `0.1.0`·미지원 버전 거절, 공개 `query` 실행의
+  `query_id`·`query_key` 대응을 검증했다.
+- 결과의 `input_refs`가 원본 artifact ID·경로·정확한 파일 SHA-256을 보존하고,
+  완료 응답의 SHA-256이 실제 출력 파일과 일치함을 확인했다.
+
+Resource 모델, Neo4j 저장·질의 템플릿, `graph_query_result` 출력 계약,
+`ingest`·`apply_verification` 로직과 revision 규칙은 변경하지 않았다.
+
+검증 명령과 결과:
+
+```bash
+.venv/bin/python -m pytest modules/knowledge_graph -q
+```
+
+```text
+160 passed, 4 skipped
+```
+
+이번 단계에서 실제 Neo4j 통합 테스트는 활성화하지 않았다. skip 4건은 해당
+통합 테스트이며, 위 Resource 전환 단계의 실제 Neo4j 검증 기록과 구분한다.
+
+연관 모듈 회귀 검증:
+
+```bash
+.venv/bin/python -m pytest modules/knowledge_graph modules/access_analyzer modules/safety_policy modules/reporter -q
+```
+
+```text
+518 passed, 4 skipped
+```
+
+---
+
+## 2026-10-09 — 6단계: 담당 모듈 최종 회귀·계약 호환성 검증
+
+기준 커밋 `1b123bd`에서 knowledge_graph·safety_policy·reporter의 1~5단계 수정 결과를 최종 검증했다. 이번 단계는 README 기록만 변경하며 구현 코드·Schema·fixture·의존성은 변경하지 않았다.
+
+### KG 입력·출력 확인
+
+| 경계 | 확인 결과 |
+|---|---|
+| semantic_analyzer → KG | 생산자 공개 CLI로 생성한 `semantic_analysis 0.2.0`을 KG 입력 Schema와 ingest adapter가 수용 |
+| access_analyzer → KG | 공개 `graph_query 0.2.0` fixture 수신 검증 통과. 생산자 Schema와 입력 사본은 최상위 제목·설명·`$id`를 제외하면 일치 |
+| verifier → KG | 공개 `verification_results 0.2.0` fixture의 입력 Schema 검증 통과 |
+| KG → reporter·access_analyzer | 공개 `graph_query_result 0.2.0` fixture가 양쪽 입력 Schema를 통과 |
+
+semantic CLI 검증은 생산자 소유 수집 fixture와 기본 `fake` LLM을 사용했다. 네트워크 호출 없이 생성한 요청 6개·노드 27개·관계 33개·Workflow 3개를 KG 내부 모델로 변환하고, 수집 fixture의 파일 해시가 변경되지 않았음을 확인했다. LLM 분석 품질이나 전체 파이프라인 실행을 검증한 것은 아니다.
+
+semantic·verification 입력 Schema 및 access_analyzer의 KG 입력 Schema에는 정의 이름·`$ref` 구성 등 문서 구조 차이가 있다. 샘플 수신 통과와 Schema 파일 전체 일치는 구분하며, 모든 가능한 입력의 계약 동등성을 증명했다고 주장하지 않는다.
+
+### 회귀 검증
+
+```text
+knowledge_graph 기본 테스트
+160 passed, 4 skipped
+
+knowledge_graph + safety_policy + reporter 기본 테스트
+661 passed, 4 skipped
+
+같은 담당 3개 모듈, 실제 Neo4j 통합 테스트 활성화
+665 passed
+
+modules/ 전체 테스트
+1456 passed, 4 skipped
+```
+
+기본 테스트 명령은 `.venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter -q -rs`, 전체 모듈 명령은 `.venv/bin/python -m pytest modules -q -rs --tb=short`다. 전체 모듈은 Chromium·로컬 테스트 서버의 실행 권한을 확보한 환경에서 재실행했다.
+
+실제 DB 검증은 기존 `neo4j:5.26.31-community` 이미지의 일회성 컨테이너에서 수행했다. loopback 임시 포트와 테스트 전용 인증을 사용하고 기존 DB·볼륨은 연결하지 않았다. ingest 멱등성, 4종 typed query와 snapshot, verified 관계 반영·revision·중복 반영 방지의 기존 통합 테스트 4건이 통과했다. 종료 후 해당 컨테이너와 임시 볼륨을 정리했다.
+
+AST로 Python 파일 38개를 검사해 다른 모듈 import 0건을 확인했고, Schema 4개의 외부 `$ref`도 0건이다. 실제 진단 `runs/`·`data/`는 읽거나 수정하지 않았다.
+
+### 후속 연결 작업과 구분
+
+이번 6단계로 담당 모듈 내부 수정 목록과 최종 회귀 검증을 마쳤다. scenario_generator의 0.1 출력, verifier의 Safety 입력 0.1 사본, Ground Truth 버전 명세 불일치는 각 담당자·관리자의 확인 항목으로 남긴다. 타 모듈을 대신 수정하거나 구버전 입력을 묵시적으로 변환하지 않는다. 실제 전체 파이프라인 연결은 이 항목의 정리와 동일 실행 산출물 검증 이후 확인한다.

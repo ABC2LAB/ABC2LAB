@@ -41,9 +41,38 @@ def test_contract_fixtures_are_valid(fixture_root: Path) -> None:
     assert len(semantic_graph.nodes) == 4
     assert len(semantic_graph.relationships) == 2
     assert len(semantic_graph.workflows) == 1
+    assert query_artifact["schema_version"] == "0.2.0"
     assert len(query_artifact["data"]["queries"]) == 4
     assert len(verification_artifact["data"]["graph_updates"]["relationships"]) == 1
     assert output_artifact["schema_version"] == "0.2.0"
+
+
+def test_graph_query_accepts_current_access_analyzer_fixture() -> None:
+    input_path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "access_analyzer_current"
+        / "graph_query.json"
+    )
+
+    artifact = prepare_query(input_path)
+
+    assert artifact["schema_version"] == "0.2.0"
+    assert artifact == load_json(input_path)
+
+
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+def test_graph_query_rejects_unsupported_version(
+    fixture_root: Path,
+    tmp_path: Path,
+    schema_version: str,
+) -> None:
+    source = load_json(fixture_root / "access_analyzer" / "graph_query.json")
+    source["schema_version"] = schema_version
+    input_path = _write_test_json(tmp_path / "graph_query.json", source)
+
+    with pytest.raises(ContractValidationError, match="Schema 위반"):
+        prepare_query(input_path)
 
 
 def test_graph_query_result_rejects_legacy_version(fixture_root: Path) -> None:

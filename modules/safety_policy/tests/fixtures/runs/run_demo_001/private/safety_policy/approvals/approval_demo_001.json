@@ -4,7 +4,7 @@
   "approval_id": "approval_demo_001",
   "run_id": "run_demo_001",
   "iteration": 0,
-  "scenarios_sha256": "14a537dc945dd497bb8bb264ad3712bb551770c286ab3532e10ad56177f02f58",
+  "scenarios_sha256": "752e8937920b8ecfe84b6c652634cb1a3295b58737aaa426639802026e57c3c8",
   "policy_id": "abc2lab-fixture-policy",
   "policy_version": "0.1.0",
   "approved_scenario_ids": ["scenario_update_order_001"],

@@ -19,6 +19,7 @@ def test_run_evaluate_writes_valid_completed_artifact(
 
     output_path = _output_path(evaluate_run_root)
     artifact, decisions = load_safety_decisions(output_path)
+    _assert_output_integrity(evaluate_run_root, artifact, response)
     assert response["status"] == "completed"
     assert response["output_path"].endswith("safety_decisions.json")
     assert len(response["sha256"]) == 64
@@ -53,6 +54,7 @@ def test_run_evaluate_reissues_allow_after_verified_approval(
     response = entrypoint.run("evaluate", input_paths, output_dir, context)
 
     artifact = load_json(_output_path(evaluate_run_root))
+    _assert_output_integrity(evaluate_run_root, artifact, response)
     decisions = {
         item["scenario_id"]: item for item in artifact["data"]["decisions"]
     }
@@ -80,6 +82,7 @@ def test_run_evaluate_preserves_partial_source_errors(
     response = entrypoint.run("evaluate", input_paths, output_dir, context)
 
     artifact = load_json(_output_path(evaluate_run_root))
+    _assert_output_integrity(evaluate_run_root, artifact, response)
     assert response["status"] == "partial"
     assert artifact["status"] == "partial"
     assert artifact["errors"][0]["code"] == "SCENARIO_GENERATION_PARTIAL"
@@ -101,6 +104,27 @@ def test_run_evaluate_rejects_failed_source_without_output(
     assert response["status"] == "failed"
     assert response["output_path"] is None
     assert response["errors"][0]["code"] == "INPUT_STATUS_FAILED"
+    assert not _output_path(evaluate_run_root).exists()
+
+
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+def test_run_evaluate_rejects_unsupported_version_without_output(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    schema_version: str,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    input_path = _input_path(evaluate_run_root)
+    artifact = load_json(input_path)
+    artifact["schema_version"] = schema_version
+    input_path.write_text(json.dumps(artifact), encoding="utf-8")
+    input_paths["test_scenarios"]["sha256"] = calculate_sha256(input_path)
+
+    response = entrypoint.run("evaluate", input_paths, output_dir, context)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "CONTRACT_INVALID"
+    assert response["output_path"] is None
     assert not _output_path(evaluate_run_root).exists()
 
 
@@ -132,6 +156,7 @@ def test_run_evaluate_publishes_failed_artifact_for_invalid_policy(
     response = entrypoint.run("evaluate", input_paths, output_dir, context)
 
     artifact = load_json(_output_path(evaluate_run_root))
+    _assert_output_integrity(evaluate_run_root, artifact, response)
     assert response["status"] == "failed"
     assert response["output_path"] is not None
     assert artifact["data"] is None
@@ -281,6 +306,8 @@ def test_cli_runs_evaluate_with_contract_paths(
     )
 
     response = json.loads(capsys.readouterr().out)
+    artifact = load_json(_output_path(evaluate_run_root))
+    _assert_output_integrity(evaluate_run_root, artifact, response)
     assert exit_code == 0
     assert response["status"] == "completed"
     assert _output_path(evaluate_run_root).exists()
@@ -308,6 +335,7 @@ def test_cli_accepts_private_approval_record(
 
     response = json.loads(capsys.readouterr().out)
     artifact = load_json(_output_path(evaluate_run_root))
+    _assert_output_integrity(evaluate_run_root, artifact, response)
     approved = next(
         item
         for item in artifact["data"]["decisions"]
@@ -316,6 +344,33 @@ def test_cli_accepts_private_approval_record(
     assert exit_code == 0
     assert response["status"] == "completed"
     assert approved["approval_ref"] == "approval_demo_001"
+
+
+def _assert_output_integrity(
+    run_root: Path,
+    artifact: dict[str, Any],
+    response: dict[str, Any],
+) -> None:
+    input_path = _input_path(run_root)
+    source = load_json(input_path)
+    source_sha256 = calculate_sha256(input_path)
+
+    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["input_refs"] == [
+        {
+            "artifact_id": source["artifact_id"],
+            "artifact_type": source["artifact_type"],
+            "iteration": source["iteration"],
+            "path": input_path.relative_to(run_root).as_posix(),
+            "sha256": source_sha256,
+        }
+    ]
+    assert response["sha256"] == calculate_sha256(_output_path(run_root))
+    if artifact["data"] is not None:
+        configuration = load_json(_policy_path(run_root))
+        assert artifact["data"]["scenarios_sha256"] == source_sha256
+        assert artifact["data"]["policy_id"] == configuration["policy_id"]
+        assert artifact["data"]["policy_version"] == configuration["policy_version"]
 
 
 def _input_path(run_root: Path) -> Path:
