@@ -59,7 +59,7 @@
 
 | 입력 파일·정보 | 작성·제공 주체 | 사용할 내용 |
 | --- | --- | --- |
-| vulnerability_candidates.json | `access_analyzer` | data.candidates의 candidate_id·actor 계정/역할·resource_ids·source_request_ids·workflow_id·expected_basis와 근거. |
+| vulnerability_candidates.json | `access_analyzer` | data.candidates의 candidate_id·actor 계정/역할·resource_ids·source_request_ids·workflow_id·expected_basis와 근거. resource_ids(KG Resource instance node_id)는 Scenario.resource_ids로 그대로 복사한다. |
 | crawl_result.json 및 근거 파일 참조 | `collector / input_refs` | 선택한 source_request_id의 요청·응답, 계정·역할·session_ref와 본문 참조. 명시된 참조로 읽는다. |
 | 실행 인자 / 자기 모델 설정 | `사용자 실행 인자` | 실행 식별 정보, 모델·프롬프트 설정과 신뢰된 대상 범위. 모델 설정은 configs 파일 없이 CLI 옵션으로 받는다(`--llm-provider replay\|ollama`, `--model-id`, `--base-url`, `--temperature`, `--seed`, `--timeout`). 신뢰된 대상 범위는 `crawl_result.target_url`의 origin이다. |
 
@@ -97,7 +97,7 @@
 - 바인딩은 그 값을 **쓰는** 단계의 `bindings`에 두고 `source_step_id`로 앞 단계를 가리킨다. verifier는 단계마다 그 단계의 `bindings`만 읽어 `url_template`·`binding_ref`를 치환한다.
 - `url_template`의 `{...}`는 `binding_id`만 쓴다. scheme·host·port는 `crawl_result.target_url`과 같아야 하고 주소 부분에는 바인딩·사용자 정보를 쓸 수 없다.
 - 단계의 계정은 후보의 실행 계정 또는 기준 계정만 쓴다. `method`는 원본 요청과 같고 `body_ref`는 null이거나 원본 요청의 것이다.
-- `scenario_id`(`"scenario_" + candidate_id`)·`candidate_id`·`expected_basis`는 프로그램이 원본 후보에서 채운다. LLM 초안은 `preconditions`·`steps`·`assertions`만 만든다. 후보 1개당 시나리오 1개다.
+- `scenario_id`(`"scenario_" + candidate_id`)·`candidate_id`·`expected_basis`·`resource_ids`(후보 `resource_ids`를 순서·값 그대로)는 프로그램이 원본 후보에서 채운다. LLM 초안은 `preconditions`·`steps`·`assertions`만 만든다. 초안에 그 밖의 키가 있으면 값이 원본과 같아도 초안을 버린다. 후보 1개당 시나리오 1개다.
 - **판정 조건 필수 규칙.** HTTP 상태 코드만으로 위반을 확정하지 않는다(m7). 다음을 만족하지 않는 초안은 버린다.
     - `preconditions`: steps에 쓰인 계정마다 `session_valid`(`subject_ref`=account_id, `operator=eq`, `expected=true`). `exists`는 세션이 무효여도 참이 되므로 쓰지 않는다.
     - `assertions`: 실행 계정 단계 하나에 `response_status`와 `response_json`이 함께 있다.
@@ -108,7 +108,7 @@
 
 ### test_scenarios.json
 
-- 고정 값: `artifact_type=test_scenarios`, `producer=scenario_generator`.
+- 고정 값: `schema_version=0.2.0`, `artifact_type=test_scenarios`, `producer=scenario_generator`.
 - 예상 Schema 경로: `modules/scenario_generator/schemas/output/test_scenarios.schema.json`.
 - 예상 출력 fixture 경로: `modules/scenario_generator/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/scenario_generator/test_scenarios.json`.
 
@@ -128,6 +128,7 @@
 | `scenario_id` | `string` | 필수 | 재현 시나리오 ID. |
 | `candidate_id` | `string` | 필수 | 원본 검증 후보 ID. |
 | `expected_basis` | `enum: rule, inferred, unknown` | 필수 | 원본 후보의 기대 조건 근거. |
+| `resource_ids` | `array<string>` (minItems 1, 항목은 빈 문자열 금지) | 필수 | 검증 대상 자원 ID. 원본 후보 `Candidate.resource_ids`(KG Resource instance `node_id`)를 순서·값 그대로 복사한다. 프로그램이 채우고 LLM 초안은 쓰지 않는다. 형식을 가정하지 않는 불투명 문자열이다. |
 | `preconditions` | `array<Check>` | 필수 | 실행 전 확인할 세션·자원·기준 상태 조건. 하나라도 거짓·판단불가면 verifier는 재현 여부를 판정하지 않는다(indeterminate). |
 | `steps` | `array<ScenarioStep>` | 필수 | 순서가 있는 재현 요청 목록. 비어 있으면 안 된다. |
 | `assertions` | `array<Check>` | 필수 | 위반 재현 여부를 판단할 응답·상태·최종 결과 조건. **모두 참이면 위반이 재현된 것**으로 읽는다. 비어 있으면 안 된다. |
@@ -188,11 +189,29 @@
 
 ## 변경 이력
 
-필드·타입·enum(출력 계약)은 v0.1 그대로다. 아래는 의미·검증 규칙을 구현에 맞춰 적은 것이다.
+2026-10-08은 의미·검증 규칙만 적었다(필드는 v0.1 그대로). 2026-10-09 0.2.0에서 필드 `Scenario.resource_ids` 하나를 추가했다.
 
 | 날짜 | 변경 | 근거 |
 | --- | --- | --- |
 | 2026-10-08 | 판정 조건 필수 규칙(`session_valid` 사전조건, 실행 계정 단계의 `response_status`+`response_json`), `assertions` 의미, `Check.subject_ref` 규약, 바인딩 위치, 초안 검증 규칙, 모델 설정을 CLI 옵션으로 받는 것을 명시 | #40(판정 조건 강화), verifier Check 평가 구현(#38) |
+| 2026-10-09 | **0.1.0 → 0.2.0.** 출력 `schema_version`을 0.2.0으로 올리고(전원 동시 전환) `Scenario.resource_ids`를 추가. 입력 `crawl_result`·`vulnerability_candidates`는 각 생산자 계약 0.2.0을 미러(필드 정의는 [m1](m1-collector.md)·[m4](m4-access_analyzer.md)) | verifier가 검증 결과를 KG 자원 노드에 이을 키가 test_scenarios에 없었다(KG 검증 관계 `target_id` = 기존 Resource instance node_id). 소비자 safety_policy·reporter(이동찬)와 합의 |
+
+### 0.2.0 `Scenario.resource_ids` (소비자 입력 사본 미러 기준)
+
+- **위치:** `data.scenarios[]` 항목(Scenario)의 바로 아래 키. Schema에서는 `$defs.scenario.properties.resource_ids`이고 `$defs.scenario.required`에 넣는다(`expected_basis` 다음). Scenario는 계속 미정의 키를 거절한다(`additionalProperties: false`).
+- **타입·필수:** 필수. 문자열 배열, 1개 이상, 항목마다 빈 문자열 금지. `null`·빈 배열은 허용하지 않는다. Schema 조각:
+
+```json
+"resource_ids": {
+  "type": "array",
+  "minItems": 1,
+  "items": {"$ref": "#/$defs/nonEmptyString"}
+}
+```
+
+- **값 출처:** 이 시나리오의 원본 후보(`candidate_id`가 같은 `vulnerability_candidates.data.candidates[]`)의 `resource_ids`를 순서·값 그대로 복사한다. 값은 KG Resource instance `node_id`이고 형식(접두어·구분자)을 가정하지 않는다.
+- **채우는 주체:** scenario_generator 프로그램이 채운다. LLM 초안은 `preconditions`·`steps`·`assertions` 세 키만 가지며, 초안에 `resource_ids` 키가 있으면 값이 원본과 같아도 그 초안을 버린다(`DRAFT_INVALID`, `item_ref=candidate_id`). 채운 값이 원본 후보와 다르면 그 시나리오는 발행하지 않는다.
+- **소비자 쪽:** 입력 사본에 위 조각을 같은 위치에 넣고 `schema_version` const를 `0.2.0`으로 둔다. 원본 후보와의 값 일치는 생산자가 보장하므로 소비자가 후보 파일과 다시 대조할 필요는 없다.
 
 ---
 
