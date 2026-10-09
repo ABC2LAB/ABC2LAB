@@ -100,6 +100,24 @@ def test_output_matches_the_published_sample_fixture(
     assert actual == expected
 
 
+def test_published_sample_is_valid_and_points_at_the_fixture_inputs(fixture_run_root: Path, run_id: str) -> None:
+    # 소비자가 받아 보는 샘플이다. 입력 fixture만 바뀌고 샘플을 다시 만들지 않으면 여기서 걸린다.
+    sample = json.loads((fixture_run_root / EXPECTED_OUTPUT_PATH).read_text(encoding="utf-8"))
+    validate_output_document(sample)
+    assert sample["run_id"] == run_id
+    assert {ref["artifact_type"] for ref in sample["input_refs"]} == {"crawl_result", "vulnerability_candidates"}
+    for ref in sample["input_refs"]:
+        input_path = fixture_run_root / ref["path"]
+        referenced = json.loads(input_path.read_text(encoding="utf-8"))
+        assert ref["sha256"] == compute_sha256_of_bytes(input_path.read_bytes())
+        assert (ref["artifact_id"], ref["artifact_type"], ref["iteration"]) == (
+            referenced["artifact_id"],
+            referenced["artifact_type"],
+            referenced["iteration"],
+        )
+        assert referenced["run_id"] == sample["run_id"]
+
+
 def test_existing_output_is_never_overwritten(workspace: Workspace, replay_drafter: ReplayScenarioDrafter) -> None:
     workspace.run(replay_drafter)
     first_bytes = (workspace.output_dir / "test_scenarios.json").read_bytes()
