@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -8,7 +9,7 @@ import pytest
 
 from modules.safety_policy.approval_adapter import load_approval_record
 from modules.safety_policy.config_adapter import load_policy_configuration
-from modules.safety_policy.evaluate_adapter import parse_evaluate_request
+from modules.safety_policy.evaluate_adapter import prepare_evaluate_request
 from modules.safety_policy.exceptions import (
     ApprovalRecordError,
     ApprovalRecordHashMismatchError,
@@ -139,10 +140,11 @@ def test_load_approval_record_rejects_changed_resource_ids(
     input_path.write_text(json.dumps(source), encoding="utf-8")
     input_paths["test_scenarios"]["sha256"] = calculate_sha256(input_path)
     assert input_paths["test_scenarios"]["sha256"] != approved_hash
-    request, prepared, configuration = _prepare_with_approval(
-        evaluate_arguments,
-        evaluate_run_root,
+    request = replace(
+        request,
+        expected_sha256=input_paths["test_scenarios"]["sha256"],
     )
+    prepared = prepare_evaluation(request)
 
     with pytest.raises(ApprovalRecordError, match="계획 해시"):
         load_approval_record(
@@ -220,7 +222,7 @@ def _prepare_with_approval(
         "path": APPROVAL_RELATIVE_PATH,
         "sha256": expected_sha256 or calculate_sha256(approval_path),
     }
-    request = parse_evaluate_request(input_paths, output_dir, context)
+    request = prepare_evaluate_request(input_paths, output_dir, context)
     return (
         request,
         prepare_evaluation(request),

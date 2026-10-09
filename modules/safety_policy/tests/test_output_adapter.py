@@ -7,7 +7,7 @@ import pytest
 
 from modules.safety_policy.approval_adapter import load_approval_record
 from modules.safety_policy.config_adapter import load_policy_configuration
-from modules.safety_policy.evaluate_adapter import parse_evaluate_request
+from modules.safety_policy.evaluate_adapter import prepare_evaluate_request
 from modules.safety_policy.exceptions import ContractValidationError
 from modules.safety_policy.output_adapter import (
     build_evaluation_artifact,
@@ -23,7 +23,7 @@ def test_publication_rejects_unsupported_output_version(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     schema_version: str,
 ) -> None:
-    request = parse_evaluate_request(*evaluate_arguments)
+    request = prepare_evaluate_request(*evaluate_arguments)
     prepared = prepare_evaluation(request)
     configuration = load_policy_configuration(request)
     data = evaluate_policy(prepared, configuration)
@@ -42,7 +42,7 @@ def test_publication_rejects_source_changed_after_evaluation(
     evaluate_run_root: Path,
     changed_source: str,
 ) -> None:
-    request = parse_evaluate_request(*evaluate_arguments)
+    request = prepare_evaluate_request(*evaluate_arguments)
     prepared = prepare_evaluation(request)
     configuration = load_policy_configuration(request)
     data = evaluate_policy(prepared, configuration)
@@ -75,7 +75,7 @@ def test_publication_rejects_approval_changed_after_evaluation(
         "path": approval_relative,
         "sha256": calculate_sha256(approval_path),
     }
-    request = parse_evaluate_request(input_paths, output_dir, context)
+    request = prepare_evaluate_request(input_paths, output_dir, context)
     prepared = prepare_evaluation(request)
     configuration = load_policy_configuration(request)
     approval = load_approval_record(request, prepared, configuration)

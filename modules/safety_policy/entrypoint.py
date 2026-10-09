@@ -15,8 +15,7 @@ from modules.safety_policy.approval_adapter import load_approval_record
 from modules.safety_policy.config_adapter import load_policy_configuration
 from modules.safety_policy.evaluate_adapter import (
     APPROVAL_RECORD_DIRECTORY,
-    POLICY_CONFIG_RELATIVE_PATH,
-    parse_evaluate_request,
+    prepare_evaluate_request,
 )
 from modules.safety_policy.exceptions import (
     ApprovalRecordError,
@@ -62,7 +61,7 @@ def run(
             retryable=False,
         ).to_mapping()
     try:
-        request = parse_evaluate_request(input_paths, output_dir, context)
+        request = prepare_evaluate_request(input_paths, output_dir, context)
     except Exception as error:
         return _input_failure_response(error).to_mapping()
     return _run_evaluate(request).to_mapping()
@@ -151,7 +150,32 @@ def _publish(
         )
 
 
+def _preparation_failure_response(
+    error: Exception,
+) -> EvaluationControlResponse | None:
+    if isinstance(error, OutputArtifactExistsError):
+        return _control_failure(
+            "OUTPUT_EXISTS", "safety_decisions 출력이 이미 존재함", retryable=False
+        )
+    if isinstance(error, PolicyConfigHashMismatchError):
+        return _control_failure(
+            "CONFIG_HASH_MISMATCH", "Policy 설정 사본 해시가 원본과 다름", retryable=False
+        )
+    if isinstance(error, PolicyConfigurationError):
+        return _control_failure(
+            "CONFIG_INVALID", "Policy 설정을 준비할 수 없음", retryable=False
+        )
+    if isinstance(error, StorageError):
+        return _control_failure(
+            "STORAGE_FAILED", "Policy 설정 사본을 저장할 수 없음", retryable=True
+        )
+    return None
+
+
 def _input_failure_response(error: Exception) -> EvaluationControlResponse:
+    preparation_failure = _preparation_failure_response(error)
+    if preparation_failure is not None:
+        return preparation_failure
     if isinstance(error, SourceArtifactFailedError):
         return _control_failure(
             "INPUT_STATUS_FAILED",
@@ -222,9 +246,7 @@ def _run_cli(arguments: argparse.Namespace) -> dict[str, Any]:
     )
     try:
         scenario_path = require_existing_file(run_root, scenario_relative)
-        policy_path = require_existing_file(run_root, POLICY_CONFIG_RELATIVE_PATH)
         scenario_sha256 = calculate_sha256(scenario_path)
-        policy_sha256 = calculate_sha256(policy_path)
         approval_descriptor = _load_cli_approval_descriptor(
             run_root,
             arguments.approval_record,
@@ -236,10 +258,6 @@ def _run_cli(arguments: argparse.Namespace) -> dict[str, Any]:
         "iteration": arguments.iteration,
         "mode": arguments.mode,
         "run_root": run_root,
-        "policy_config": {
-            "path": POLICY_CONFIG_RELATIVE_PATH,
-            "sha256": policy_sha256,
-        },
     }
     if approval_descriptor is not None:
         context["approval_record"] = approval_descriptor
