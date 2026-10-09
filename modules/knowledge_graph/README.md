@@ -16,6 +16,22 @@ Neo4j 직접 접근과 Cypher 실행은 knowledge_graph 내부에서만 수행�
 
 ---
 
+## 검증 관계 계정 source 전환 상태
+
+`verification_results.data.graph_updates.relationships`의 source를 KG node_id가
+아닌 원본 `source_account_id`로 받는 소비자 측 변경을 완료했다.
+KG 입력·User 조회·트랜잭션 반영, Reporter 입력 사본, 실제 Neo4j 검증까지 완료했다.
+
+확인 기준 커밋 `b2aec96`에서 verifier 출력 Schema는 아직 `source_id`를
+요구한다. 생산자 전환과 동일 run의 실제 산출물 연결 검증은 후속 작업이며,
+소비자 구현 완료를 전체 pipeline 연결 완료로 해석하지 않는다.
+버전은 `0.2.0`을 유지하므로 생산자와 모든 직접 소비자의 필드 전환을 함께 적용해야 한다.
+
+최종 계약·단계별 커밋·담당자 전달 체크리스트는 아래 계정 source 전환 5단계에
+정리했다. 이전 단계의 테스트 건수와 다음 작업은 각 기록 당시 기준이다.
+
+---
+
 ## 주요 구현
 
 - JSON Schema 및 교차 ID 검증
@@ -906,3 +922,104 @@ verifier의 실제 산출물 수신이나 전체 pipeline 연결 완료를 뜻�
 다음 5단계는 KG·Reporter의 최종 변경 이력을 정리하고 verifier 담당자에게
 0.2.0 동시 필드 전환, source의 실제 접근 계정 의미, 기존 Resource instance
 target, 기존 필드 거절 및 실제 산출물 수신 검증 항목을 전달하는 작업이다.
+
+## 2026-10-09 — 계정 source 전환 5단계: 최종 정리·생산자 전달
+
+기준 커밋 `b2aec96`의 구현·검증 결과를 정리했다. 이번 단계는
+`modules/knowledge_graph/README.md`와 `modules/reporter/README.md`만 변경한다.
+기존 이력은 보존하며 코드·Schema·fixture·테스트·의존성·공용 명세는 변경하지 않는다.
+아래 전달 사항은 문서로 준비한 내용이며, 팀원에게 외부 메시지를 발송한 기록은 아니다.
+
+### 완료한 소비자 작업
+
+| 단계 | 커밋 | 완료 내용 |
+|---|---|---|
+| 1 | `b5eb734` | KG 검증 관계 입력 Schema·해석 전 모델·파싱·fixture·테스트 전환 |
+| 2 | `5fe4057` | 같은 run/graph의 account_id→기존 User node_id 조회와 트랜잭션 반영 |
+| 3 | `3143752` | Reporter 검증 입력 사본·fixture·참조 해시·독립 테스트 동기화 |
+| 4 | `b2aec96` | 실제 Neo4j 계정 변환·범위 격리·revision·snapshot·rollback 검증 |
+
+### 최종 계약과 책임 경계
+
+| 위치 | source 필드 | 값의 의미 |
+|---|---|---|
+| `verification_results.data.graph_updates.relationships` | `source_account_id` | 실제 접근한 계정의 원본 account_id |
+| `semantic_analysis.data.relationships` | `source_id` | 시작 노드의 KG node_id |
+| KG·snapshot의 일반 관계 | `source_id` | 시작 노드의 KG node_id |
+| KG·snapshot의 `VERIFIED_ACCESS`·`VERIFIED_DENIAL` | `source_id` | KG가 계정을 해석한 뒤 연결한 User node_id |
+
+검증 관계의 `target_id`는 같은 run/graph에 이미 존재하는 Resource instance
+node_id다. Resource 종류 이름·실제 상품 번호·URL을 대신 넣지 않는다.
+관계는 `VERIFIED_ACCESS` 또는 `VERIFIED_DENIAL`, `basis=verified`와 실제 실행
+EvidenceRef를 사용하며 나머지 필드와 기존 근거·revision 검증은 유지한다.
+
+- verifier: 기존 pipeline에서 실제 접근 계정과 대상 Resource instance node_id,
+  검증 결과·근거를 전달한다. User node_id를 계산하거나 Neo4j에 직접 접근하지 않는다.
+- KG: `run_id`·`graph_id` 안의 기존 User `properties.account_id`를 정확히
+  대응시킨다. 계정 누락·중복·참조 충돌은 거절하고 전체 반영을 트랜잭션으로 처리한다.
+- Reporter: 자기 입력 계약·해시·ID·근거·상태를 검증하고 기존 리포트·평가를
+  생성한다. 검증 관계의 계정을 User node_id로 바꾸거나 DB에 반영하지 않는다.
+  개발 평가의 semantic/snapshot 참조 검증은 별도이며 계속 유지한다.
+
+버전 `0.2.0` 안에서 필드를 동시 전환하는 합의다. 검증 관계의 이전 `source_id`,
+두 source 필드의 동시 입력, 필드 누락은 거절하며 자동 호환·접두사 추측은 없다.
+일반 그래프 관계의 `source_id`까지 일괄 변경해서는 안 된다.
+
+### verifier 담당자 전달 내용
+
+> 검증 관계에는 User node_id 대신 실제 접근 계정의 원본 `source_account_id`를
+> 전달해 주세요. B가 A의 자원에 접근했다면 source는 B의 account_id이고,
+> target은 A 자원의 기존 Resource instance node_id입니다. KG가 같은 run/graph의
+> 기존 User를 찾아 연결합니다. `schema_version=0.2.0`은 유지하며, KG·Reporter
+> 소비자는 전환과 독립 검증을 완료했습니다. 생산자 전환 후 실제 동일 run의
+> 결과 파일로 연결 검증이 필요합니다.
+
+`b2aec96`에서 생산자 출력 Schema의 `graphUpdateEdge`는 아직 `source_id`를
+요구하지만 KG·Reporter 입력 사본은 `source_account_id`를 요구한다.
+빈 `relationships=[]`가 통과하더라도 관계 필드 전환 완료의 증거는 아니다.
+생산자 출력 Schema·직렬화·fixture·테스트 전환은 verifier 담당 작업으로 남긴다.
+공용 `docs/spec/m7-verifier.md`도 검증 관계를 일반 GraphEdge로 설명하므로,
+검증 관계 전용 필드의 원본 명세 반영은 담당자·관리자에게 전달할 후속 항목이다.
+이 단계에서 다른 모듈이나 `docs/spec/`을 직접 수정하지 않는다.
+
+이전 node_id 값을 새 필드명으로 단순히 바꿔 쓰지 않는다. 실제 실행 계정의
+원본 ID로 새 결과를 생성하고 완료 artifact를 덮어쓰지 않는다.
+새 파일의 정확한 SHA-256을 직접 소비자에게 전달하고 그 파일을 참조하는
+`input_refs`도 실제 바이트 해시로 맞춘다. 같은 verification_id의 다른 해시
+재사용은 KG에서 충돌로 처리하므로 이전 반영 기록을 덮어쓰는 전환은 하지 않는다.
+기존 pipeline의 입력 구성과 target 전달 방식은 유지하며 새 입력 파일을 요구하지 않는다.
+
+### 실제 산출물 연결 검증 체크리스트 — 후속 작업
+
+- [ ] verifier 출력 계약·직렬화·소유 fixture가 `source_account_id`로 전환됐는지 확인
+- [ ] 같은 run의 실제 입력·출력과 정확한 파일 해시, source revision·계획 해시·근거 참조 확보
+- [ ] 계정 ID와 node_id가 다른 User B가 A 자원에 접근한 사례로 KG·Reporter 수신 확인
+- [ ] KG 반영 뒤 실제 저장 관계·snapshot의 source는 B의 User node_id, target은 기존 instance인지 확인
+- [ ] 정상 반영의 revision 증가와 동일 입력 재반영 no-op, 잘못된 계정·참조 거절 확인
+- [ ] Reporter `report`의 후보·계획·Policy·검증 연결, 미검증 상태 보존과 출력 참조 해시 확인
+- [ ] development `evaluate`가 필요하면 정답과 해당 입력 계약에 맞는 snapshot을 별도로 확보해 확인
+- [ ] 원본 명세 갱신과 연결 검증 결과를 각 담당자와 공유한 뒤 pipeline 완료 여부 판단
+
+이 체크리스트는 아직 수행 완료로 표시하지 않는다. 소유 fixture 검증과 생산자의
+실제 산출물 수신은 구분하며, 실제 `runs/`나 계정 비밀정보를 문서·Git에 포함하지 않는다.
+
+### 검증 기록과 남은 범위
+
+4단계의 실제 DB 검증 기록은 통합 12건, KG 전체 255건, 담당 3개 모듈 790건 통과다.
+이번 문서 단계에서는 Neo4j를 재실행하지 않으며 실제 DB 결과는 4단계 기록을 참조한다.
+
+5단계 문서 수정 후 기본 회귀를 재실행했다.
+
+```bash
+.venv/bin/python -m pytest modules/knowledge_graph/ modules/safety_policy/ modules/reporter/ -q
+```
+
+```text
+778 passed, 12 skipped
+```
+
+skip 12건은 opt-in 실제 Neo4j 통합 테스트이며 이번 단계에서는 활성화하지 않았다.
+`git diff --check`도 통과했고 변경 파일은 두 README뿐이다.
+
+소비자 측 구현·검증·문서 정리는 5단계로 마무리하고, 이후 작업은 생산자 출력 전환,
+실제 동일 run 결과 수신, 전체 pipeline 연결 확인이다.
