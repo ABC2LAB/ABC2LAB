@@ -24,39 +24,125 @@
 
 레포 루트에서 실행한다 (공통 `.venv`).
 
-```
-.venv/bin/python -m modules.scenario_generator.entrypoint generate \
-  --run-root runs/<run_id> --run-id <run_id> --iteration 0 --mode development \
-  --candidates <vulnerability_candidates.json> --crawl-result <crawl_result.json> \
-  --output-dir runs/<run_id>/artifacts/iteration-000/scenario_generator \
-  [--drafts <초안 파일>] [--expected-sha256 <입력종류>=<해시>] \
-  [--llm-provider replay|ollama] [--model-id <모델 태그>] [--base-url <Ollama 주소>] \
-  [--temperature <실수>] [--seed <정수>] [--timeout <초>]
-```
+### Python 호출
 
-| 옵션 | 기본값 | 내용 |
-|---|---|---|
-| `--llm-provider` | `replay` | `replay`=`--drafts` 파일의 초안을 그대로 씀(개발·테스트), `ollama`=로컬 Ollama 모델 |
-| `--model-id` | 없음 | `ollama`일 때 반드시 지정한다(CLI가 빠뜨림을 막지는 않는다). 실제 설치한 모델 태그 |
-| `--base-url` | `http://localhost:11434` | Ollama 주소 |
-| `--temperature` / `--seed` | `0.0` / 없음 | 모델 옵션. `data.model_info`에 그대로 기록 |
-| `--timeout` | `60.0` | Ollama 호출 타임아웃(초) |
-
-Python 호출: `entrypoint.run(operation, input_paths, output_dir, context)`
+```python
+entrypoint.run(operation, input_paths, output_dir, context, *, drafter=None)
+```
 
 | 인자 | 내용 |
 |---|---|
 | `operation` | `"generate"` |
 | `input_paths` | `{"vulnerability_candidates": 경로, "crawl_result": 경로}` — 두 키 모두 필요 |
 | `output_dir` | 저장할 폴더. `run_root` 안이어야 한다. 파일명은 `test_scenarios.json` 고정 |
-| `context` | 필수: `run_root`, `run_id`, `iteration`, `mode` / 선택: `expected_sha256`(`{입력종류: 소문자 hex}`), `drafter` |
+| `context` | 필수: `run_root`, `run_id`, `iteration`, `mode` / 선택: `expected_sha256`(`{입력종류: 소문자 hex}`). JSON으로 표현되는 값만 받는다(명세 03). `drafter` 키가 있으면 `ValueError` |
+| `drafter` (keyword-only) | 초안 생성기 객체(`ScenarioDrafter`). 주면 설정 파일을 읽지 않는다. 안 주면 아래 "drafter 설정"으로 만든다. 테스트·CLI용 |
 
 응답(dict, CLI는 stdout JSON): `status`, `artifact_id`, `output_path`, `sha256`, `scenario_count`, `error_count`.
 
 종료 코드(CLI): 파일을 썼으면 `0`(결과 상태는 응답의 `status`), 쓰지 못했으면 `2`.
-파일을 쓰지 못하면 `OutputWriteError`를 던진다. 없는 파일을 완료라고 알리지 않는다.
+파일을 쓰지 못하면 `OutputWriteError`(`RuntimeError` 하위)를 던진다. 없는 파일을 완료라고 알리지 않는다.
 
-> 호출 규약(인자 이름·응답·종료 코드)은 `pipeline.py` 담당과 아직 합의 전이다. 위 내용은 이 모듈의 제안이다.
+### drafter 설정
+
+우선순위: **`drafter=` 인자 > `SCENARIO_GENERATOR_CONFIG_PATH` > `modules/scenario_generator/configs/scenario_generator.toml`**.
+경로는 현재 폴더(레포 루트) 기준이다. 설정은 context 검사 다음, 입력을 읽기 전에 읽는다(`utils/config.py`).
+
+`[llm]` 표 하나만 받는다. 표 밖의 키와 아래에 없는 키는 거절한다.
+
+| 키 | 타입·범위 | 쓰는 provider | 내용 |
+|---|---|---|---|
+| `provider` | 문자열 `none` · `ollama` · `replay` (필수) | 전부 | 초안 생성기 선택 |
+| `model_id` | 문자열, 공백만은 안 됨 | ollama (필수) | 실제 설치한 모델 태그 |
+| `base_url` | 문자열 | ollama | Ollama 주소 |
+| `temperature` | 수(정수·실수), 0 이상, bool 안 됨 | ollama | 모델 옵션. `data.model_info`에 기록 |
+| `timeout_seconds` | 수(정수·실수), 0보다 큼, bool 안 됨 | ollama | 호출 타임아웃(초) |
+| `seed` | 정수, bool 안 됨 | ollama | 재현용. `data.model_info`에 기록 |
+| `model_version` | 문자열 | ollama | 빼면 `model_id`를 기록 |
+| `drafts_path` | 문자열, 있는 파일 | replay (필수) | 미리 적어 둔 초안 파일. 현재 폴더 기준 |
+
+ollama 키를 빼면 `OllamaDrafterConfig`의 기본값을 쓴다(기본값은 그 한 곳에만 있다). 커밋된 파일에 적힌 값은 안내용이라 빼도 동작이 같다.
+
+| provider | 동작 |
+|---|---|
+| `none` (커밋된 기본값) | drafter 없음 → `DRAFTER_NOT_CONFIGURED`로 `failed` 파일을 쓴다(네트워크 0) |
+| `ollama` | `OllamaScenarioDrafter` — 로컬 Ollama `/api/generate` |
+| `replay` | `ReplayScenarioDrafter` — `drafts_path`의 초안을 그대로 쓴다(개발·테스트, `model_info.model_id = replay_file`) |
+
+기본값을 `none`으로 두는 이유: LLM 설정 없이 결과가 나온 것처럼 보이면 안 된다(결과가 조용히 0건이 되는 것 방지).
+
+다음은 `run()` 호출 즉시 `ValueError`이고 출력 파일을 쓰지 않는다. 메시지에는 파일 이름·키 이름만 넣고 값은 넣지 않는다(설정 파일 없음만 경로 전체).
+
+- 설정 파일 없음 / TOML 형식 오류 / `[llm]` 표 없음 / 정의되지 않은 키(`[llm]` 밖·안)
+- 타입 틀림(문자열 키에 문자열이 아님, 수 키에 bool·문자열, `seed`에 정수가 아님)
+- 범위 밖(`temperature` < 0, `timeout_seconds` ≤ 0)
+- `provider` 없음·허용값 밖
+- ollama인데 `model_id`가 비었거나 공백
+- replay인데 `drafts_path`가 비었거나 없는 파일
+- drafter를 만들다 실패(초안 파일 내용 깨짐 등). `ValueError`로 감싸고 원인은 예외 체인(`__cause__`)에 남긴다
+
+설정 파일은 provider와 안 맞는 키를 허용한다(커밋된 파일이 모든 키를 나열한 템플릿이라서). CLI는 안 맞는 조합이면 exit 2(아래 "CLI").
+
+**실제 실행**: 커밋된 `configs/scenario_generator.toml`은 고치지 않는다. 복사본을 git에 올라가지 않는 곳에 만들고 env로 가리킨다.
+
+```bash
+cp modules/scenario_generator/configs/scenario_generator.toml <로컬 경로>/scenario_generator.toml
+# 복사본에서 provider = "ollama", model_id = "<설치한 모델 태그>"로 바꾼다(ollama list로 확인)
+export SCENARIO_GENERATOR_CONFIG_PATH=<로컬 경로>/scenario_generator.toml
+```
+
+### 런너 사용 예
+
+런너는 `drafter`를 넘기지 않는다. 설정 경로는 env(`SCENARIO_GENERATOR_CONFIG_PATH`)로만 지정한다.
+
+```python
+from modules.scenario_generator import entrypoint as scenario_generator_entrypoint
+
+response = scenario_generator_entrypoint.run("generate", input_paths, output_dir, context)
+```
+
+`run()`이 밖으로 내는 예외(전부 새 출력 파일을 쓰지 않음):
+
+- `ValueError`: operation·context·`input_paths` 키 오류, drafter 설정 오류(설정 파일·drafts 파일을 읽지 못함, drafter를 만들다 난 실패 포함)
+- `OutputWriteError`(`RuntimeError` 하위): 출력 경로가 `run_root` 밖이거나 이미 있거나 저장 실패
+- `OutputContractError`(`RuntimeError` 하위): 만든 출력이 자기 출력 Schema를 어김(이 모듈의 버그를 막는 마지막 검사)
+
+`DrafterError`는 `run()` 밖으로 나오지 않는다. 설정 모드에서는 `ValueError`로 감싸고, 초안 생성 중 실패는 후보별 `DRAFTER_FAILED`로 기록한다.
+
+### CLI
+
+```
+.venv/bin/python -m modules.scenario_generator.entrypoint generate \
+  --run-root runs/<run_id> --run-id <run_id> --iteration 0 --mode development \
+  --candidates <vulnerability_candidates.json> --crawl-result <crawl_result.json> \
+  --output-dir runs/<run_id>/artifacts/iteration-000/scenario_generator \
+  [--expected-sha256 <입력종류>=<해시>] \
+  [--config <설정 TOML>] \
+  [--drafts <초안 파일>] [--llm-provider replay|ollama] [--model-id <설치한 모델 태그>] [--base-url <Ollama 주소>] \
+  [--temperature <수>] [--seed <정수>] [--timeout <초>]
+```
+
+drafter 옵션은 `--llm-provider` `--drafts` `--model-id` `--base-url` `--temperature` `--seed` `--timeout`이다.
+
+- **설정 파일 모드**: drafter 옵션을 하나도 안 주면 설정 파일을 쓴다(`--config` > `SCENARIO_GENERATOR_CONFIG_PATH` > 기본 경로). `--config`는 이 프로세스의 env로 넘긴다
+- **CLI 모드**: 하나라도 주면 그 옵션으로 drafter를 만들고 설정 파일은 읽지 않는다. 값은 설정 파일과 같은 타입·범위 검사를 거친다
+
+| 옵션 | 내용 |
+|---|---|
+| `--llm-provider` | `replay` 또는 `ollama`. 기본값 없음 |
+| `--drafts` | replay 초안 파일. `--llm-provider` 없이 주면 replay |
+| `--model-id` | ollama일 때 필수. 실제 설치한 모델 태그 |
+| `--base-url` / `--temperature` / `--seed` / `--timeout` | ollama 옵션. 빼면 `OllamaDrafterConfig` 기본값 |
+
+직접 준 drafter 옵션이 조용히 무시되는 조합은 전부 exit 2(파일 없음)다.
+
+- provider 없이 ollama 옵션(`--model-id` 등)만 줌
+- `--llm-provider replay`인데 `--drafts`가 없음, 또는 ollama 옵션을 같이 줌
+- `--llm-provider ollama`인데 `--drafts`를 같이 줌, 또는 `--model-id`가 없음
+- `--config`와 drafter 옵션을 같이 줌(`--config`가 무시되므로)
+- 값이 타입·범위 검사를 통과하지 못함(예: `--timeout 0`)
+
+바뀐 점(10/10): `--llm-provider` 기본값 `replay` → 없음. `--drafts`만 주면 전처럼 replay다. `--base-url`·`--temperature`·`--timeout`의 CLI 기본값을 없앴다(빼면 `OllamaDrafterConfig` 기본값이라 동작은 같다). drafter 옵션을 하나도 안 주면 전에는 drafter 없이 `DRAFTER_NOT_CONFIGURED`였고, 이제는 설정 파일을 쓴다(커밋된 기본값 none이면 결과는 같다).
 
 ## 상태 규칙
 
@@ -90,7 +176,7 @@ Python 호출: `entrypoint.run(operation, input_paths, output_dir, context)`
 | `CANDIDATE_REQUEST_INVALID` | 근거 요청이 없거나 계정·역할·세션이 어긋남 | candidate_id |
 | `DRAFTER_FAILED` | 초안 생성 실패 (`retryable`은 drafter가 알려 준 값) | candidate_id |
 | `DRAFT_INVALID` | 초안이 검증을 통과하지 못함 (위치와 규칙만 적고 값은 적지 않음) | candidate_id |
-| `DRAFTER_NOT_CONFIGURED` | 초안 생성기(LLM)가 설정되지 않음 | null |
+| `DRAFTER_NOT_CONFIGURED` | 초안 생성기(LLM)가 설정되지 않음(`provider = "none"`) | null |
 
 ## 초안 검증 규칙
 
@@ -126,7 +212,7 @@ class ScenarioDrafter(Protocol):
 
 | drafter | 파일 | 용도 |
 |---|---|---|
-| `ReplayScenarioDrafter` | `replay_drafter.py` | 개발·테스트. `--drafts` 파일의 초안을 그대로 돌려준다. `model_info.model_id`는 `replay_file`로 남아 LLM이 아님을 드러낸다 |
+| `ReplayScenarioDrafter` | `replay_drafter.py` | 개발·테스트. `drafts_path`(설정)·`--drafts`(CLI) 파일의 초안을 그대로 돌려준다. `model_info.model_id`는 `replay_file`로 남아 LLM이 아님을 드러낸다 |
 | `OllamaScenarioDrafter` | `ollama_drafter.py` | 실제 로컬 모델. 표준 라이브러리 `urllib`로 Ollama `/api/generate`를 부른다(추가 패키지 없음, 폐쇄망용) |
 
 - Ollama 프롬프트 버전은 `PROMPT_VERSION`(현재 `ollama-scenario-v3`)이고 `model_info.prompt_version`에 기록된다.
@@ -181,7 +267,6 @@ class ScenarioDrafter(Protocol):
 - `created_at`·`observed_at`이 실제 날짜 형식인지는 검사하지 않는다 (`date-time` 형식 검사에 추가 패키지가 필요)
 - `resource_ids`·`workflow_id`는 `crawl_result`로 검증할 수 없어 그대로 전달한다
 - 응답 본문을 저장하지 않으므로 바인딩 selector가 실제 응답에 있는지는 이 모듈이 알 수 없다 (verifier가 실행 시 확인)
-- 이 모듈에는 `configs/` 폴더가 없다. 실행 설정은 CLI 옵션으로 받는다
 
 ## 테스트
 
@@ -190,6 +275,8 @@ class ScenarioDrafter(Protocol):
 ```
 
 다른 모듈의 실제 코드 없이 `tests/fixtures/`의 입력과 대역 drafter로 정상·partial·failed·입력 오류·함정 케이스를 검증한다.
+drafter 설정·CLI 조합은 `tests/test_sg_drafter_config.py`가 본다(Ollama 전송은 기록용 대역, 네트워크 없음).
+`tests/conftest.py`가 autouse로 `SCENARIO_GENERATOR_CONFIG_PATH`를 `tests/fixtures/configs/provider_none.toml`에 고정하므로 로컬 설정은 테스트에 영향이 없다.
 테스트는 계정·요청 ID에 기대지 않고 fixture에서 값을 읽는다.
 
 ## 의존성

@@ -21,6 +21,14 @@ CRAWL_RELATIVE_PATH = "artifacts/iteration-000/collector/crawl_result.json"
 CANDIDATES_RELATIVE_PATH = "artifacts/iteration-000/access_analyzer/vulnerability_candidates.json"
 OUTPUT_RELATIVE_PATH = "artifacts/iteration-000/scenario_generator/test_scenarios.json"
 DRAFTS_PATH = TESTS_DIR / "fixtures" / "drafts" / "run_demo_001.drafts.json"
+PROVIDER_NONE_CONFIG_PATH = TESTS_DIR / "fixtures" / "configs" / "provider_none.toml"
+
+
+@pytest.fixture(autouse=True)
+def isolated_drafter_config(monkeypatch: pytest.MonkeyPatch) -> Path:
+    """drafter= 없이 부르는 테스트가 커밋된 기본 설정·셸 값을 읽지 않게 한다(provider=none, 네트워크 0)."""
+    monkeypatch.setenv("SCENARIO_GENERATOR_CONFIG_PATH", str(PROVIDER_NONE_CONFIG_PATH))
+    return PROVIDER_NONE_CONFIG_PATH
 
 
 @pytest.fixture
