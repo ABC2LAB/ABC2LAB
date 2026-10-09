@@ -1,0 +1,4 @@
+# 테스트 격리용 설정. conftest가 SEMANTIC_ANALYZER_CONFIG_PATH로 가리킨다
+# (커밋된 기본 설정·셸에 export된 값에 의존하지 않게). provider=fake → 네트워크 0.
+[llm]
+provider = "fake"
