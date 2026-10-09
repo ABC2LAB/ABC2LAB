@@ -5,7 +5,7 @@
 | module_id | `verifier` |
 | 공개 operation | `verify` (안전 게이트 + allow 재현 실행·Check 판정 + 실물 collector 세션 창구 연결) |
 | 명세 | `docs/spec/m7-verifier.md`, `02-common-contract.md`, `03-runner-layout.md` |
-| 계약 버전 | `schema_version = 0.1.0` |
+| 계약 버전 | `schema_version = 0.2.0` (입력 test_scenarios·safety_decisions·crawl_result, 출력 verification_results) |
 
 허용된 재현 계획만 대상 웹에 실행하고 실제 요청·응답·상태 근거로 판정한다. **safety_policy가 allow한 것만**,
 `effective_origins`·`limits` 안에서만 실행한다. block·require_approval은 요청 없이 미실행으로 남긴다. 미실행·판단불가를
@@ -22,7 +22,7 @@
 | 입력(창구) | 세션 공개 창구 | collector(런너가 주입) |
 | 출력 | `verification_results.json` | 소비자: knowledge_graph, reporter |
 
-- 입력 Schema는 `schemas/input/`의 사본으로, **생산자 실제 출력 Schema를 그대로 미러링**한다(더 엄격하게 하지 않음). `crawl_result`의 `Page.account_id`는 m1 명세 표엔 없고 collector가 추가한 필드라 사본에도 포함한다(#35까지 반영).
+- 입력 Schema는 `schemas/input/`의 사본으로, **생산자 실제 출력 Schema를 그대로 미러링**한다(더 엄격하게 하지 않음). 0.2.0 기준 title·description 외 동일하다(정규화 비교). `0.1.0` 입력은 `INPUT_CONTRACT_INVALID`(failed, 전송 0건). `crawl_result`의 `Page.account_id`는 m1 명세 표엔 없고 collector가 추가한 필드라 사본에도 포함한다(#35까지 반영).
 - 다른 모듈의 Schema·코드를 import/$ref 하지 않는다.
 
 ## 공개 호출
@@ -96,7 +96,7 @@ CLI:
 - **status-only 규칙(m7 51행)**: assertions가 전부 참이어도 참인 조건이 `response_status`·`session_valid`뿐이면(응답 내용 미확인) success 대신 `indeterminate`(`ASSERTION_STATUS_ONLY`). 응답 내용을 본 조건(`response_json` 등)이 하나 이상 참이어야 success로 올린다.
 - **result 분류**: preconditions 중 하나라도 거짓/판단불가 → `indeterminate`(전제 미충족·판단불가, failure 아님). 모두 참이면 assertions 중 하나라도 판단불가 → `indeterminate`, 모두 참 → `success`, 하나 이상 거짓 → `failure`.
 - **CheckResult 부착**: subject가 단계면 그 단계의 `check_results`에, 계정이면 그 계정이 처음 쓰인 단계에, 둘 다 못 찾으면 첫 단계에 붙인다. `observed`는 비밀 제거(민감 키 selector로 뽑은 스칼라도 가림).
-- `graph_updates`는 `basis=verified`와 실제 실행 근거가 있는 success만 출처로 삼는다. PR2는 **빈 배열**로 둔다 — verified 노드·관계의 `node_id`(source/target) 매핑이 `test_scenarios`에 없어, 지어내지 않고 KG와 합의한 뒤 PR3에서 생성한다.
+- `graph_updates`는 `basis=verified`와 실제 실행 근거가 있는 success만 출처로 삼는다. 지금은 **빈 배열**이다(PR3-c에서 채움). 관계 형태는 KG 입력 `verificationRelationship`과 같다: `source_account_id`=실제 요청한 계정의 원본 ID, `target_id`=그 시나리오 `Scenario.resource_ids`(Resource instance node_id) 중 하나. 경로는 access_analyzer `Candidate.resource_ids` → scenario_generator `Scenario.resource_ids` → verifier `target_id`.
 
 ## 실패 처리
 
@@ -115,7 +115,9 @@ CLI:
 
 ## 명세(v0.1) 대비
 
-- 출력 `graph_updates`의 node/edge는 `basis`를 `const "verified"`로, `evidence_refs`를 `minItems:1`로 **명세 m7("basis=verified와 실제 실행 근거만")에 맞춰** 소비자(KG·reporter)보다 좁게 둔다. 우리 출력이 더 엄격해 소비자 입력을 항상 통과한다.
+- 출력 `graph_updates`의 node/edge는 `basis`를 `const "verified"`로, `evidence_refs`를 `minItems:1`로 **명세 m7("basis=verified와 실제 실행 근거만")에 맞춰** KG 입력보다 좁게 둔다(reporter 입력 사본과는 같다). 우리 출력이 같거나 더 엄격해 소비자 입력을 항상 통과한다.
+- 출력 `graph_updates.relationships`는 명세 표의 GraphEdge(`source_id`) 대신 **VerificationRelationship**(`source_account_id`)이다(2026-10-10). KG·reporter 입력이 같은 0.2.0 안에서 먼저 전환했고, verifier가 맞췄다. 이전 `source_id`는 소비자가 거절한다. 필드 표는 m7 "VerificationRelationship".
+- 입력 3종은 생산자 0.2.0만 받는다(2026-10-10, 0.2 2단계). `test_scenarios`의 `Scenario.resource_ids`는 Schema로 받기만 하고 실행 로직은 아직 읽지 않는다(PR3-c에서 `target_id`로 씀).
 - `max_redirects` 기본 **0**: 명세는 리다이렉트 처리를 세부로 규정하지 않는데, 로그인 리다이렉트를 자동으로 따라가면 최종 200을 "접근 성공"으로 **오탐**한다. 그래서 기본은 따라가지 않고 3xx를 그 단계 응답으로 기록한다(`configs/verifier.toml`에서 조정).
 - 비밀값 제거는 collector와 같은 기준(민감 키 이름·cookie/authorization 헤더 → `***`). **다른 점**: verifier는 계정 비밀번호를 쥐지 않으므로(세션은 collector 창구 안) 알려진 비밀값 스크럽 목록이 보통 비어 있고 구조적 마스킹만 적용한다. 근거 파일 이름에는 회차를 담는다(verifier는 회차마다 다시 실행).
 - `session_valid` Check 의미가 약해짐: 명세 m7의 "session_ref 능동 재확인" 대신 **"창구가 세션 보유 중 + 만료 감지 없음"**이다. 실제 세션 만료는 `send()` 응답 신호(로그인 리다이렉트 등, collector README)로 잡는다.
@@ -129,7 +131,8 @@ CLI:
 
 - **PR1**: 계약 Schema·utils·안전 게이트. HTTP 전송 없음.
 - **PR2**: 세션 창구 Protocol로 allow 실행 — URL resolve·`effective_origins`(최종 URL)·리다이렉트 재검사·`limits`·state_change·body_ref·세션 오류, `assertions`/`preconditions`(Check) 평가, ExecutedStep/CheckResult 근거, result 분류(success/failure/indeterminate). 세션 대역으로 개발·테스트.
-- **PR3-a(이것)**: 실제 collector 세션 창구(`session_gateway.py`) 바인딩 + 라이브 실행 1회 확인.
+- **PR3-a**: 실제 collector 세션 창구(`session_gateway.py`) 바인딩 + 라이브 실행 1회 확인.
+- **0.2 2단계(이것)**: 입력 사본 3종 0.2.0 미러 + 검증 관계 `source_account_id` 전환. 실행 로직 변경 없음.
 - **PR3-b**: 상태 변경 시 테스트 앱 DB 초기화(reset 훅, config).
 - **PR3-c**: `graph_updates`(KG node_id 매핑) + Check 3종 평가 + 하드닝.
 
