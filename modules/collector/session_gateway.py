@@ -9,7 +9,7 @@ verifier의 Protocol(executor.py)을 import하지 않고 같은 모양(lease/is_
 
 import logging
 from collections.abc import Callable, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterator, Protocol, runtime_checkable
 from urllib.parse import urljoin, urlsplit
@@ -258,7 +258,8 @@ def open_session_executor(config: CrawlerConfig) -> Iterator[BrowserSessionExecu
     """
     accounts_by_id = {account.account_id: account for account in config.accounts}
 
-    with sync_playwright() as playwright:
+    with ExitStack() as stack:
+        playwright = _start_playwright(stack)
         browser = _launch_browser(playwright)
         executor = BrowserSessionExecutor(config, lambda account_id: _make_backend(browser, config, accounts_by_id, account_id))
         try:
@@ -277,8 +278,22 @@ def _make_backend(
     return PlaywrightAccountBackend(browser, config, account)
 
 
+def _start_playwright(stack: ExitStack) -> Playwright:
+    """Playwright 드라이버를 시작한다. 시작 실패도 브라우저 실행 실패와 같이 SessionTransportError로 알린다."""
+    try:
+        return stack.enter_context(sync_playwright())
+    except PlaywrightError as error:
+        raise SessionTransportError(f"Playwright를 시작하지 못함: {_first_line(error)}") from None
+
+
 def _launch_browser(playwright: Playwright) -> Browser:
     try:
         return playwright.chromium.launch()
     except PlaywrightError as error:
-        raise SessionTransportError(f"브라우저를 띄우지 못함: {str(error).splitlines()[0]}") from None
+        raise SessionTransportError(f"브라우저를 띄우지 못함: {_first_line(error)}") from None
+
+
+def _first_line(error: Exception) -> str:
+    """Playwright 오류의 첫 줄만(뒤는 설치 안내·스택). 메시지가 비면 예외 타입 이름."""
+    lines = str(error).splitlines()
+    return lines[0] if lines else type(error).__name__
