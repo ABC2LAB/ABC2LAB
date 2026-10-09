@@ -5,16 +5,17 @@
 
 ## 현재 상태 — 2026-10-10
 
-기준 커밋은 `28ca650`이다. PR #52·#53 계약 호환과 정책 설정 개선 3단계까지의
+기준 커밋은 `95fa8ef`다. PR #52·#53 계약 호환과 정책 설정 개선 4단계까지의
 작업 상태를 기록한다. 정책 준비 기능은 공개 `run()`·CLI에 연결됐으며,
-같은 run에서는 원본과 SHA-256이 같은 정책 사본만 재사용한다.
+같은 run에서는 원본과 SHA-256이 같은 정책 사본만 재사용한다. 설정 준비 실패와
+재사용 이후의 입력·평가·출력 처리도 두 공개 실행 창구의 회귀 테스트로 검증했다.
 
 | 구분 | 현재 상태 |
 |---|---|
 | 독립 구현 | 공개 `evaluate`·CLI, 외부 정책 설정 검증·private 자동 배치·동일 정책 재사용, 6개 assessment, 승인 기록 재평가·원자 저장 구현 완료 |
 | 공개 계약 | `test_scenarios` 입력·`safety_decisions` 출력 `0.2.0`, 필수 `Scenario.resource_ids` 수용 완료 |
 | 소비자 호환 | Verifier·Reporter의 `safety_decisions` 입력 사본 `0.2.0` 동기화 완료 |
-| 독립 회귀 | `240 passed` |
+| 독립 회귀 | `304 passed` |
 | 실제 전체 연결 | 미완료. 같은 run의 계획→판정→검증→리포트 연결 검증 필요 |
 
 승인 기록의 입력 검증·계획 바인딩·재평가는 구현됐지만, 실제 사용자 승인 수집·
@@ -544,3 +545,46 @@ skip 12건은 이번에 활성화하지 않은 KG 실제 Neo4j 테스트다. 이
 변경하지 않았다. 실제 run 폴더·사용자 승인 창구·전체 pipeline 연결은 검증하지
 않았다. 다음 4단계에서는 설정 준비의 실패 경로와 기존 입력·판정·출력 테스트를
 더 넓게 검증하고, 5단계에서는 환경변수 예시와 운영 안내를 마무리한다.
+
+### 2026-10-10 — 정책 설정 준비 4단계: 공개 실패 경로·회귀 검증
+
+기준 커밋 `95fa8ef`에서 테스트와 문서만 보강했다. 새
+`tests/test_policy_configuration_regression.py`는 동일한 32종 사례를 공개 `run()`과
+CLI `main()`으로 각각 실행하는 독립 테스트 64건이다. CLI는 JSON 제어 응답과
+정상·partial의 종료 코드 0, 실패의 종료 코드 1을 함께 검증한다.
+
+- 환경변수 미설정, 원본 누락·디렉터리·읽기 실패, JSON·UTF-8·Schema 오류는
+  `CONFIG_INVALID`와 출력 파일 없는 실패로 처리한다. 기존 사본이 있어도 설정
+  오류를 무시하지 않고 기본 정책이나 정상 빈 결과로 대체하지 않는다.
+- 사본이 디렉터리이면 `CONFIG_INVALID`, 외부·다른 모듈로 향하는 symlink이면
+  `PATH_INVALID`, 원본과 다른 정책·손상된 사본이면 `CONFIG_HASH_MISMATCH`다.
+  기존 사본·링크 대상은 자동 복구하거나 덮어쓰지 않는다.
+- 사본 저장·읽기 실패와 재사용 이후의 판정 파일 저장 실패는 재시도 가능한
+  `STORAGE_FAILED`다. 공개되지 않은 임시 파일을 정리하며 완료를 통지하지 않는다.
+- 평가 뒤 계획·정책 사본·승인 기록의 바이트가 바뀌면 `OUTPUT_INVALID`로
+  결과 공개를 차단한다. 유효한 JSON에 줄바꿈만 추가된 경우도 해시 변경으로 본다.
+- 정상·partial·각각의 빈 시나리오 입력은 상태와 원본 오류를 보존한다.
+  실제 입력 시나리오 수·ID와 출력 판정 수·ID, 입력 참조·해시, 출력 해시를
+  확인하고 재사용한 정책의 바이트·수정 시각·inode가 유지되는지 검증했다.
+- 실패한 계획은 `INPUT_STATUS_FAILED`, 미지원 버전·run/iteration 불일치·필수
+  자원 ID 누락/빈 배열은 `CONTRACT_INVALID`로 거절한다. 정책 재사용이 잘못된
+  입력을 정상 빈 결과나 실행 허용으로 바꾸지 않는다.
+
+```bash
+.venv/bin/python -m pytest modules/safety_policy/tests/test_policy_configuration_regression.py -q
+# 64 passed
+
+.venv/bin/python -m pytest modules/safety_policy -q
+# 304 passed
+
+.venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter modules/verifier -q -rs
+# 1036 passed, 12 skipped
+```
+
+합동 회귀의 skip 12건은 활성화하지 않은 KG 실제 Neo4j 통합 테스트다.
+이번 수정은 새 테스트 파일과 README뿐이며 실행 로직·공개/내부 Schema·fixture·
+기존 6개 규칙·승인 판정·의존성을 변경하지 않았다. `docs/spec`도 이번에는
+수정하지 않았다. 소유 fixture·임시 run을 사용하는 독립 검증이며 실제 전체
+pipeline·사용자 승인 창구 연결이나 별도 CLI 프로세스 실행 검증을 의미하지 않는다.
+다음 5단계는 환경변수 예시와 정책 준비·재사용·변경·오류 대응의 운영 안내를
+마무리하는 작업이다.
