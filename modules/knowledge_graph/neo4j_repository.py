@@ -27,6 +27,7 @@ from modules.knowledge_graph.models import (
     GraphSource,
     GraphState,
     SemanticGraph,
+    VerificationInputUpdate,
     VerificationState,
     VerificationUpdate,
 )
@@ -235,7 +236,7 @@ class Neo4jGraphRepository:
         self,
         graph_id: str,
         run_id: str,
-        update: VerificationUpdate,
+        update: VerificationInputUpdate | VerificationUpdate,
     ) -> VerificationState:
         if not graph_id or not run_id:
             raise ContractValidationError("graph_id와 run_id는 비어 있을 수 없음")
@@ -252,6 +253,19 @@ class Neo4jGraphRepository:
         }
         if invalid_types:
             raise ContractValidationError("허용되지 않은 verification 관계 유형")
+        if isinstance(update, VerificationInputUpdate):
+            if update.relationships:
+                # TODO(이동찬): 2단계에서 같은 트랜잭션의 User 노드로 해석한다.
+                raise GraphUpdateReferenceError(
+                    "source_account_id의 User 노드 변환이 아직 구현되지 않음"
+                )
+            update = VerificationUpdate(
+                source=update.source,
+                source_graph_revision=update.source_graph_revision,
+                verification_ids=update.verification_ids,
+                nodes=update.nodes,
+                relationships=(),
+            )
         self.initialize_schema()
         try:
             with self._driver.session(database=self._settings.database) as session:

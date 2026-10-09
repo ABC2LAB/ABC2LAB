@@ -8,8 +8,8 @@ from modules.knowledge_graph.models import (
     GraphSource,
     GraphState,
     SemanticGraph,
+    VerificationInputUpdate,
     VerificationState,
-    VerificationUpdate,
 )
 
 
@@ -41,6 +41,6 @@ class GraphRepository(Protocol):
         self,
         graph_id: str,
         run_id: str,
-        update: VerificationUpdate,
+        update: VerificationInputUpdate,
     ) -> VerificationState:
-        """Apply each verified update once and return the graph state."""
+        """Resolve account sources and apply each verified update once."""

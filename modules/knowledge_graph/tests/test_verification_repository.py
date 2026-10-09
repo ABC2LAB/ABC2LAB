@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -15,11 +16,13 @@ from modules.knowledge_graph.exceptions import (
 from modules.knowledge_graph.models import (
     GraphEdge,
     GraphNode,
+    VerificationInputUpdate,
+    VerificationRelationship,
     VerificationSource,
     VerificationUpdate,
 )
 from modules.knowledge_graph.neo4j_repository import Neo4jGraphRepository
-from modules.knowledge_graph.service import prepare_verification
+from modules.knowledge_graph.service import prepare_ingest, prepare_verification
 from modules.knowledge_graph.settings import Neo4jSettings
 
 
@@ -154,6 +157,50 @@ def test_apply_verification_updates_graph_once(fixture_root: Path) -> None:
     assert state.applied_verification_ids == ("verification_001",)
     assert any("ABC2AppliedVerification" in query for query, _ in transaction.calls)
     assert any("MERGE (source)-[stored:VERIFIED_ACCESS" in query for query, _ in transaction.calls)
+
+
+@pytest.mark.parametrize("account_id", ["account_user", "opaque-B", "user:B"])
+def test_unresolved_account_source_is_blocked_before_database_access(
+    fixture_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    account_id: str,
+) -> None:
+    update = _input_update(fixture_root)
+    relationship = next(iter(update.relationships))
+    update = replace(
+        update,
+        relationships=(replace(relationship, source_account_id=account_id),),
+    )
+    transaction = FakeVerificationTransaction()
+    repository = _repository(transaction)
+
+    def fail_if_initialized() -> None:
+        raise AssertionError("unresolved account must not reach the database")
+
+    monkeypatch.setattr(repository, "initialize_schema", fail_if_initialized)
+
+    with pytest.raises(GraphUpdateReferenceError, match="source_account_id"):
+        repository.apply_verification("graph_demo_001", "run_demo_001", update)
+
+    assert transaction.calls == []
+
+
+def test_empty_account_input_keeps_existing_no_op_behavior(fixture_root: Path) -> None:
+    update = replace(
+        _input_update(fixture_root),
+        verification_ids=(),
+        nodes=(),
+        relationships=(),
+    )
+    transaction = FakeVerificationTransaction()
+
+    state = _repository(transaction).apply_verification(
+        "graph_demo_001", "run_demo_001", update
+    )
+
+    assert state.graph_revision == 1
+    assert state.is_applied is False
+    assert not any("MERGE (source)-[stored:" in query for query, _ in transaction.calls)
 
 
 def test_apply_verification_is_idempotent_for_same_source(fixture_root: Path) -> None:
@@ -362,11 +409,42 @@ def test_apply_verification_rejects_relationship_identity_conflict(
 
 
 def _update(fixture_root: Path) -> VerificationUpdate:
+    input_update = _input_update(fixture_root)
+    _, graph = prepare_ingest(
+        fixture_root / "semantic_analyzer" / "semantic_analysis.json"
+    )
+    user_node_id_by_account_id = {
+        node.properties["account_id"]: node.node_id
+        for node in graph.nodes
+        if node.node_type == "User"
+    }
+    # 저장 계층 회귀용 해석 완료 입력이며 실제 DB 계정 조회를 대체하지 않는다.
+    return VerificationUpdate(
+        source=input_update.source,
+        source_graph_revision=input_update.source_graph_revision,
+        verification_ids=input_update.verification_ids,
+        nodes=input_update.nodes,
+        relationships=tuple(
+            GraphEdge(
+                relationship_id=relationship.relationship_id,
+                source_id=user_node_id_by_account_id[relationship.source_account_id],
+                target_id=relationship.target_id,
+                relation_type=relationship.relation_type,
+                properties=relationship.properties,
+                basis=relationship.basis,
+                evidence_refs=relationship.evidence_refs,
+            )
+            for relationship in input_update.relationships
+        ),
+    )
+
+
+def _input_update(fixture_root: Path) -> VerificationInputUpdate:
     artifact = prepare_verification(
         fixture_root / "verifier" / "verification_results.json"
     )
     graph_updates = artifact["data"]["graph_updates"]
-    return VerificationUpdate(
+    return VerificationInputUpdate(
         source=VerificationSource(
             artifact_id=artifact["artifact_id"],
             sha256="a" * 64,
@@ -377,7 +455,8 @@ def _update(fixture_root: Path) -> VerificationUpdate:
         verification_ids=tuple(graph_updates["source_verification_ids"]),
         nodes=tuple(GraphNode.from_mapping(item) for item in graph_updates["nodes"]),
         relationships=tuple(
-            GraphEdge.from_mapping(item) for item in graph_updates["relationships"]
+            VerificationRelationship.from_mapping(item)
+            for item in graph_updates["relationships"]
         ),
     )
 

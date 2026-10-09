@@ -9,9 +9,10 @@ from modules.knowledge_graph.exceptions import (
     InputHashMismatchError,
 )
 from modules.knowledge_graph.models import (
+    VerificationInputUpdate,
+    VerificationRelationship,
     VerificationRequest,
     VerificationState,
-    VerificationUpdate,
 )
 from modules.knowledge_graph.service import (
     execute_verification,
@@ -26,13 +27,13 @@ INPUT_PATH = "artifacts/iteration-000/verifier/verification_results.json"
 class FakeVerificationRepository:
     def __init__(self, state: VerificationState) -> None:
         self.state = state
-        self.update: VerificationUpdate | None = None
+        self.update: VerificationInputUpdate | None = None
 
     def apply_verification(
         self,
         graph_id: str,
         run_id: str,
-        update: VerificationUpdate,
+        update: VerificationInputUpdate,
     ) -> VerificationState:
         self.update = update
         return self.state
@@ -41,6 +42,8 @@ class FakeVerificationRepository:
 def test_prepare_and_execute_verification(
     verification_run_root: Path,
 ) -> None:
+    input_path = verification_run_root / INPUT_PATH
+    original_sha256 = calculate_sha256(input_path)
     prepared = prepare_verification_operation(_request(verification_run_root))
     repository = FakeVerificationRepository(
         VerificationState(
@@ -64,8 +67,13 @@ def test_prepare_and_execute_verification(
     assert repository.update is not None
     assert repository.update.source_graph_revision == 1
     assert repository.update.verification_ids == ("verification_001",)
+    assert isinstance(repository.update.relationships[0], VerificationRelationship)
+    assert repository.update.relationships[0].source_account_id == "account_user"
+    assert not hasattr(repository.update.relationships[0], "source_id")
     assert repository.update.relationships[0].basis == "verified"
     assert repository.update.relationships[0].target_id == "resource_order_001"
+    assert prepared.update.source.sha256 == original_sha256
+    assert calculate_sha256(input_path) == original_sha256
 
 
 def test_prepare_verification_rejects_legacy_version(

@@ -427,7 +427,7 @@ def _add_verified_denial_update(run_root: Path) -> None:
     graph_updates["relationships"].append(
         {
             "relationship_id": "relationship_verified_denial_001",
-            "source_id": "account_user",
+            "source_account_id": "account_user",
             "target_id": "resource_order_001",
             "relation_type": "VERIFIED_DENIAL",
             "properties": {"action": "read_verified_resource"},

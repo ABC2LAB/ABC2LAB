@@ -12,7 +12,8 @@ from modules.knowledge_graph.exceptions import (
     RepositoryError,
     VerificationConflictError,
 )
-from modules.knowledge_graph.models import VerificationState, VerificationUpdate
+from modules.knowledge_graph.models import VerificationInputUpdate, VerificationState
+from modules.knowledge_graph.neo4j_repository import Neo4jGraphRepository
 from modules.knowledge_graph.utils.hashing import calculate_sha256
 
 
@@ -34,7 +35,7 @@ class FakeVerificationRepository:
         self,
         graph_id: str,
         run_id: str,
-        update: VerificationUpdate,
+        update: VerificationInputUpdate,
     ) -> VerificationState:
         if self.error is not None:
             raise self.error
@@ -45,6 +46,20 @@ class FakeVerificationRepository:
             applied_verification_ids=update.verification_ids,
             is_applied=True,
         )
+
+
+class NoDatabaseDriver:
+    def __init__(self) -> None:
+        self.is_closed = False
+
+    def execute_query(self, *_: Any, **__: Any) -> None:
+        raise AssertionError("unresolved account must not access the database")
+
+    def session(self, **_: Any) -> None:
+        raise AssertionError("unresolved account must not open a transaction")
+
+    def close(self) -> None:
+        self.is_closed = True
 
 
 def test_run_apply_verification_returns_control_response(
@@ -75,6 +90,35 @@ def test_run_apply_verification_returns_control_response(
         "is_applied": True,
         "errors": [],
     }
+
+
+def test_public_verification_blocks_unresolved_account_before_database_access(
+    verification_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_environment(monkeypatch)
+    driver = NoDatabaseDriver()
+    monkeypatch.setattr(
+        entrypoint,
+        "Neo4jGraphRepository",
+        lambda settings: Neo4jGraphRepository(
+            settings, driver=driver  # type: ignore[arg-type]
+        ),
+    )
+
+    response = entrypoint.run(
+        "apply_verification",
+        _input_paths(verification_run_root),
+        OUTPUT_DIR,
+        _context(verification_run_root),
+    )
+
+    assert response["status"] == "failed"
+    assert response["is_applied"] is False
+    assert response["graph_revision"] is None
+    assert response["errors"][0]["code"] == "GRAPH_UPDATE_REFERENCE_INVALID"
+    assert response["errors"][0]["retryable"] is False
+    assert driver.is_closed is True
 
 
 @pytest.mark.parametrize(
