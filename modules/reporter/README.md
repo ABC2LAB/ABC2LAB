@@ -2,6 +2,22 @@
 
 진단 결과를 정리해 `diagnosis_report.json`과 로컬 HTML을 생성하고, development 모드에서 Ground Truth 기반 평가 결과를 생성하는 모듈이다.
 
+## 현재 상태 — 2026-10-10
+
+기준 커밋은 `695b3c8`이다. PR #52·#53 병합 후 상태를 기록한다.
+
+| 구분 | 현재 상태 |
+|---|---|
+| 독립 구현 | 공개 `report`·`evaluate`·CLI, 결과 분류·개발 평가·로컬 HTML 생성 구현 완료 |
+| 공개 계약 | 실행 입력 7종·출력 2종 `0.2.0`, 정답 입력은 기존 `0.1.0` 유지 |
+| 소비자 호환 | 필수 `Scenario.resource_ids` 및 검증 관계 `source_account_id` 수용 완료 |
+| 독립 회귀 | `418 passed` |
+| 실제 전체 연결 | 미완료. 같은 run의 실제 후보·계획·판정·검증 결과로 연결 검증 필요 |
+
+Verifier 계약 전환은 완료됐지만 실제 검증 관계 생성은 아직 미구현이다.
+현재 리포트 렌더링은 HTML이며 PDF 출력은 구현하지 않았다. 현재 명세는
+[m8-reporter](../../docs/spec/m8-reporter.md)를 참고한다.
+
 ## 역할
 
 reporter는 두 가지 공개 operation을 제공한다.
@@ -89,11 +105,11 @@ reporter는 이 검증 관계를 변환·저장하거나 node_id를 접두사로
 semantic 및 KG snapshot의 일반 관계는 계속 `source_id`·`target_id`를 사용한다.
 개발 평가의 원본 계정·역할 ID 참조 검증은 아래 `GraphReferenceIndex`로 계속 수행한다.
 
-확인 기준 커밋 `b2aec96`에서 KG·Reporter의 계정 source 전환과 KG 실제 Neo4j
-검증은 완료했다. verifier 출력 Schema는 아직 `source_id`를 요구하므로
-생산자 전환·실제 동일 run 산출물 수신·전체 pipeline 검증은 후속 작업이다.
-최종 이력과 전달 체크리스트는 아래 계정 source 전환 5단계와
-[KG README](../knowledge_graph/README.md)의 같은 단계에 정리한다.
+기준 커밋 `695b3c8`에서 Verifier 출력 Schema의 `source_account_id` 전환까지
+완료됐다. KG·Reporter의 입력 대응과 KG의 기존 실제 Neo4j 검증 이력은 유지한다.
+실제 동일 run 산출물 수신·전체 pipeline 검증은 후속 작업이다. 과거 단계별 이력과
+전달 체크리스트는 아래 변경 이력 및 [KG README](../knowledge_graph/README.md)에
+보존하며, 실제 연결 완료 여부는 현재 상태 절과 구분해 읽는다.
 
 진단 실행 입력의 `0.1.0` 및 미지원 버전은 거절하며, 기존 산출물의 버전을 묵시적으로 변환하지 않는다. `graph_query_result`는 이미 0.2 계약이므로 이번 동기화에서 변경하지 않았다.
 
@@ -103,14 +119,14 @@ semantic 및 KG snapshot의 일반 관계는 계속 `source_id`·`target_id`를 
 ID의 형식을 해석·재계산하거나 정렬·중복 제거하지 않는다. 후보와의 값 일치는
 생산자가 보장하므로 소비자에서 다시 대조하는 로직은 추가하지 않는다.
 
-2026-10-10, 기준 커밋 `645efaf`에서 최상위 `$id`·제목·설명을 제외한
-SG 출력/Reporter 입력 Schema의 일치와 공개 시나리오 2개의 수신을 확인했다.
-Safety 공개 판정 2개와 KG 공개 질의 결과 4개도 Reporter 입력 Schema를 통과했다.
-Reporter의 진단 분류·평가·내부 모델·출력 계약은 유지한다.
+2026-10-10, 기준 커밋 `695b3c8`에서 최상위 `$id`·제목·설명을 제외한
+SG·Safety Policy·Verifier 출력과 Reporter 입력 Schema의 일치를 확인했다.
+SG 공개 시나리오 2개, Safety 판정 2개, KG 질의 결과 4개 및 Verifier 공개 결과
+2개가 Reporter 입력 Schema를 통과했다. 진단 분류·평가·내부 모델·출력 계약은 유지한다.
 
-Verifier의 `test_scenarios`·`safety_decisions` 입력 사본은 아직 `0.1.0`이고,
-검증 관계 출력 Schema는 여전히 `source_id`를 요구한다. 해당 담당자의 입력 0.2
-대응과 출력 `source_account_id` 전환이 필요하다. 공개 fixture 수신·독립 회귀와
+Verifier 입력 3종은 `0.2.0`이며 검증 관계 출력은 `source_account_id`를 요구한다.
+다만 실행 코드는 아직 `graph_updates`를 빈 배열로 생성한다. 빈 관계의 Schema
+수용은 실제 검증 관계 수신의 증거가 아니며, 공개 fixture 수신·독립 회귀와
 동일 run 전체 pipeline 연결 완료는 구분한다.
 
 `ground_truth`는 공통 계약의 11개 파일 0.2 안내와 `m8-reporter.md`의 정답 파일 0.1 표가 일치하지 않는다. 이번 단계에서는 기존 정답 Schema·fixture를 유지하고, 정답 계약 전환은 별도 검토 대상으로 남긴다.
@@ -1001,3 +1017,26 @@ skip 12건은 KG 실제 Neo4j 테스트이며 이번 단계에서 DB는 실행�
 소비자 측 호환 수정·독립 검증·README 정리는 완료한다. Verifier의 입력 0.2
 대응 및 검증 관계 출력 전환, 동일 run 실제 산출물 수신과 전체 pipeline 연결은
 후속 작업이다. Ground Truth의 기존 0.1 계약과 별도 미해결 항목도 유지한다.
+
+### 2026-10-10 — PR #52·#53 병합 후 현재 상태·명세 동기화
+
+기준 커밋 `695b3c8`에서 현재 입력 계약·연결 상태 요약과
+`docs/spec/m8-reporter.md`를 갱신했다. 이전 단계의 테스트·미전환 안내는 당시
+기록으로 보존하고 현재 상태와 구분한다.
+
+- Verifier 입력 3종 `0.2.0` 및 출력 `source_account_id` 전환 완료를 반영했다.
+  Reporter 입력 사본은 최신 생산자 Schema를 수용하며 계정→User 변환은 계속 KG 책임이다.
+- 실행 입력 7종·출력 2종의 버전, Resource Type/Instance 개발 평가 대응,
+  HTML 구현 범위와 미검증 후보 보존을 명세에 기록했다.
+- Ground Truth는 기존 `0.1.0`을 유지한다. 공통 명세의 11개 파일 0.2 안내와
+  정답 파일 0.1 표의 불일치는 합의가 필요한 항목으로 남긴다.
+
+```bash
+.venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter modules/verifier -q -rs
+# 897 passed, 12 skipped
+```
+
+skip 12건은 이번에 활성화하지 않은 KG 실제 Neo4j 테스트다. Verifier 공개 결과
+2개는 입력 Schema를 통과하지만 검증 관계는 0개다. 실제 관계 생성 후 같은 run의
+리포트·평가 연결을 별도로 검증해야 한다. 이번 변경은 문서만 갱신하며
+코드·Schema·fixture·테스트·의존성을 변경하지 않는다.
