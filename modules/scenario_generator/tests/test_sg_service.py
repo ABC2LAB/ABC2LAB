@@ -63,6 +63,42 @@ def test_expected_basis_comes_from_the_candidate_not_the_model(
     assert {s["candidate_id"]: s["expected_basis"] for s in outcome.scenarios} == expected
 
 
+def test_resource_ids_are_copied_from_the_candidate_in_order(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
+) -> None:
+    def give_each_candidate_several_resources(document: dict[str, Any]) -> None:
+        # 원래 순서를 뒤집은 여러 개로 만들어 앞쪽만·정렬해서·뒤집어서 옮기는 실수도 드러나게 한다.
+        for candidate in document["data"]["candidates"]:
+            first = candidate["resource_ids"][0]
+            candidate["resource_ids"] = [f"{first}:second", first]
+
+    candidates = with_document(candidates_artifact, give_each_candidate_several_resources)
+    outcome = generate_scenarios(candidates, crawl_artifact, StubDrafter(replaying(drafts)))
+
+    expected = {c["candidate_id"]: c["resource_ids"] for c in candidates.document["data"]["candidates"]}
+    assert outcome.errors == []
+    assert {s["candidate_id"]: s["resource_ids"] for s in outcome.scenarios} == expected
+
+
+def test_draft_carrying_resource_ids_is_rejected_even_with_the_candidate_values(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
+) -> None:
+    broken_id = candidate_ids(candidates_artifact)[0]
+    base = replaying(drafts)
+
+    def behavior(request: dict[str, Any]) -> Draft:
+        draft = base(request)
+        if request["candidate"]["candidate_id"] == broken_id:
+            # 값이 원본과 같아도 받지 않는다. 이 키를 채우는 건 프로그램 몫이다.
+            draft.scenario["resource_ids"] = list(request["candidate"]["resource_ids"])
+        return draft
+
+    outcome = generate_scenarios(candidates_artifact, crawl_artifact, StubDrafter(behavior))
+
+    assert [(e["code"], e["item_ref"]) for e in outcome.errors] == [(GenerationErrorCode.DRAFT_INVALID, broken_id)]
+    assert broken_id not in [s["candidate_id"] for s in outcome.scenarios]
+
+
 def test_unmeasured_tokens_stay_null(
     candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
 ) -> None:

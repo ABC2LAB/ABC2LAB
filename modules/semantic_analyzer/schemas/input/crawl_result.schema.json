@@ -1,20 +1,30 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "abc2lab/semantic_analyzer/input/crawl_result.schema.json",
+  "$id": "urn:abc2lab:collector:crawl_result:0.2.0",
   "title": "crawl_result (collector 출력 계약의 semantic_analyzer 입력 사본)",
   "description": "m1-collector.md v0.1 기준. collector가 생산하고 semantic_analyzer가 읽는 계약의 소비자 측 사본이다. 계약 변경은 생산자(collector)와 합의한다.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "artifact_type", "artifact_id", "run_id", "iteration",
-    "producer", "mode", "created_at", "status", "input_refs", "errors",
-    "runtime_metrics", "data"
+    "schema_version",
+    "artifact_type",
+    "artifact_id",
+    "run_id",
+    "iteration",
+    "producer",
+    "mode",
+    "created_at",
+    "status",
+    "input_refs",
+    "errors",
+    "runtime_metrics",
+    "data"
   ],
   "properties": {
-    "schema_version": { "const": "0.1.0" },
+    "schema_version": { "const": "0.2.0" },
     "artifact_type": { "const": "crawl_result" },
-    "artifact_id": { "type": "string", "minLength": 1 },
-    "run_id": { "type": "string", "minLength": 1 },
+    "artifact_id": { "type": "string" },
+    "run_id": { "type": "string" },
     "iteration": { "type": "integer", "minimum": 0 },
     "producer": { "const": "collector" },
     "mode": { "enum": ["diagnosis", "development"] },
@@ -23,61 +33,43 @@
     "input_refs": { "type": "array", "items": { "$ref": "#/$defs/ArtifactRef" } },
     "errors": { "type": "array", "items": { "$ref": "#/$defs/ErrorItem" } },
     "runtime_metrics": {
-      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/RuntimeMetrics" }]
+      "anyOf": [{ "$ref": "#/$defs/RuntimeMetrics" }, { "type": "null" }]
     },
     "data": {
-      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/CrawlData" }]
+      "anyOf": [{ "$ref": "#/$defs/CrawlResultData" }, { "type": "null" }]
     }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "errors": { "maxItems": 0 },
+          "data": { "type": "object" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "partial" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "errors": { "minItems": 1 },
+          "data": { "type": "object" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "failed" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "errors": { "minItems": 1 },
+          "data": { "type": "null" }
+        }
+      }
+    }
+  ],
   "$defs": {
-    "ArtifactRef": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["artifact_id", "artifact_type", "iteration", "path", "sha256"],
-      "properties": {
-        "artifact_id": { "type": "string" },
-        "artifact_type": { "type": "string" },
-        "iteration": { "type": "integer" },
-        "path": { "type": "string" },
-        "sha256": { "type": "string" }
-      }
-    },
-    "EvidenceRef": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["evidence_id", "kind", "path", "sha256", "redacted"],
-      "properties": {
-        "evidence_id": { "type": "string" },
-        "kind": { "enum": ["request", "response", "dom", "screenshot", "state", "execution_log"] },
-        "path": { "type": "string" },
-        "sha256": { "type": "string" },
-        "redacted": { "type": "boolean" }
-      }
-    },
-    "ErrorItem": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["code", "message", "item_ref", "retryable"],
-      "properties": {
-        "code": { "type": "string" },
-        "message": { "type": "string" },
-        "item_ref": { "type": ["string", "null"] },
-        "retryable": { "type": "boolean" }
-      }
-    },
-    "RuntimeMetrics": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["duration_ms", "llm_calls", "input_tokens", "output_tokens", "peak_memory_mb"],
-      "properties": {
-        "duration_ms": { "type": ["integer", "null"] },
-        "llm_calls": { "type": ["integer", "null"] },
-        "input_tokens": { "type": ["integer", "null"] },
-        "output_tokens": { "type": ["integer", "null"] },
-        "peak_memory_mb": { "type": ["number", "null"] }
-      }
-    },
-    "CrawlData": {
+    "CrawlResultData": {
       "type": "object",
       "additionalProperties": false,
       "required": ["target_url", "roles", "accounts", "pages", "actions", "requests"],
@@ -116,7 +108,10 @@
       "required": ["page_id", "account_id", "url", "title", "evidence_refs"],
       "properties": {
         "page_id": { "type": "string" },
-        "account_id": { "type": "string" },
+        "account_id": {
+          "description": "이 페이지를 관찰한 계정 ID. 명세 v0.1 대비 추가(2026-10-07, collector README '명세(v0.1) 대비 변경')",
+          "type": "string"
+        },
         "url": { "type": "string" },
         "title": { "type": ["string", "null"] },
         "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }
@@ -141,9 +136,11 @@
       "properties": {
         "name": { "type": "string" },
         "location": { "enum": ["path", "query", "body", "header", "cookie"] },
-        "value": {},
+        "value": { "$ref": "#/$defs/JsonValue" },
         "is_sensitive": { "type": "boolean" }
-      }
+      },
+      "if": { "properties": { "is_sensitive": { "const": true } }, "required": ["is_sensitive"] },
+      "then": { "properties": { "value": { "type": "null" } } }
     },
     "HeaderMeta": {
       "type": "object",
@@ -153,7 +150,9 @@
         "name": { "type": "string" },
         "value": { "type": ["string", "null"] },
         "redacted": { "type": "boolean" }
-      }
+      },
+      "if": { "properties": { "redacted": { "const": true } }, "required": ["redacted"] },
+      "then": { "properties": { "value": { "enum": [null, "[REDACTED]"] } } }
     },
     "ResponseMeta": {
       "type": "object",
@@ -163,16 +162,27 @@
         "status_code": { "type": ["integer", "null"] },
         "content_type": { "type": ["string", "null"] },
         "headers": { "type": "array", "items": { "$ref": "#/$defs/HeaderMeta" } },
-        "body_ref": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/EvidenceRef" }] }
+        "body_ref": { "anyOf": [{ "$ref": "#/$defs/EvidenceRef" }, { "type": "null" }] }
       }
     },
     "ObservedRequest": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "request_id", "account_id", "role_id", "session_ref", "page_id",
-        "action_id", "method", "url", "observed_at", "parameters", "headers",
-        "body_ref", "response", "evidence_refs"
+        "request_id",
+        "account_id",
+        "role_id",
+        "session_ref",
+        "page_id",
+        "action_id",
+        "method",
+        "url",
+        "observed_at",
+        "parameters",
+        "headers",
+        "body_ref",
+        "response",
+        "evidence_refs"
       ],
       "properties": {
         "request_id": { "type": "string" },
@@ -186,10 +196,66 @@
         "observed_at": { "type": "string", "format": "date-time" },
         "parameters": { "type": "array", "items": { "$ref": "#/$defs/ObservedParameter" } },
         "headers": { "type": "array", "items": { "$ref": "#/$defs/HeaderMeta" } },
-        "body_ref": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/EvidenceRef" }] },
+        "body_ref": { "anyOf": [{ "$ref": "#/$defs/EvidenceRef" }, { "type": "null" }] },
         "response": { "$ref": "#/$defs/ResponseMeta" },
         "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }
       }
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_type", "iteration", "path", "sha256"],
+      "properties": {
+        "artifact_id": { "type": "string" },
+        "artifact_type": { "type": "string" },
+        "iteration": { "type": "integer", "minimum": 0 },
+        "path": { "type": "string" },
+        "sha256": { "$ref": "#/$defs/Sha256" }
+      }
+    },
+    "EvidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "kind", "path", "sha256", "redacted"],
+      "properties": {
+        "evidence_id": { "type": "string" },
+        "kind": { "enum": ["request", "response", "dom", "screenshot", "state", "execution_log"] },
+        "path": { "type": "string" },
+        "sha256": { "$ref": "#/$defs/Sha256" },
+        "redacted": { "type": "boolean" }
+      }
+    },
+    "ErrorItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "item_ref", "retryable"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "item_ref": { "type": ["string", "null"] },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "RuntimeMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duration_ms", "llm_calls", "input_tokens", "output_tokens", "peak_memory_mb"],
+      "properties": {
+        "duration_ms": { "type": ["integer", "null"] },
+        "llm_calls": { "type": ["integer", "null"] },
+        "input_tokens": { "type": ["integer", "null"] },
+        "output_tokens": { "type": ["integer", "null"] },
+        "peak_memory_mb": { "type": ["number", "null"] }
+      }
+    },
+    "Sha256": {
+      "description": "실제 바이트의 SHA-256, 소문자 16진 64자",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "JsonValue": {
+      "description": "JSON의 문자열·숫자·boolean·object·array·null",
+      "type": ["string", "number", "boolean", "object", "array", "null"]
     }
   }
 }

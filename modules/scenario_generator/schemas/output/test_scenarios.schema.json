@@ -20,7 +20,7 @@
     "data"
   ],
   "properties": {
-    "schema_version": {"const": "0.1.0"},
+    "schema_version": {"const": "0.2.0"},
     "artifact_type": {"const": "test_scenarios"},
     "artifact_id": {"$ref": "#/$defs/nonEmptyString"},
     "run_id": {"$ref": "#/$defs/nonEmptyString"},
@@ -216,11 +216,16 @@
     "scenario": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["scenario_id", "candidate_id", "expected_basis", "preconditions", "steps", "assertions"],
+      "required": ["scenario_id", "candidate_id", "expected_basis", "resource_ids", "preconditions", "steps", "assertions"],
       "properties": {
         "scenario_id": {"$ref": "#/$defs/nonEmptyString"},
         "candidate_id": {"$ref": "#/$defs/nonEmptyString"},
         "expected_basis": {"enum": ["rule", "inferred", "unknown"]},
+        "resource_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/nonEmptyString"}
+        },
         "preconditions": {
           "type": "array",
           "items": {"$ref": "#/$defs/check"}

@@ -6,7 +6,7 @@
 - 공개 operation: `analyze`
 - 입력: `crawl_result.json` (collector)
 - 출력: `semantic_analysis.json` (직접 소비자: knowledge_graph, reporter(개발 평가))
-- 계약 버전: `schema_version = 0.1.0` (명세 v0.1, `docs/spec/m2-semantic_analyzer.md`)
+- 계약 버전: 입력 `crawl_result` `0.2.0`(collector 출력 Schema를 title·description 외 그대로 미러), 출력 `semantic_analysis` `0.2.0` (명세 v0.1, `docs/spec/m2-semantic_analyzer.md`)
 
 ## 설계 경계
 - **정규화·구조 그래프는 규칙(LLM 없음)** → `basis=observed`.

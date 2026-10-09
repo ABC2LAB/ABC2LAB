@@ -62,6 +62,8 @@ def _check_candidate_link(scenario: dict[str, Any], candidate: dict[str, Any]) -
         problems.append("candidate_id가 원본 후보와 다르다")
     if scenario["expected_basis"] != candidate["expected_basis"]:
         problems.append("expected_basis가 원본 후보와 다르다")
+    if scenario["resource_ids"] != candidate["resource_ids"]:
+        problems.append("resource_ids가 원본 후보와 다르다")
     return problems
 
 

@@ -75,6 +75,18 @@ def test_schema_invalid_input_produces_failed(tmp_path):
     assert any(e["code"] == "CONTRACT_INVALID" for e in payload["errors"])
 
 
+def test_previous_contract_version_input_produces_failed(tmp_path):
+    source = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+    source["schema_version"] = "0.1.0"
+    old_in = tmp_path / "old_crawl.json"
+    old_in.write_text(json.dumps(source), encoding="utf-8")
+    result = run("analyze", {"crawl_result": str(old_in)}, tmp_path)
+    assert result["status"] == "failed"
+    payload = _read_output(tmp_path)
+    assert payload["data"] is None
+    assert any(e["code"] == "CONTRACT_INVALID" and "schema_version" in e["message"] for e in payload["errors"])
+
+
 def test_upstream_failed_input_produces_failed(tmp_path):
     source = json.loads(_FIXTURE.read_text(encoding="utf-8"))
     source["status"] = "failed"

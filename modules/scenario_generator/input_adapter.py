@@ -17,7 +17,7 @@ from modules.scenario_generator.utils.hashing import compute_sha256_of_bytes
 from modules.scenario_generator.utils.json_io import InvalidJsonError, parse_json_strict
 from modules.scenario_generator.utils.schema_errors import summarize_schema_errors
 
-SUPPORTED_SCHEMA_VERSION = "0.1.0"
+SUPPORTED_SCHEMA_VERSION = "0.2.0"
 INPUT_SCHEMA_DIR = Path(__file__).resolve().parent / "schemas" / "input"
 SUPPORTED_INPUT_TYPES = ("crawl_result", "vulnerability_candidates")
 

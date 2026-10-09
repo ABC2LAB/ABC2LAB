@@ -21,6 +21,7 @@ def compose_scenario(matched: MatchedCandidate, drafts: dict[str, Any]) -> dict[
         "scenario_id": f"scenario_{candidate['candidate_id']}",
         "candidate_id": candidate["candidate_id"],
         "expected_basis": candidate["expected_basis"],
+        "resource_ids": list(candidate["resource_ids"]),
         **copy.deepcopy(drafts[candidate["candidate_id"]]),
     }
 
@@ -265,6 +266,10 @@ PROBLEM_CASES: list[tuple[str, Mutation, str]] = [
     ("unknown key in step", lambda s, e: get_consumer(s).update({"extra": 1}), "Schema 위반"),
     ("candidate_id differs from candidate", lambda s, e: s.update({"candidate_id": "another"}), "candidate_id가"),
     ("expected_basis differs from candidate", lambda s, e: s.update({"expected_basis": "rule" if s["expected_basis"] != "rule" else "unknown"}), "expected_basis가"),
+    ("resource_ids differs from candidate", lambda s, e: s["resource_ids"].append(f"{s['resource_ids'][0]}:other"), "resource_ids가"),
+    ("resource_ids missing", lambda s, e: s.pop("resource_ids"), "Schema 위반"),
+    ("resource_ids empty", lambda s, e: s.update({"resource_ids": []}), "Schema 위반"),
+    ("resource_ids has empty string", lambda s, e: s["resource_ids"].append(""), "Schema 위반"),
 ]
 
 

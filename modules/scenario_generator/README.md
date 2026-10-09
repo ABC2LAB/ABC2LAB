@@ -5,7 +5,7 @@
 
 - 기준 명세: `docs/spec/m5-scenario_generator.md` (공통: `02-common-contract.md`, `03-runner-layout.md`)
 - 공개 operation: `generate`
-- 지원 `schema_version`: `0.1.0`
+- 지원 `schema_version`: `0.2.0` (입력 `crawl_result`·`vulnerability_candidates`, 출력 `test_scenarios`)
 - 직접 소비자: safety_policy · verifier · reporter
 - 이 모듈은 요청을 보내지 않는다. 실행 허용은 safety_policy가 정한다.
 
@@ -17,7 +17,7 @@
 | 입력 | `crawl_result.json` | collector | `schemas/input/crawl_result.schema.json` |
 | 출력 | `test_scenarios.json` | scenario_generator | `schemas/output/test_scenarios.schema.json` |
 
-입력 Schema는 생산자 출력 계약의 사본이다. 계약이 바뀌면 생산자와 합의한 뒤 같이 고친다.
+입력 Schema는 생산자 출력 Schema를 그대로 복사한 사본이다. 계약이 바뀌면 생산자와 합의한 뒤 같이 고친다.
 출력 샘플: `tests/fixtures/runs/run_demo_001/artifacts/iteration-000/scenario_generator/test_scenarios.json`
 
 ## 실행
@@ -108,7 +108,7 @@ Schema(필드·타입·enum, 미정의 키 거절) 외에 다음을 코드로 �
 - 단계의 계정은 후보의 **실행 계정 또는 기준 계정**만 쓰고, `role_id`·`session_ref`가 그 계정과 같다
 - `source_request_id`가 `crawl_result`에 있고, `method`가 원본 요청과 같고, `body_ref`는 null이거나 원본 요청의 것이다
 - `url_template`의 scheme·host·port가 `crawl_result.target_url`과 같다. 주소 부분에는 바인딩·사용자 정보를 쓸 수 없다
-- `scenario_id`·`candidate_id`·`expected_basis`는 프로그램이 원본 후보에서 채운다. 초안에 이 키가 있으면 거절한다
+- `scenario_id`·`candidate_id`·`expected_basis`·`resource_ids`는 프로그램이 원본 후보에서 채운다. 초안에 이 키가 있으면 값이 원본과 같아도 거절하고, 채운 값이 원본 후보와 다르면 거절한다
 
 ## 초안 생성기(LLM) 연결
 
@@ -134,6 +134,16 @@ class ScenarioDrafter(Protocol):
 - LLM에게 주는 입력은 `build_draft_request`가 만든 것뿐이다(헤더·쿠키·응답 본문·근거 경로·민감 파라미터 값 제외)
 - 모델 출력은 데이터다. 모양이 맞아도 `scenario_validator`가 전부 다시 검증하고, 통과하지 못하면 `DRAFT_INVALID`로 버린다
 
+## 명세(v0.1) 대비 변경
+
+필드 정의는 `docs/spec/m5-scenario_generator.md` "변경 이력"에도 같은 내용으로 적었다.
+
+| 날짜 | 파일·필드 | 변경 | 근거·합의 |
+|---|---|---|---|
+| 2026-10-09 | 출력 `test_scenarios` `schema_version` | `0.1.0` → `0.2.0` | 11개 파일 전원 동시 전환(02 공통 계약). 필드 변경은 아래 `resource_ids`뿐 |
+| 2026-10-09 | 출력 `test_scenarios` `Scenario.resource_ids` | 새 필수 필드. `array<nonEmptyString>`, `minItems 1`, 위치는 `expected_basis` 다음. 원본 후보 `Candidate.resource_ids`(KG Resource instance `node_id`)를 순서·값 그대로 복사한다. 프로그램이 채우고, LLM 초안에 이 키가 있으면 값이 같아도 `DRAFT_INVALID`, 원본과 다르면 거절 | verifier가 검증 결과를 KG 자원 노드에 잇는 키(KG `target_id` = 기존 Resource instance node_id). 소비자 이동찬(safety_policy·reporter)과 합의, verifier(최민준). 소비자 입력 사본 미러 전까지 소비자 입력 검증에서 거절된다 |
+| 2026-10-09 | 입력 `crawl_result`·`vulnerability_candidates` | `0.2.0`만 받는다. `0.1.0`은 묵시 변환 없이 `INPUT_VERSION_UNSUPPORTED`(failed) | 생산자 출력 Schema를 그대로 복사(`cmp` 동일). 생산자 `run_demo_001` 샘플이 입력 adapter 통과(수동 확인) |
+
 ## 명세 해석과 미정 사항
 
 명세에 직접 적혀 있지 않아 이 모듈이 정한 것이다. "확정"은 소비자·생산자의 구현(README·코드)과 맞춘 것, "미정"은 합의 전 임시이다.
@@ -143,36 +153,34 @@ class ScenarioDrafter(Protocol):
 | `assertions`의 의미 | "모두 참이면 위반이 재현됨" | 확정 | verifier README "Check 평가와 result 분류"에 같은 해석으로 구현 |
 | `Check.subject_ref` (`response_status`·`response_json`·`session_valid`) | 응답 조건은 step_id, `session_valid`는 account_id | 확정 | verifier `execution.py` Check 평가 |
 | `Check.subject_ref`·selector (`resource_state`·`resource_owner`·`baseline_match`) | 정하지 않음. 필수 조건으로 치지 않는다 | 미정 | verifier(최민준). verifier가 아직 평가하지 않음 |
-| `Binding`의 위치 | 값을 **쓰는** 단계의 `bindings`에 두고 `source_step_id`로 앞 단계를 가리킨다 | 확정 | verifier는 URL을 만들 때 그 단계의 `bindings`만 읽는다(아래 "한계" 참고) |
+| `Binding`의 위치 | 값을 **쓰는** 단계의 `bindings`에 두고 `source_step_id`로 앞 단계를 가리킨다 | 확정 | verifier는 URL을 만들 때 그 단계의 `bindings`만 읽는다. 이 모듈도 그 단계의 `bindings`에 정의된 바인딩만 쓰게 검증한다 |
 | `url_template`의 `{binding_id}` 와 `parameters(location=path)` | `url_template`의 `{...}`는 바인딩 ID만 허용 | 확정(더 엄격) | verifier는 `{경로 파라미터 이름}` 치환도 지원하지만, 이 모듈은 바인딩만 쓴다 |
 | 근거 요청의 계정 | `source_request_ids`의 요청이 실행 계정의 것일 필요는 없다 | 확정 | access_analyzer README: 기준(소유자) 계정의 요청을 실행 계정이 재현한다 |
 | 후보와 시나리오의 수 | 후보 1개당 시나리오 1개. `scenario_id = "scenario_" + candidate_id` | 미정 | 이경준 |
 | 기준 계정 단계 | 기준(소유자) 계정으로 보내는 단계를 steps에 둘 수 있다(필수 아님) | 미정 | 이경준. 명세 m7의 정상 기준 비교를 위해 필수로 바꿀지 |
 | `method`·`url`·계정 제한 | 위 "초안 검증 규칙"의 해석 | 미정 | 이경준 |
 
-## 소비자·생산자 연결 상태 (10/8 dev 기준)
+## 소비자·생산자 연결 상태 (10/9 기준)
 
-이 모듈의 Schema는 그대로지만, 이웃 모듈의 현재 구현 때문에 결과가 달라지는 것들이다.
+이웃 모듈의 현재 구현 때문에 결과가 달라지는 것들이다.
 
 | 대상 | 현재 동작 | 이 모듈에 주는 영향 |
 |---|---|---|
 | access_analyzer | 후보 규칙은 `rule_same_role_other_owner`(authorization / horizontal_access) 하나 | 업무 흐름(workflow) 후보는 아직 들어오지 않는다 |
-| access_analyzer ↔ knowledge_graph | KG 출력 `graph_query_result`가 `0.2.0`(Resource type/instance 구분, #41), access_analyzer 입력은 아직 `0.1.0` | 실제 파이프라인에서 후보가 아직 안 만들어진다. access_analyzer가 0.2로 올라가면 `Candidate.resource_ids`가 Resource instance `node_id`가 된다. 이 모듈은 값을 그대로 전달만 해서 코드 영향은 없다 |
+| access_analyzer ↔ knowledge_graph | access_analyzer 입력·출력 모두 `0.2.0`. `Candidate.resource_ids`는 KG Resource instance `node_id`다 | 이 모듈은 그 값을 `Scenario.resource_ids`로 그대로 복사한다. 형식은 가정하지 않는다 |
 | safety_policy | 등록된 요청 규칙이 없으면 GET이어도 `require_approval`. URL에 fragment·공백·`//`·`.`/`..` 세그먼트·잘못된 `%` 인코딩이 있으면 허용하지 않음 | 이 모듈은 위 URL 형식을 미리 거르지 않는다. 허용 여부는 safety_policy가 정한다 |
 | verifier | `state_change≠none` 단계와 `body_ref`가 있는 단계는 보내지 않는다(DB 초기화 훅·본문 역참조가 다음 PR). `resource_state`·`resource_owner`·`baseline_match`는 평가하지 않는다 | 지금 끝까지 판정되는 것은 **GET + `state_change=none` 읽기 시나리오**뿐이다. 그 밖은 판단불가(`indeterminate`) |
-| verifier ↔ knowledge_graph | KG 0.2는 검증 관계의 target으로 앞 단계에서 받은 Resource instance `node_id`만 받는다. verifier 입력(crawl_result·safety_decisions·test_scenarios)에는 그 값이 없다 | verifier가 어디서 node_id를 받을지 정해지지 않았다. `test_scenarios`에 담게 되면 **이 모듈의 출력 계약 변경**이다(최민준·이동찬과 합의 필요) |
+| verifier ↔ knowledge_graph | KG 0.2는 검증 관계의 target으로 앞 단계에서 받은 Resource instance `node_id`만 받는다 | `test_scenarios` 0.2.0의 `Scenario.resource_ids`로 전달한다(위 "명세(v0.1) 대비 변경"). verifier가 이 값을 `graph_updates`에 쓰는 것은 verifier 쪽 작업이다 |
 
-이웃 모듈 fixture로 교차 확인한 결과(10/8): collector·reporter·semantic_analyzer·verifier의 `crawl_result`, reporter의 후보 fixture가
-이 모듈 입력 Schema를 통과하고, 이 모듈의 `test_scenarios` 샘플이 safety_policy·verifier·reporter 입력 Schema를 통과한다(에러 0).
+생산자 샘플로 교차 확인한 결과(10/9): collector·access_analyzer `run_demo_001` 샘플이 이 모듈 입력 adapter를 통과한다(Schema 오류 0).
+`resource_ids`를 넣은 `test_scenarios` 샘플은 safety_policy·verifier·reporter 입력 사본이 이 필드를 미러하기 전까지 거절된다
+(`additionalProperties`. verifier 사본은 `schema_version`도 아직 0.1.0).
 
 ## 한계
 
 - `created_at`·`observed_at`이 실제 날짜 형식인지는 검사하지 않는다 (`date-time` 형식 검사에 추가 패키지가 필요)
 - `resource_ids`·`workflow_id`는 `crawl_result`로 검증할 수 없어 그대로 전달한다
 - 응답 본문을 저장하지 않으므로 바인딩 selector가 실제 응답에 있는지는 이 모듈이 알 수 없다 (verifier가 실행 시 확인)
-- **바인딩 범위 불일치(수정 예정)**: 검증기는 앞 단계의 `bindings`에 정의된 바인딩도 뒤 단계의 `url_template`·`binding_ref`에서 쓸 수 있게 통과시킨다.
-  verifier는 그 단계의 `bindings`만 읽으므로 이런 시나리오는 `BINDING_UNRESOLVED`로 보내지지 않는다. 현재 샘플은 바인딩을 쓰는 단계에 두어 해당하지 않는다
-- 소비자 입력 Schema는 `subject_ref`·`session_ref`·`binding_ref`·`errors[].message`의 빈 문자열을 거절하지만, 이 모듈의 출력 Schema는 거절하지 않는다(수정 예정)
 - 이 모듈에는 `configs/` 폴더가 없다. 실행 설정은 CLI 옵션으로 받는다
 
 ## 테스트

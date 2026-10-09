@@ -55,12 +55,14 @@ def _sum_known(values: list[int | None]) -> int | None:
 
 def _compose_scenario(candidate: dict[str, Any], draft_scenario: Any) -> tuple[dict[str, Any] | None, str | None]:
     if not isinstance(draft_scenario, dict) or set(draft_scenario) != DRAFT_KEYS:
-        # candidate_id·expected_basis 같은 키를 LLM이 직접 쓰면 원본과 어긋날 수 있어 받지 않는다.
+        # candidate_id·expected_basis·resource_ids 같은 키를 LLM이 직접 쓰면 원본과 어긋날 수 있어 받지 않는다.
         return None, f"초안의 키는 {sorted(DRAFT_KEYS)}여야 한다"
     scenario = {
         "scenario_id": f"{SCENARIO_ID_PREFIX}{candidate['candidate_id']}",
         "candidate_id": candidate["candidate_id"],
         "expected_basis": candidate["expected_basis"],
+        # KG Resource instance node_id. verifier가 검증 결과를 KG 자원 노드에 잇는 키라 후보 값을 그대로 옮긴다.
+        "resource_ids": list(candidate["resource_ids"]),
         **draft_scenario,
     }
     return scenario, None
