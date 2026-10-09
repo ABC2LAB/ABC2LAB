@@ -57,6 +57,14 @@ def test_crawl_result_requires_page_account_id() -> None:
     assert schema_errors("input/crawl_result.schema.json", document)
 
 
+def test_test_scenarios_requires_resource_ids() -> None:
+    # resource_ids는 scenario_generator 0.2.0 필수 필드(미러링). 빠지면 거절되어야 한다.
+    document = json.loads((FIXTURE_RUN / "scenario_generator/test_scenarios.json").read_bytes())
+    for scenario in document["data"]["scenarios"]:
+        scenario.pop("resource_ids")
+    assert schema_errors("input/test_scenarios.schema.json", document)
+
+
 # ── 출력 검증: pairing ──
 
 def test_valid_results_pass() -> None:

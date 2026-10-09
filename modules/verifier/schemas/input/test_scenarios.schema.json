@@ -1,227 +1,293 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "test_scenarios.schema.json",
-  "title": "test_scenarios.json (schema_version 0.1.0)",
+  "title": "test_scenarios.json (schema_version 0.2.0)",
   "description": "verifier 입력 사본. 생산자 scenario_generator의 실제 출력 Schema(test_scenarios.schema.json)를 그대로 미러링한다(더 엄격하게 하지 않음). 계약이 바뀌면 생산자와 합의 후 같이 고친다.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "artifact_type", "artifact_id", "run_id", "iteration", "producer",
-    "mode", "created_at", "status", "input_refs", "errors", "runtime_metrics", "data"
+    "schema_version",
+    "artifact_type",
+    "artifact_id",
+    "run_id",
+    "iteration",
+    "producer",
+    "mode",
+    "created_at",
+    "status",
+    "input_refs",
+    "errors",
+    "runtime_metrics",
+    "data"
   ],
   "properties": {
-    "schema_version": { "const": "0.1.0" },
-    "artifact_type": { "const": "test_scenarios" },
-    "artifact_id": { "type": "string", "minLength": 1 },
-    "run_id": { "type": "string", "minLength": 1 },
-    "iteration": { "type": "integer", "minimum": 0 },
-    "producer": { "const": "scenario_generator" },
-    "mode": { "enum": ["diagnosis", "development"] },
-    "created_at": { "type": "string", "format": "date-time" },
-    "status": { "enum": ["completed", "partial", "failed"] },
-    "input_refs": { "type": "array", "items": { "$ref": "#/$defs/ArtifactRef" } },
-    "errors": { "type": "array", "items": { "$ref": "#/$defs/ErrorItem" } },
+    "schema_version": {"const": "0.2.0"},
+    "artifact_type": {"const": "test_scenarios"},
+    "artifact_id": {"$ref": "#/$defs/nonEmptyString"},
+    "run_id": {"$ref": "#/$defs/nonEmptyString"},
+    "iteration": {"type": "integer", "minimum": 0},
+    "producer": {"const": "scenario_generator"},
+    "mode": {"enum": ["diagnosis", "development"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["completed", "partial", "failed"]},
+    "input_refs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifactRef"}
+    },
+    "errors": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/errorItem"}
+    },
     "runtime_metrics": {
-      "oneOf": [{ "$ref": "#/$defs/RuntimeMetrics" }, { "type": "null" }]
+      "oneOf": [
+        {"$ref": "#/$defs/runtimeMetrics"},
+        {"type": "null"}
+      ]
     },
     "data": {
-      "oneOf": [{ "$ref": "#/$defs/Data" }, { "type": "null" }]
+      "oneOf": [
+        {"$ref": "#/$defs/scenarioData"},
+        {"type": "null"}
+      ]
     }
   },
-  "allOf": [
-    {
-      "if": { "properties": { "status": { "const": "completed" } } },
-      "then": {
-        "properties": {
-          "errors": { "maxItems": 0 },
-          "data": { "$ref": "#/$defs/Data" }
-        }
-      }
-    },
-    {
-      "if": { "properties": { "status": { "const": "partial" } } },
-      "then": {
-        "properties": {
-          "errors": { "minItems": 1 },
-          "data": { "$ref": "#/$defs/Data" }
-        }
-      }
-    },
-    {
-      "if": { "properties": { "status": { "const": "failed" } } },
-      "then": {
-        "properties": {
-          "errors": { "minItems": 1 },
-          "data": { "type": "null" }
-        }
-      }
-    }
-  ],
+  "allOf": [{"$ref": "#/$defs/statusRules"}],
   "$defs": {
-    "Sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-
-    "ArtifactRef": {
+    "nonEmptyString": {"type": "string", "minLength": 1},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "jsonValue": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "boolean"},
+        {"type": "number"},
+        {"type": "string"},
+        {"type": "array", "items": {"$ref": "#/$defs/jsonValue"}},
+        {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/jsonValue"}
+        }
+      ]
+    },
+    "artifactRef": {
       "type": "object",
       "additionalProperties": false,
       "required": ["artifact_id", "artifact_type", "iteration", "path", "sha256"],
       "properties": {
-        "artifact_id": { "type": "string", "minLength": 1 },
-        "artifact_type": { "type": "string", "minLength": 1 },
-        "iteration": { "type": "integer", "minimum": 0 },
-        "path": { "type": "string", "minLength": 1 },
-        "sha256": { "$ref": "#/$defs/Sha256" }
+        "artifact_id": {"$ref": "#/$defs/nonEmptyString"},
+        "artifact_type": {"$ref": "#/$defs/nonEmptyString"},
+        "iteration": {"type": "integer", "minimum": 0},
+        "path": {"$ref": "#/$defs/nonEmptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"}
       }
     },
-
-    "EvidenceRef": {
+    "evidenceRef": {
       "type": "object",
       "additionalProperties": false,
       "required": ["evidence_id", "kind", "path", "sha256", "redacted"],
       "properties": {
-        "evidence_id": { "type": "string", "minLength": 1 },
-        "kind": { "enum": ["request", "response", "dom", "screenshot", "state", "execution_log"] },
-        "path": { "type": "string", "minLength": 1 },
-        "sha256": { "$ref": "#/$defs/Sha256" },
-        "redacted": { "type": "boolean" }
+        "evidence_id": {"$ref": "#/$defs/nonEmptyString"},
+        "kind": {
+          "enum": ["request", "response", "dom", "screenshot", "state", "execution_log"]
+        },
+        "path": {"$ref": "#/$defs/nonEmptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "redacted": {"type": "boolean"}
       }
     },
-
-    "ErrorItem": {
+    "errorItem": {
       "type": "object",
       "additionalProperties": false,
       "required": ["code", "message", "item_ref", "retryable"],
       "properties": {
-        "code": { "type": "string", "minLength": 1 },
-        "message": { "type": "string" },
-        "item_ref": { "type": ["string", "null"] },
-        "retryable": { "type": "boolean" }
+        "code": {"$ref": "#/$defs/nonEmptyString"},
+        "message": {"$ref": "#/$defs/nonEmptyString"},
+        "item_ref": {"type": ["string", "null"]},
+        "retryable": {"type": "boolean"}
       }
     },
-
-    "RuntimeMetrics": {
+    "runtimeMetrics": {
       "type": "object",
       "additionalProperties": false,
       "required": ["duration_ms", "llm_calls", "input_tokens", "output_tokens", "peak_memory_mb"],
       "properties": {
-        "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
-        "llm_calls": { "type": ["integer", "null"], "minimum": 0 },
-        "input_tokens": { "type": ["integer", "null"], "minimum": 0 },
-        "output_tokens": { "type": ["integer", "null"], "minimum": 0 },
-        "peak_memory_mb": { "type": ["number", "null"], "minimum": 0 }
+        "duration_ms": {"type": ["integer", "null"], "minimum": 0},
+        "llm_calls": {"type": ["integer", "null"], "minimum": 0},
+        "input_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "output_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "peak_memory_mb": {"type": ["number", "null"], "minimum": 0}
       }
     },
-
-    "ModelInfo": {
+    "modelInfo": {
       "type": "object",
       "additionalProperties": false,
       "required": ["model_id", "model_version", "prompt_version", "temperature", "seed"],
       "properties": {
-        "model_id": { "type": "string", "minLength": 1 },
-        "model_version": { "type": "string", "minLength": 1 },
-        "prompt_version": { "type": "string", "minLength": 1 },
-        "temperature": { "type": ["number", "null"] },
-        "seed": { "type": ["integer", "null"] }
+        "model_id": {"$ref": "#/$defs/nonEmptyString"},
+        "model_version": {"$ref": "#/$defs/nonEmptyString"},
+        "prompt_version": {"$ref": "#/$defs/nonEmptyString"},
+        "temperature": {"type": ["number", "null"]},
+        "seed": {"type": ["integer", "null"]}
       }
     },
-
-    "Data": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["scenarios", "model_info"],
-      "properties": {
-        "scenarios": { "type": "array", "items": { "$ref": "#/$defs/Scenario" } },
-        "model_info": {
-          "oneOf": [{ "$ref": "#/$defs/ModelInfo" }, { "type": "null" }]
-        }
-      }
-    },
-
-    "Scenario": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["scenario_id", "candidate_id", "expected_basis", "preconditions", "steps", "assertions"],
-      "properties": {
-        "scenario_id": { "type": "string", "minLength": 1 },
-        "candidate_id": { "type": "string", "minLength": 1 },
-        "expected_basis": { "enum": ["rule", "inferred", "unknown"] },
-        "preconditions": { "type": "array", "items": { "$ref": "#/$defs/Check" } },
-        "steps": { "type": "array", "items": { "$ref": "#/$defs/ScenarioStep" } },
-        "assertions": { "type": "array", "items": { "$ref": "#/$defs/Check" } }
-      }
-    },
-
-    "ScenarioStep": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "step_id", "order", "source_request_id", "account_id", "role_id",
-        "session_ref", "request", "bindings", "state_change"
-      ],
-      "properties": {
-        "step_id": { "type": "string", "minLength": 1 },
-        "order": { "type": "integer", "minimum": 0 },
-        "source_request_id": { "type": "string", "minLength": 1 },
-        "account_id": { "type": "string", "minLength": 1 },
-        "role_id": { "type": "string", "minLength": 1 },
-        "session_ref": { "type": ["string", "null"] },
-        "request": { "$ref": "#/$defs/RequestPlan" },
-        "bindings": { "type": "array", "items": { "$ref": "#/$defs/Binding" } },
-        "state_change": { "enum": ["none", "possible", "expected", "unknown"] }
-      }
-    },
-
-    "RequestPlan": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["method", "url_template", "parameters", "body_ref"],
-      "properties": {
-        "method": { "type": "string", "pattern": "^[A-Z]+$" },
-        "url_template": { "type": "string", "minLength": 1 },
-        "parameters": { "type": "array", "items": { "$ref": "#/$defs/ParameterValue" } },
-        "body_ref": {
-          "oneOf": [{ "$ref": "#/$defs/EvidenceRef" }, { "type": "null" }]
-        }
-      }
-    },
-
-    "ParameterValue": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "location", "value", "binding_ref"],
-      "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "location": { "enum": ["path", "query", "body"] },
-        "value": {},
-        "binding_ref": { "type": ["string", "null"] }
-      }
-    },
-
-    "Binding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["binding_id", "source_step_id", "source_part", "selector"],
-      "properties": {
-        "binding_id": { "type": "string", "minLength": 1 },
-        "source_step_id": { "type": "string", "minLength": 1 },
-        "source_part": { "enum": ["response_body", "response_header"] },
-        "selector": { "type": "string", "minLength": 1 }
-      }
-    },
-
-    "Check": {
+    "check": {
       "type": "object",
       "additionalProperties": false,
       "required": ["check_id", "kind", "subject_ref", "selector", "operator", "expected"],
       "properties": {
-        "check_id": { "type": "string", "minLength": 1 },
+        "check_id": {"$ref": "#/$defs/nonEmptyString"},
         "kind": {
           "enum": ["session_valid", "response_status", "response_json", "resource_state", "resource_owner", "baseline_match"]
         },
-        "subject_ref": { "type": "string" },
-        "selector": { "type": ["string", "null"] },
-        "operator": { "enum": ["exists", "eq", "ne", "in", "contains"] },
-        "expected": {}
+        "subject_ref": {"$ref": "#/$defs/nonEmptyString"},
+        "selector": {"type": ["string", "null"]},
+        "operator": {"enum": ["exists", "eq", "ne", "in", "contains"]},
+        "expected": {"$ref": "#/$defs/jsonValue"}
       }
+    },
+    "parameterValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "location", "value", "binding_ref"],
+      "properties": {
+        "name": {"$ref": "#/$defs/nonEmptyString"},
+        "location": {"enum": ["path", "query", "body"]},
+        "value": {"$ref": "#/$defs/jsonValue"},
+        "binding_ref": {
+          "oneOf": [
+            {"$ref": "#/$defs/nonEmptyString"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding_id", "source_step_id", "source_part", "selector"],
+      "properties": {
+        "binding_id": {"$ref": "#/$defs/nonEmptyString"},
+        "source_step_id": {"$ref": "#/$defs/nonEmptyString"},
+        "source_part": {"enum": ["response_body", "response_header"]},
+        "selector": {"$ref": "#/$defs/nonEmptyString"}
+      }
+    },
+    "requestPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "url_template", "parameters", "body_ref"],
+      "properties": {
+        "method": {"type": "string", "pattern": "^[A-Z]+$"},
+        "url_template": {"$ref": "#/$defs/nonEmptyString"},
+        "parameters": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/parameterValue"}
+        },
+        "body_ref": {
+          "oneOf": [
+            {"$ref": "#/$defs/evidenceRef"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "scenarioStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step_id", "order", "source_request_id", "account_id", "role_id", "session_ref", "request", "bindings", "state_change"],
+      "properties": {
+        "step_id": {"$ref": "#/$defs/nonEmptyString"},
+        "order": {"type": "integer", "minimum": 0},
+        "source_request_id": {"$ref": "#/$defs/nonEmptyString"},
+        "account_id": {"$ref": "#/$defs/nonEmptyString"},
+        "role_id": {"$ref": "#/$defs/nonEmptyString"},
+        "session_ref": {
+          "oneOf": [
+            {"$ref": "#/$defs/nonEmptyString"},
+            {"type": "null"}
+          ]
+        },
+        "request": {"$ref": "#/$defs/requestPlan"},
+        "bindings": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/binding"}
+        },
+        "state_change": {"enum": ["none", "possible", "expected", "unknown"]}
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario_id", "candidate_id", "expected_basis", "resource_ids", "preconditions", "steps", "assertions"],
+      "properties": {
+        "scenario_id": {"$ref": "#/$defs/nonEmptyString"},
+        "candidate_id": {"$ref": "#/$defs/nonEmptyString"},
+        "expected_basis": {"enum": ["rule", "inferred", "unknown"]},
+        "resource_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/nonEmptyString"}
+        },
+        "preconditions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/check"}
+        },
+        "steps": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/scenarioStep"}
+        },
+        "assertions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/check"}
+        }
+      }
+    },
+    "scenarioData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenarios", "model_info"],
+      "properties": {
+        "scenarios": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/scenario"}
+        },
+        "model_info": {
+          "oneOf": [
+            {"$ref": "#/$defs/modelInfo"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "statusRules": {
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "completed"}}},
+          "then": {
+            "properties": {
+              "errors": {"maxItems": 0},
+              "data": {"$ref": "#/$defs/scenarioData"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "partial"}}},
+          "then": {
+            "properties": {
+              "errors": {"minItems": 1},
+              "data": {"$ref": "#/$defs/scenarioData"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "failed"}}},
+          "then": {
+            "properties": {
+              "errors": {"minItems": 1},
+              "data": {"type": "null"}
+            }
+          }
+        }
+      ]
     }
   }
 }

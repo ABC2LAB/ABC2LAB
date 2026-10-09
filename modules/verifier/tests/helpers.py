@@ -143,7 +143,7 @@ def copy_committed_triple(run_root: Path) -> list[str]:
 
 def _envelope(artifact_type: str, producer: str, data: Any, status: str = "completed") -> dict[str, Any]:
     return {
-        "schema_version": "0.1.0", "artifact_type": artifact_type, "artifact_id": f"{artifact_type}_1",
+        "schema_version": "0.2.0", "artifact_type": artifact_type, "artifact_id": f"{artifact_type}_1",
         "run_id": RUN_ID, "iteration": 0, "producer": producer, "mode": "development",
         "created_at": "2026-10-07T00:00:00.000000Z", "status": status, "input_refs": [], "errors": [],
         "runtime_metrics": None, "data": data,
@@ -154,8 +154,10 @@ def scenario(
     scenario_id: str, candidate_id: str, steps: list[dict[str, Any]],
     preconditions: list[dict[str, Any]] | None = None, assertions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    # resource_ids는 test_scenarios 0.2.0 필수 필드다. verifier 실행 로직은 아직 읽지 않아(PR3-c) 후보마다 다른 값이면 충분하다.
     return {
         "scenario_id": scenario_id, "candidate_id": candidate_id, "expected_basis": "inferred",
+        "resource_ids": [f"resource_of_{candidate_id}"],
         "preconditions": preconditions or [], "steps": steps, "assertions": assertions or [],
     }
 
