@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
+from json import JSONDecodeError
 from typing import Any
 
 from neo4j import Driver, GraphDatabase, ManagedTransaction
@@ -24,6 +25,8 @@ from modules.knowledge_graph.exceptions import (
     VerificationConflictError,
 )
 from modules.knowledge_graph.models import (
+    GraphEdge,
+    GraphNode,
     GraphSource,
     GraphState,
     SemanticGraph,
@@ -236,7 +239,7 @@ class Neo4jGraphRepository:
         self,
         graph_id: str,
         run_id: str,
-        update: VerificationInputUpdate | VerificationUpdate,
+        update: VerificationInputUpdate,
     ) -> VerificationState:
         if not graph_id or not run_id:
             raise ContractValidationError("graph_id와 run_id는 비어 있을 수 없음")
@@ -253,19 +256,6 @@ class Neo4jGraphRepository:
         }
         if invalid_types:
             raise ContractValidationError("허용되지 않은 verification 관계 유형")
-        if isinstance(update, VerificationInputUpdate):
-            if update.relationships:
-                # TODO(이동찬): 2단계에서 같은 트랜잭션의 User 노드로 해석한다.
-                raise GraphUpdateReferenceError(
-                    "source_account_id의 User 노드 변환이 아직 구현되지 않음"
-                )
-            update = VerificationUpdate(
-                source=update.source,
-                source_graph_revision=update.source_graph_revision,
-                verification_ids=update.verification_ids,
-                nodes=update.nodes,
-                relationships=(),
-            )
         self.initialize_schema()
         try:
             with self._driver.session(database=self._settings.database) as session:
@@ -563,7 +553,7 @@ class Neo4jGraphRepository:
         transaction: ManagedTransaction,
         graph_id: str,
         run_id: str,
-        update: VerificationUpdate,
+        update: VerificationInputUpdate,
     ) -> VerificationState:
         graph_record = transaction.run(
             "MATCH (graph:ABC2Graph {graph_id: $graph_id, run_id: $run_id}) "
@@ -621,9 +611,12 @@ class Neo4jGraphRepository:
         if current_revision != update.source_graph_revision:
             raise GraphRevisionMismatchError("verification의 기준 revision이 오래됨")
 
-        cls._validate_update_identities(transaction, graph_id, run_id, update)
-        cls._upsert_verified_nodes(transaction, graph_id, run_id, update)
-        cls._upsert_verified_relationships(transaction, graph_id, run_id, update)
+        resolved_update = cls._resolve_verification_sources(
+            transaction, graph_id, run_id, update
+        )
+        cls._validate_update_identities(transaction, graph_id, run_id, resolved_update)
+        cls._upsert_verified_nodes(transaction, graph_id, run_id, resolved_update)
+        cls._upsert_verified_relationships(transaction, graph_id, run_id, resolved_update)
         next_revision = current_revision + 1
         transaction.run(
             "UNWIND $verification_ids AS verification_id "
@@ -665,6 +658,118 @@ class Neo4jGraphRepository:
             applied_verification_ids=update.verification_ids,
             is_applied=True,
         )
+
+    @classmethod
+    def _resolve_verification_sources(
+        cls,
+        transaction: ManagedTransaction,
+        graph_id: str,
+        run_id: str,
+        update: VerificationInputUpdate,
+    ) -> VerificationUpdate:
+        has_user_updates = any(node.node_type == "User" for node in update.nodes)
+        user_node_id_by_account_id = (
+            cls._load_verification_user_index(transaction, graph_id, run_id)
+            if update.relationships or has_user_updates
+            else {}
+        )
+        cls._validate_verified_user_identities(update.nodes, user_node_id_by_account_id)
+        if any(
+            edge.source_account_id not in user_node_id_by_account_id
+            for edge in update.relationships
+        ):
+            raise GraphUpdateReferenceError(
+                "검증 관계의 source_account_id에 해당하는 기존 User 노드가 없음"
+            )
+        return VerificationUpdate(
+            source=update.source,
+            source_graph_revision=update.source_graph_revision,
+            verification_ids=update.verification_ids,
+            nodes=update.nodes,
+            relationships=tuple(
+                GraphEdge(
+                    relationship_id=edge.relationship_id,
+                    source_id=user_node_id_by_account_id[edge.source_account_id],
+                    target_id=edge.target_id,
+                    relation_type=edge.relation_type,
+                    properties=edge.properties,
+                    basis=edge.basis,
+                    evidence_refs=edge.evidence_refs,
+                )
+                for edge in update.relationships
+            ),
+        )
+
+    @classmethod
+    def _load_verification_user_index(
+        cls,
+        transaction: ManagedTransaction,
+        graph_id: str,
+        run_id: str,
+    ) -> dict[str, str]:
+        records = transaction.run(
+            "MATCH (node:ABC2Entity {graph_id: $graph_id, run_id: $run_id}) "
+            "WHERE node.node_type = 'User' "
+            "RETURN node.node_id AS node_id, node.properties_json AS properties_json",
+            graph_id=graph_id,
+            run_id=run_id,
+        )
+        user_node_id_by_account_id: dict[str, str] = {}
+        seen_node_ids: set[str] = set()
+        for record in records:
+            account_id, node_id = cls._decode_verification_user_identity(record)
+            if account_id in user_node_id_by_account_id or node_id in seen_node_ids:
+                raise GraphUpdateReferenceError(
+                    "기존 User의 account_id와 node_id 대응이 중복됨"
+                )
+            user_node_id_by_account_id[account_id] = node_id
+            seen_node_ids.add(node_id)
+        return user_node_id_by_account_id
+
+    @staticmethod
+    def _decode_verification_user_identity(record: Any) -> tuple[str, str]:
+        try:
+            properties = decode_json(record["properties_json"])
+        except (JSONDecodeError, TypeError) as error:
+            raise GraphUpdateReferenceError("기존 User의 properties_json이 올바르지 않음") from error
+        account_id = properties.get("account_id") if isinstance(properties, dict) else None
+        node_id = record["node_id"]
+        if (
+            not isinstance(account_id, str)
+            or not account_id
+            or not isinstance(node_id, str)
+            or not node_id
+        ):
+            raise GraphUpdateReferenceError("기존 User의 account_id 또는 node_id가 올바르지 않음")
+        return account_id, node_id
+
+    @staticmethod
+    def _validate_verified_user_identities(
+        nodes: tuple[GraphNode, ...],
+        user_node_id_by_account_id: dict[str, str],
+    ) -> None:
+        pending_node_id_by_account_id = dict(user_node_id_by_account_id)
+        account_id_by_node_id = {
+            node_id: account_id
+            for account_id, node_id in user_node_id_by_account_id.items()
+        }
+        for node in nodes:
+            if node.node_type != "User":
+                continue
+            account_id = node.properties.get("account_id")
+            if not isinstance(account_id, str) or not account_id:
+                raise GraphUpdateReferenceError("검증 User의 account_id 속성이 올바르지 않음")
+            if (
+                node.node_id in account_id_by_node_id
+                and account_id_by_node_id[node.node_id] != account_id
+            ):
+                raise GraphUpdateConflictError("기존 User의 account_id를 변경할 수 없음")
+            if (
+                account_id in pending_node_id_by_account_id
+                and pending_node_id_by_account_id[account_id] != node.node_id
+            ):
+                raise GraphUpdateConflictError("검증 User의 account_id 대응이 중복됨")
+            pending_node_id_by_account_id[account_id] = node.node_id
 
     @classmethod
     def _validate_update_identities(

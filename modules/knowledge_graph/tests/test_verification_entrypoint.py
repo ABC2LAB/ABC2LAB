@@ -14,6 +14,11 @@ from modules.knowledge_graph.exceptions import (
 )
 from modules.knowledge_graph.models import VerificationInputUpdate, VerificationState
 from modules.knowledge_graph.neo4j_repository import Neo4jGraphRepository
+from modules.knowledge_graph.storage import encode_json
+from modules.knowledge_graph.tests.test_verification_repository import (
+    FakeDriver,
+    FakeVerificationTransaction,
+)
 from modules.knowledge_graph.utils.hashing import calculate_sha256
 
 
@@ -48,20 +53,6 @@ class FakeVerificationRepository:
         )
 
 
-class NoDatabaseDriver:
-    def __init__(self) -> None:
-        self.is_closed = False
-
-    def execute_query(self, *_: Any, **__: Any) -> None:
-        raise AssertionError("unresolved account must not access the database")
-
-    def session(self, **_: Any) -> None:
-        raise AssertionError("unresolved account must not open a transaction")
-
-    def close(self) -> None:
-        self.is_closed = True
-
-
 def test_run_apply_verification_returns_control_response(
     verification_run_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -92,12 +83,14 @@ def test_run_apply_verification_returns_control_response(
     }
 
 
-def test_public_verification_blocks_unresolved_account_before_database_access(
+def test_public_verification_resolves_account_with_real_repository_adapter(
     verification_run_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _configure_environment(monkeypatch)
-    driver = NoDatabaseDriver()
+    input_sha256 = calculate_sha256(verification_run_root / INPUT_PATH)
+    transaction = FakeVerificationTransaction()
+    driver = FakeDriver(transaction)
     monkeypatch.setattr(
         entrypoint,
         "Neo4jGraphRepository",
@@ -113,11 +106,60 @@ def test_public_verification_blocks_unresolved_account_before_database_access(
         _context(verification_run_root),
     )
 
+    assert response["status"] == "completed"
+    assert response["is_applied"] is True
+    assert response["previous_graph_revision"] == 1
+    assert response["graph_revision"] == 2
+    assert response["errors"] == []
+    stored_records = [
+        parameters["records"]
+        for query, parameters in transaction.calls
+        if "MERGE (source)-[stored:VERIFIED_ACCESS" in query
+    ]
+    assert len(stored_records) == 1
+    assert stored_records[0][0]["source_id"] == "kg-user-B"
+    assert "source_account_id" not in stored_records[0][0]
+    assert calculate_sha256(verification_run_root / INPUT_PATH) == input_sha256
+    assert driver.is_closed is True
+
+
+@pytest.mark.parametrize("has_duplicate_account", [False, True])
+def test_public_verification_rejects_missing_or_duplicate_user_account(
+    verification_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    has_duplicate_account: bool,
+) -> None:
+    _configure_environment(monkeypatch)
+    transaction = FakeVerificationTransaction()
+    if has_duplicate_account:
+        transaction.stored_nodes["kg-user-other"] = {
+            **transaction.stored_nodes["kg-user-B"],
+            "node_id": "kg-user-other",
+        }
+    else:
+        transaction.stored_nodes["kg-user-B"]["properties_json"] = encode_json(
+            {"account_id": "different-account"}
+        )
+    driver = FakeDriver(transaction)
+    monkeypatch.setattr(
+        entrypoint,
+        "Neo4jGraphRepository",
+        lambda settings: Neo4jGraphRepository(settings, driver=driver),  # type: ignore[arg-type]
+    )
+
+    response = entrypoint.run(
+        "apply_verification",
+        _input_paths(verification_run_root),
+        OUTPUT_DIR,
+        _context(verification_run_root),
+    )
+
     assert response["status"] == "failed"
     assert response["is_applied"] is False
     assert response["graph_revision"] is None
     assert response["errors"][0]["code"] == "GRAPH_UPDATE_REFERENCE_INVALID"
     assert response["errors"][0]["retryable"] is False
+    assert not any("MERGE " in query for query, _ in transaction.calls)
     assert driver.is_closed is True
 
 
