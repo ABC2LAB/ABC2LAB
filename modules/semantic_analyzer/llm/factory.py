@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import os
 import tomllib
 from pathlib import Path
 
@@ -12,22 +13,44 @@ from modules.semantic_analyzer.llm.ollama_client import OllamaClient, OllamaConf
 
 PROVIDER_FAKE = "fake"
 PROVIDER_OLLAMA = "ollama"
+# 설정 파일 경로 우선순위: 명시 인자(CLI --config) > 환경변수 > 모듈 기본. collector의 COLLECTOR_CONFIG_PATH와 같은 방식.
+ENV_CONFIG_PATH = "SEMANTIC_ANALYZER_CONFIG_PATH"
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "configs" / "default.toml"
 
 
-def load_llm_config(config_path: Path | None = None) -> dict:
-    """default.toml의 [llm] 테이블을 돌려준다. 없으면 provider=fake로 본다."""
-    path = config_path or _DEFAULT_CONFIG_PATH
+def _resolve_config_path(config_path: str | Path | None) -> tuple[Path, bool]:
+    """(해석된 경로, 명시 지정 여부). 명시=인자 또는 환경변수로 준 경우."""
+    if config_path:
+        return Path(config_path), True
+    env_value = os.environ.get(ENV_CONFIG_PATH, "").strip()
+    if env_value:
+        return Path(env_value), True
+    return _DEFAULT_CONFIG_PATH, False
+
+
+def load_llm_config(config_path: str | Path | None = None) -> dict:
+    """설정의 [llm] 테이블을 돌려준다. 기본 경로가 없으면 provider=fake.
+    명시 경로(인자·환경변수)는 파일이 없거나 [llm] 표·provider 키가 빠지면 LlmError로 막는다.
+    [LLM] 대문자나 provider 오타로 ollama 대신 조용히 fake가 만들어지는 것을 방지한다."""
+    path, explicit = _resolve_config_path(config_path)
     if not path.exists():
+        if explicit:
+            raise LlmError(f"설정 파일을 찾을 수 없음: {path} ({ENV_CONFIG_PATH} 또는 --config 확인)")
         return {"provider": PROVIDER_FAKE}
     with open(path, "rb") as handle:
         data = tomllib.load(handle)
-    return data.get("llm", {"provider": PROVIDER_FAKE})
+    llm_config = data.get("llm")
+    if not isinstance(llm_config, dict) or "provider" not in llm_config:
+        if explicit:
+            raise LlmError(f"설정 파일에 [llm] 표와 provider 키가 필요함: {path} "
+                           "([LLM] 대문자·provider 오타 확인)")
+        return {"provider": PROVIDER_FAKE}
+    return llm_config
 
 
-def build_llm_client(config: dict | None = None) -> LlmClient:
-    """[llm] 설정으로 클라이언트를 만든다. 기본 fake."""
-    config = load_llm_config() if config is None else config
+def build_llm_client(config: dict | None = None, config_path: str | Path | None = None) -> LlmClient:
+    """[llm] 설정으로 클라이언트를 만든다. 기본 fake. config_path 미지정 시 환경변수/기본 경로를 쓴다."""
+    config = load_llm_config(config_path) if config is None else config
     provider = config.get("provider", PROVIDER_FAKE)
     if provider == PROVIDER_FAKE:
         return FakeClient()

@@ -125,3 +125,14 @@ def test_empty_requests_still_completed(tmp_path):
     assert payload["data"]["normalized_requests"] == []
     # 계정·역할 노드는 남는다(요청이 없어도 선언된 구조).
     assert any(n["node_type"] == "Role" for n in payload["data"]["nodes"])
+
+
+def test_run_reads_config_path_from_env(tmp_path, monkeypatch):
+    # collector처럼 설정 위치는 환경변수로 받는다: run()은 context가 아니라
+    # SEMANTIC_ANALYZER_CONFIG_PATH를 보고 LLM 설정을 고른다. 명시 경로가 없는 파일이면 바로 실패한다.
+    from modules.semantic_analyzer.entrypoint import ENV_CONFIG_PATH
+    from modules.semantic_analyzer.llm.adapter import LlmError
+
+    monkeypatch.setenv(ENV_CONFIG_PATH, str(tmp_path / "nonexistent.toml"))
+    with pytest.raises(LlmError):
+        run("analyze", {"crawl_result": str(_FIXTURE)}, tmp_path)
