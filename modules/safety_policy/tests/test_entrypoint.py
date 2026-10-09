@@ -89,6 +89,75 @@ def test_run_evaluate_preserves_partial_source_errors(
     assert artifact["data"]["decisions"] == []
 
 
+@pytest.mark.parametrize("status", ["completed", "partial"])
+def test_run_evaluate_accepts_opaque_resource_ids_without_changing_decisions(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    status: str,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    input_path = _input_path(evaluate_run_root)
+    source = load_json(input_path)
+    source["status"] = status
+    if status == "partial":
+        source["errors"] = [
+            {
+                "code": "SCENARIO_GENERATION_PARTIAL",
+                "message": "일부 후보의 시나리오를 생성하지 못함",
+                "item_ref": "candidate_missing_001",
+                "retryable": False,
+            }
+        ]
+    for scenario in source["data"]["scenarios"]:
+        scenario["resource_ids"] = ["opaque-z", "opaque-a"]
+    input_path.write_text(json.dumps(source), encoding="utf-8")
+    input_paths["test_scenarios"]["sha256"] = calculate_sha256(input_path)
+
+    response = entrypoint.run("evaluate", input_paths, output_dir, context)
+
+    artifact = load_json(_output_path(evaluate_run_root))
+    _assert_output_integrity(evaluate_run_root, artifact, response)
+    assert response["status"] == status
+    assert artifact["status"] == status
+    decision_by_scenario = {
+        item["scenario_id"]: item for item in artifact["data"]["decisions"]
+    }
+    assert len(decision_by_scenario) == len(source["data"]["scenarios"])
+    assert decision_by_scenario["scenario_read_order_001"]["decision"] == "allow"
+    assert (
+        decision_by_scenario["scenario_update_order_001"]["decision"]
+        == "require_approval"
+    )
+    if status == "partial":
+        assert artifact["errors"][0]["code"] == "SCENARIO_GENERATION_PARTIAL"
+    assert load_json(input_path) == source
+
+
+@pytest.mark.parametrize("is_missing", [True, False])
+def test_run_evaluate_rejects_invalid_resource_ids_without_output(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    is_missing: bool,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    input_path = _input_path(evaluate_run_root)
+    source = load_json(input_path)
+    for scenario in source["data"]["scenarios"]:
+        if is_missing:
+            scenario.pop("resource_ids")
+        else:
+            scenario["resource_ids"] = []
+    input_path.write_text(json.dumps(source), encoding="utf-8")
+    input_paths["test_scenarios"]["sha256"] = calculate_sha256(input_path)
+
+    response = entrypoint.run("evaluate", input_paths, output_dir, context)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "CONTRACT_INVALID"
+    assert response["output_path"] is None
+    assert not _output_path(evaluate_run_root).exists()
+
+
 def test_run_evaluate_rejects_failed_source_without_output(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
