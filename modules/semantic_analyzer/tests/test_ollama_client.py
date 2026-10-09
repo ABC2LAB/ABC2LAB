@@ -131,3 +131,21 @@ def test_no_env_no_arg_uses_default_fake(monkeypatch):
     # 환경변수·인자 없으면 기본 default.toml(fake)로 동작한다.
     monkeypatch.delenv("SEMANTIC_ANALYZER_CONFIG_PATH", raising=False)
     assert isinstance(build_llm_client(), FakeClient)
+
+
+def test_explicit_config_without_llm_table_raises(tmp_path, monkeypatch):
+    # 명시 경로인데 [llm]이 없으면(예: [LLM] 대문자 오타) 조용히 fake로 떨어지지 않고 막는다.
+    cfg = tmp_path / "typo_table.toml"
+    cfg.write_text('[LLM]\nprovider = "ollama"\nmodel_id = "m"\n', encoding="utf-8")
+    monkeypatch.setenv("SEMANTIC_ANALYZER_CONFIG_PATH", str(cfg))
+    with pytest.raises(LlmError):
+        build_llm_client()
+
+
+def test_explicit_config_without_provider_key_raises(tmp_path, monkeypatch):
+    # provider 키 오타(provder 등)도 조용히 fake가 되지 않게 막는다.
+    cfg = tmp_path / "typo_key.toml"
+    cfg.write_text('[llm]\nprovder = "ollama"\nmodel_id = "m"\n', encoding="utf-8")
+    monkeypatch.setenv("SEMANTIC_ANALYZER_CONFIG_PATH", str(cfg))
+    with pytest.raises(LlmError):
+        build_llm_client()

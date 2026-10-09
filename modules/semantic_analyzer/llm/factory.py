@@ -29,7 +29,9 @@ def _resolve_config_path(config_path: str | Path | None) -> tuple[Path, bool]:
 
 
 def load_llm_config(config_path: str | Path | None = None) -> dict:
-    """설정의 [llm] 테이블을 돌려준다. 기본 경로가 없으면 provider=fake, 명시 경로가 없으면 오류."""
+    """설정의 [llm] 테이블을 돌려준다. 기본 경로가 없으면 provider=fake.
+    명시 경로(인자·환경변수)는 파일이 없거나 [llm] 표·provider 키가 빠지면 LlmError로 막는다.
+    [LLM] 대문자나 provider 오타로 ollama 대신 조용히 fake가 만들어지는 것을 방지한다."""
     path, explicit = _resolve_config_path(config_path)
     if not path.exists():
         if explicit:
@@ -37,7 +39,13 @@ def load_llm_config(config_path: str | Path | None = None) -> dict:
         return {"provider": PROVIDER_FAKE}
     with open(path, "rb") as handle:
         data = tomllib.load(handle)
-    return data.get("llm", {"provider": PROVIDER_FAKE})
+    llm_config = data.get("llm")
+    if not isinstance(llm_config, dict) or "provider" not in llm_config:
+        if explicit:
+            raise LlmError(f"설정 파일에 [llm] 표와 provider 키가 필요함: {path} "
+                           "([LLM] 대문자·provider 오타 확인)")
+        return {"provider": PROVIDER_FAKE}
+    return llm_config
 
 
 def build_llm_client(config: dict | None = None, config_path: str | Path | None = None) -> LlmClient:
