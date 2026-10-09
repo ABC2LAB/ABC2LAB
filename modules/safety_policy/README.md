@@ -40,6 +40,35 @@
 `data`, `partial`은 하나 이상의 오류와 유효한 `data`, `failed`는 하나 이상의
 오류와 `data=null`을 요구한다.
 
+### Scenario.resource_ids
+
+`data.scenarios[].resource_ids`는 필수 문자열 배열이며 최소 1개, 각 항목은
+빈 문자열이 아니어야 한다. 필드 누락·`null`·빈 배열·잘못된 항목 타입은 거절한다.
+빈 `scenarios` 배열과 `failed`의 `data=null`은 기존 계약대로 허용한다.
+
+값은 scenario_generator가 원본 후보의 `resource_ids`에서 값·순서 그대로
+복사한 KG Resource instance node_id다. 접두사나 구분자를 가정하지 않는
+불투명 문자열이며, Safety Policy는 ID를 생성·해석·정렬·중복 제거하지 않는다.
+후보와의 값 일치는 생산자가 보장하므로 후보 파일을 추가 입력으로 받거나
+Neo4j를 조회하지 않는다.
+
+기존 6개 assessment와 판정 규칙, 내부 모델, 출력 Schema는 유지한다.
+전체 시나리오 파일의 SHA-256에는 이 필드도 포함된다. 자원 ID의 값·순서·개수가
+바뀌면 기존 승인은 새 계획에 사용할 수 없으며 새로운 승인이 필요하다.
+
+### 현재 연결 상태
+
+2026-10-10, 검증 기준 커밋 `645efaf`의 공개 Schema·fixture 기준이다.
+
+| 경계 | 생산자 / 소비자 버전 | 확인 결과 |
+|---|---|---|
+| scenario_generator → safety_policy | `0.2.0` / `0.2.0` | `resource_ids`를 포함한 공개 시나리오 2개를 입력 loader가 수용 |
+| safety_policy → reporter | `0.2.0` / `0.2.0` | 공개 판정 2개의 Reporter 입력 Schema 검증 통과 |
+| safety_policy → verifier | `0.2.0` / `0.1.0` | Verifier 입력 사본 전환 필요 |
+
+공개 fixture 수신과 독립 회귀 검증이며 동일 run의 전체 pipeline 실행 완료를
+의미하지 않는다. Verifier의 시나리오 입력과 검증 관계 출력 전환도 후속 작업이다.
+
 ## 판정 계약
 
 assessment는 다음 6개 항목을 모두 포함한다.
@@ -202,11 +231,14 @@ CLI도 같은 고정 입력·설정·출력 경로를 사용하며 파일 해시
 .venv/bin/python -m pytest modules/safety_policy/
 ```
 
-현재 결과: `145 passed`.
+현재 결과: `165 passed`.
 
 실제 비밀값과 실행 결과는 fixture나 Git에 저장하지 않는다.
 
 ## 변경 이력
+
+아래 기록의 테스트 수치·연결 상태·다음 작업은 작성 당시 기준이다.
+현재 계약과 연결 상태는 위 계약 파일 절을 따른다.
 
 ### 2026-10-09 — 6단계: 최종 회귀와 직접 연결 계약 확인
 
@@ -288,3 +320,34 @@ skip 4건은 실제 Neo4j를 사용하는 KG 통합 테스트다. 연관 모듈 
 독립 fixture 검증이며 위 버전 차이가 해소되었다는 의미는 아니다.
 
 다음 단계는 reporter의 공개 입출력 계약을 `0.2.0`에 맞추는 작업이다.
+
+### 2026-10-10 — Scenario.resource_ids 호환 수정과 합동 회귀
+
+명세 `docs/spec/m5-scenario_generator.md`의 소비자 미러 기준에 맞춰
+입력 사본을 동기화했다. 구현 커밋은 `91425cd`, 합동 검증 기준은 `645efaf`다.
+
+- 입력 Schema에 필수 `resource_ids`를 추가하고 버전 `0.2.0`을 유지했다.
+  최상위 `$id`·제목·설명을 제외하면 SG 출력 Schema와 일치한다.
+- 정상 시나리오 fixture에 자원 ID를 추가하고 판정 fixture의 `input_refs`·
+  `scenarios_sha256`, 승인 fixture의 계획 해시를 실제 파일 바이트로 갱신했다.
+  기존 빈 partial·failed fixture는 유지했다. 실제 승인 기록은 수정하지 않았다.
+- 독립 테스트 20건을 추가했다. 입력 제약, 불투명 ID·순서·중복 값 보존,
+  정상/partial 처리와 ID 값·순서·개수 변경 후 기존 승인 거절을 검증했다.
+- 판정 Python 코드·6개 규칙·내부 모델·출력 계약·설정 및 의존성은 변경하지 않았다.
+
+검증 결과:
+
+```text
+safety_policy 전체: 165 passed
+knowledge_graph + safety_policy + reporter: 826 passed, 12 skipped
+```
+
+합동 명령은 `.venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter -q -rs`다.
+skip 12건은 활성화하지 않은 KG 실제 Neo4j 테스트이며 이번 변경에서 DB는 실행하지 않았다.
+SG 공개 시나리오 2개의 Schema·의미 검증, 입력 불변, 정상/partial/failed·계획 해시·
+승인 회귀를 확인했다. Python 28개 파일의 다른 모듈 import와 Schema 4개의
+외부 `$ref`는 각각 0건이다.
+
+소비자 호환 수정·회귀·README 정리는 마무리한다. Verifier 담당자의 입력
+`test_scenarios`·`safety_decisions` 0.2 전환과 검증 관계 `source_account_id`
+전환 이후, 같은 run의 실제 산출물로 전체 연결을 검증해야 한다.

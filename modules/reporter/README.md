@@ -97,7 +97,21 @@ semantic 및 KG snapshot의 일반 관계는 계속 `source_id`·`target_id`를 
 
 진단 실행 입력의 `0.1.0` 및 미지원 버전은 거절하며, 기존 산출물의 버전을 묵시적으로 변환하지 않는다. `graph_query_result`는 이미 0.2 계약이므로 이번 동기화에서 변경하지 않았다.
 
-현재 `test_scenarios` 입력은 팀의 0.2 전환 방향을 반영한다. 6단계 확인 기준 커밋 `1b123bd`에서도 scenario_generator는 아직 0.1을 출력하므로 생산자 측 전환이 필요하다. reporter의 Safety 입력은 0.2를 수용하지만 verifier의 해당 입력 사본은 아직 0.1이다. 입력 Schema 동기화와 전체 파이프라인 호환 완료는 구분한다.
+현재 `test_scenarios` 입력은 SG의 `0.2.0` 출력과 필수
+`data.scenarios[].resource_ids`를 수용한다. 이 필드는 최소 1개의 비어 있지 않은
+문자열 배열이며, 원본 후보의 KG Resource instance node_id를 값·순서 그대로 담는다.
+ID의 형식을 해석·재계산하거나 정렬·중복 제거하지 않는다. 후보와의 값 일치는
+생산자가 보장하므로 소비자에서 다시 대조하는 로직은 추가하지 않는다.
+
+2026-10-10, 기준 커밋 `645efaf`에서 최상위 `$id`·제목·설명을 제외한
+SG 출력/Reporter 입력 Schema의 일치와 공개 시나리오 2개의 수신을 확인했다.
+Safety 공개 판정 2개와 KG 공개 질의 결과 4개도 Reporter 입력 Schema를 통과했다.
+Reporter의 진단 분류·평가·내부 모델·출력 계약은 유지한다.
+
+Verifier의 `test_scenarios`·`safety_decisions` 입력 사본은 아직 `0.1.0`이고,
+검증 관계 출력 Schema는 여전히 `source_id`를 요구한다. 해당 담당자의 입력 0.2
+대응과 출력 `source_account_id` 전환이 필요하다. 공개 fixture 수신·독립 회귀와
+동일 run 전체 pipeline 연결 완료는 구분한다.
 
 `ground_truth`는 공통 계약의 11개 파일 0.2 안내와 `m8-reporter.md`의 정답 파일 0.1 표가 일치하지 않는다. 이번 단계에서는 기존 정답 Schema·fixture를 유지하고, 정답 계약 전환은 별도 검토 대상으로 남긴다.
 
@@ -418,7 +432,7 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-390 passed
+418 passed
 ```
 
 계약 테스트:
@@ -430,7 +444,7 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-93 passed
+107 passed
 ```
 
 계정 source 전환 계약·공개 실행 테스트:
@@ -486,6 +500,9 @@ Resource 식별값 회귀 테스트:
 ---
 
 ## 변경 이력
+
+아래 기록의 테스트 수치·연결 상태·다음 작업은 작성 당시 기준이다.
+현재 계약과 연결 상태는 위 계약 절을 따른다.
 
 ### 2026-10-09 — 6단계: 담당 모듈 최종 회귀·생산자 산출물 수신 확인
 
@@ -944,3 +961,43 @@ KG 실제 Neo4j 통합 테스트다. `git diff --check`도 통과했다.
 생산자의 출력 전환과 실제 동일 run의 산출물 수신, 전체 pipeline 연결 검증은
 후속 작업으로 남긴다. 기존에 기록한 다른 upstream 계약·Ground Truth 관련
 미해결 항목도 이번 문서 작업으로 해결됐다고 간주하지 않는다.
+
+### 2026-10-10 — Scenario.resource_ids 소비자 동기화와 합동 회귀
+
+명세 `docs/spec/m5-scenario_generator.md`의 합의된 소비자 계약을
+`645efaf`에 반영했다. Safety Policy 대응은 `91425cd`이며 두 변경 이후 합동 회귀를 확인했다.
+
+- 시나리오 입력 Schema에 필수 `resource_ids`를 추가하고 버전 `0.2.0`을 유지했다.
+  누락·`null`·빈 배열·빈 문자열·잘못된 항목 타입과 미정의 키는 거절한다.
+- 시나리오 fixture에는 대응 후보의 자원 ID를 값·순서 그대로 복사했다.
+  Safety·Verifier fixture의 계획 해시, 리포트/평가 fixture 6개(completed 2개,
+  partial/failed 4개)의 입력 참조 해시를 실제 파일 바이트로 갱신했다.
+  갱신한 fixture는 총 9개이며 다른 모듈이나 실제 산출물은 수정하지 않았다.
+- 테스트 28건을 추가했다. 불투명 ID·순서·중복 값 수용, report/evaluate의
+  원본 입력 보존, 정상/partial 결과 분류 유지, 잘못된 입력의 출력 미생성을
+  확인했다. 자원 ID가 바뀌면 Safety 또는 Verifier의 이전 계획 해시를 거절한다.
+- 운영 Python 코드·내부 모델·결과 분류·평가 방식·공개 출력 계약·의존성은
+  변경하지 않았다. 검증 관계의 계정→User 해석·DB 반영은 계속 KG 책임이다.
+
+검증 명령과 결과:
+
+```bash
+.venv/bin/python -m pytest modules/reporter -q
+# 418 passed
+
+.venv/bin/python -m pytest modules/reporter/tests/test_contracts.py modules/reporter/tests/test_contract_migration.py -q
+# 107 passed
+
+.venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter -q -rs
+# 826 passed, 12 skipped
+```
+
+SG 공개 시나리오 2개, Safety 판정 2개, KG 질의 결과 4개의 Reporter 입력 Schema
+검증을 통과했다. 리포트 fixture 6개의 `input_refs` 24개와 Safety·Verifier의
+계획 해시가 실제 파일과 일치한다. Python 32개 파일의 다른 모듈 import와
+Schema 10개의 외부 `$ref`는 각각 0건이다. `git diff --check`도 통과했다.
+skip 12건은 KG 실제 Neo4j 테스트이며 이번 단계에서 DB는 실행하지 않았다.
+
+소비자 측 호환 수정·독립 검증·README 정리는 완료한다. Verifier의 입력 0.2
+대응 및 검증 관계 출력 전환, 동일 run 실제 산출물 수신과 전체 pipeline 연결은
+후속 작업이다. Ground Truth의 기존 0.1 계약과 별도 미해결 항목도 유지한다.
