@@ -10,7 +10,7 @@ from jsonschema import Draft202012Validator
 
 from modules.scenario_generator.utils.schema_errors import summarize_schema_errors
 
-SCHEMA_VERSION = "0.1.0"
+SCHEMA_VERSION = "0.2.0"
 ARTIFACT_TYPE = "test_scenarios"
 PRODUCER = "scenario_generator"
 OUTPUT_SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "output" / "test_scenarios.schema.json"

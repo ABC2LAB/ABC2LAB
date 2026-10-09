@@ -20,7 +20,7 @@
     "data"
   ],
   "properties": {
-    "schema_version": {"const": "0.1.0"},
+    "schema_version": {"const": "0.2.0"},
     "artifact_type": {"const": "test_scenarios"},
     "artifact_id": {"$ref": "#/$defs/nonEmptyString"},
     "run_id": {"$ref": "#/$defs/nonEmptyString"},

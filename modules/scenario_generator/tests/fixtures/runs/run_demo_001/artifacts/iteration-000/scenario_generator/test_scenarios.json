@@ -1,12 +1,12 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "test_scenarios",
   "artifact_id": "test_scenarios_run_demo_001_iteration000",
   "run_id": "run_demo_001",
   "iteration": 0,
   "producer": "scenario_generator",
   "mode": "development",
-  "created_at": "2026-10-09T13:14:08Z",
+  "created_at": "2026-10-09T13:20:53Z",
   "status": "completed",
   "input_refs": [
     {
@@ -26,7 +26,7 @@
   ],
   "errors": [],
   "runtime_metrics": {
-    "duration_ms": 9,
+    "duration_ms": 16,
     "llm_calls": 2,
     "input_tokens": null,
     "output_tokens": null,
