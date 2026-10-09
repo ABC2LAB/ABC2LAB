@@ -50,6 +50,71 @@ def test_prepare_evaluation_inputs_builds_snapshot_and_ground_truth(
     assert len(inputs.ground_truth.cases) == 2
 
 
+@pytest.mark.parametrize("operation", ["report", "evaluate"])
+def test_prepare_inputs_preserves_scenario_resource_ids(
+    request: pytest.FixtureRequest,
+    operation: str,
+) -> None:
+    input_paths, output_dir, context = request.getfixturevalue(
+        f"{operation}_arguments"
+    )
+    input_path = context["run_root"] / input_paths["test_scenarios"]["path"]
+    source = json.loads(input_path.read_text(encoding="utf-8"))
+    if operation == "report":
+        inputs = prepare_report_inputs(
+            parse_report_request(input_paths, output_dir, context)
+        )
+    else:
+        inputs = prepare_evaluation_inputs(
+            parse_evaluate_request(input_paths, output_dir, context)
+        ).report_inputs
+
+    artifact = inputs.artifact_by_type("test_scenarios")
+
+    assert artifact.data is not None
+    assert artifact.data["scenarios"] == source["data"]["scenarios"]
+    assert artifact.source.sha256 == calculate_sha256(input_path)
+    assert json.loads(input_path.read_text(encoding="utf-8")) == source
+
+
+@pytest.mark.parametrize(
+    "artifact_type", ["safety_decisions", "verification_results"],
+)
+@pytest.mark.parametrize("is_appending", [False, True])
+def test_prepare_report_inputs_rejects_stale_resource_plan_hash(
+    report_arguments: Arguments,
+    artifact_type: str,
+    is_appending: bool,
+) -> None:
+    input_paths, output_dir, context = report_arguments
+    prepare_report_inputs(parse_report_request(input_paths, output_dir, context))
+
+    def change_resources(value: dict[str, Any]) -> None:
+        for scenario in value["data"]["scenarios"]:
+            if is_appending:
+                scenario["resource_ids"].append("opaque-extra")
+            else:
+                scenario["resource_ids"] = ["opaque-replacement"]
+
+    _mutate_artifact(input_paths, context, "test_scenarios", change_resources)
+    new_hash = input_paths["test_scenarios"]["sha256"]
+    other_artifact_type = (
+        "verification_results"
+        if artifact_type == "safety_decisions"
+        else "safety_decisions"
+    )
+    _mutate_artifact(
+        input_paths,
+        context,
+        other_artifact_type,
+        lambda value: value["data"].update({"scenarios_sha256": new_hash}),
+    )
+    reporter_request = parse_report_request(input_paths, output_dir, context)
+
+    with pytest.raises(ReporterError, match=f"{artifact_type}.*scenarios_sha256"):
+        prepare_report_inputs(reporter_request)
+
+
 def test_prepare_report_inputs_rejects_hash_mismatch(
     report_arguments: Arguments,
 ) -> None:

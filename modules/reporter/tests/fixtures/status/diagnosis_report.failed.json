@@ -21,21 +21,21 @@
       "artifact_type": "test_scenarios",
       "iteration": 0,
       "path": "artifacts/iteration-000/scenario_generator/test_scenarios.json",
-      "sha256": "4ac68d87c0fde0cebf0b8df2aaf757dd51fb4a7d7ef583fcf00fd0ed25a5eb04"
+      "sha256": "818337018d87c28e712b08cdde2079429daf428bc24dff407b4145af5215cbf8"
     },
     {
       "artifact_id": "decisions_demo_001",
       "artifact_type": "safety_decisions",
       "iteration": 0,
       "path": "artifacts/iteration-000/safety_policy/safety_decisions.json",
-      "sha256": "a71b22c22ff1ad4510c0785b8f0fdf46fded771d306aad7c63c9ab99d7aadad8"
+      "sha256": "5adad1d6b430f4d8d5647349d00f9f61a74a83a79597f96d31041cf90113db1e"
     },
     {
       "artifact_id": "verification_demo_001",
       "artifact_type": "verification_results",
       "iteration": 0,
       "path": "artifacts/iteration-000/verifier/verification_results.json",
-      "sha256": "a0f8e40f736a5c03d684f2d4aa46a7ebd17a974643ce9c8fa1faa7047fe4e1c7"
+      "sha256": "45c1eda6fd199421858f13d35d380496ae1db133014fc2fc4f1447e8481bfbb1"
     }
   ],
   "errors": [

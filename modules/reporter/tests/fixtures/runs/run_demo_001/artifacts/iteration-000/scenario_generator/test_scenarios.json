@@ -23,6 +23,7 @@
         "scenario_id": "scenario_idor_001",
         "candidate_id": "candidate_idor_001",
         "expected_basis": "rule",
+        "resource_ids": ["resource_order_b"],
         "preconditions": [
           {
             "check_id": "check_session_scenario_idor_001",
@@ -66,6 +67,7 @@
         "scenario_id": "scenario_workflow_001",
         "candidate_id": "candidate_workflow_001",
         "expected_basis": "inferred",
+        "resource_ids": ["resource_order_b"],
         "preconditions": [
           {
             "check_id": "check_session_scenario_workflow_001",
