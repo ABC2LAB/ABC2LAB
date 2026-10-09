@@ -2,11 +2,16 @@
 
 처리 순서(명세 02): 입력 adapter → service → 출력 adapter → 임시 파일 → flush·close → rename → 완료 응답.
 입력·설정 문제는 `failed` 파일로 남기고, 파일 자체를 쓰지 못하면 예외를 던진다(없는 파일을 완료라고 알리지 않는다).
+
+초안 생성기(drafter): `drafter=` 인자로 주면 그걸 쓰고, 안 주면 설정 파일로 만든다
+(SCENARIO_GENERATOR_CONFIG_PATH > modules/scenario_generator/configs/scenario_generator.toml, utils/config.py).
+설정이 없거나 틀리면 파일을 쓰기 전에 ValueError. provider=none이면 drafter 없이 DRAFTER_NOT_CONFIGURED failed 파일.
 """
 
 import argparse
 import json
 import logging
+import os
 import re
 import sys
 import time
@@ -36,6 +41,18 @@ from modules.scenario_generator.replay_drafter import ReplayScenarioDrafter
 from modules.scenario_generator.scenario_drafter import DrafterError, ScenarioDrafter
 from modules.scenario_generator.service import GenerationOutcome, generate_scenarios
 from modules.scenario_generator.utils.atomic_io import write_json_atomically
+from modules.scenario_generator.utils.config import (
+    CONFIG_PATH_ENV,
+    DRAFTS_PATH_KEY,
+    MODEL_ID_KEY,
+    PROVIDER_NONE,
+    PROVIDER_OLLAMA,
+    PROVIDER_REPLAY,
+    DrafterSettings,
+    load_drafter_settings,
+    parse_drafter_settings,
+    resolve_config_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +64,15 @@ EXIT_FILE_WRITTEN = 0
 EXIT_NO_FILE_WRITTEN = 2
 DRAFTER_NOT_CONFIGURED_CODE = "DRAFTER_NOT_CONFIGURED"
 MILLISECONDS_PER_SECOND = 1000
+CLI_SOURCE = "CLI"
+# CLI ollama 옵션(argparse dest) → 설정 키. drafter 옵션을 하나라도 주면 CLI 모드(설정 파일을 안 읽는다).
+CLI_OLLAMA_KEY_BY_DEST = {
+    "model_id": "model_id",
+    "base_url": "base_url",
+    "temperature": "temperature",
+    "seed": "seed",
+    "timeout": "timeout_seconds",
+}
 
 
 class OutputWriteError(RuntimeError):
@@ -187,13 +213,16 @@ def run(
     """test_scenarios.json을 만들어 저장하고 완료 응답을 돌려준다.
 
     context: run_root, run_id, iteration, mode (필수) / expected_sha256 (선택). JSON으로 표현되는 값만 받는다.
-    drafter: 초안 생성기(LLM 객체). context가 아니라 이 인자로 받는다.
+    drafter: 초안 생성기(LLM 객체). context가 아니라 이 인자로 받는다. 주면 설정 파일을 읽지 않는다.
+        안 주면 설정 파일로 만들고, 설정이 없거나 틀리면 파일을 쓰기 전에 ValueError.
     응답: status, artifact_id, output_path, sha256, scenario_count, error_count.
     """
     started = time.monotonic()
     if operation != OPERATION_GENERATE:
         raise ValueError(f"지원하지 않는 operation: {operation}")
     execution = _parse_context(context)
+    if drafter is None:
+        drafter = _build_configured_drafter()
     parsed_input_paths = _parse_input_paths(input_paths)
     output_path = _resolve_output_path(Path(output_dir), execution.run_root)
 
@@ -242,28 +271,72 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidates", required=True, type=Path, help="vulnerability_candidates.json 경로")
     parser.add_argument("--crawl-result", required=True, type=Path, help="crawl_result.json 경로")
     parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument("--drafts", type=Path, help="미리 적어 둔 초안 파일(replay용)")
-    parser.add_argument("--llm-provider", choices=("replay", "ollama"), default="replay",
-                        help="초안 생성기 선택. replay(기본)=--drafts 파일, ollama=로컬 Ollama")
-    parser.add_argument("--model-id", help="--llm-provider ollama일 때 실제 설치한 모델 태그")
-    parser.add_argument("--base-url", default="http://localhost:11434")
-    parser.add_argument("--temperature", type=float, default=0.0)
+    # drafter 옵션은 기본값을 모두 None으로 둔다: "줬는지"로 CLI 모드를 가린다. ollama 기본값은 OllamaDrafterConfig.
+    parser.add_argument("--config", type=Path,
+                        help=f"drafter 설정 TOML (없으면 {CONFIG_PATH_ENV}, 그것도 없으면 기본 경로). drafter 옵션과 같이 못 씀")
+    parser.add_argument("--drafts", type=Path, help="미리 적어 둔 초안 파일(replay용). --llm-provider 없이 주면 replay")
+    parser.add_argument("--llm-provider", choices=(PROVIDER_REPLAY, PROVIDER_OLLAMA),
+                        help="초안 생성기. 이것도 다른 drafter 옵션도 안 주면 설정 파일을 쓴다")
+    parser.add_argument("--model-id", help="--llm-provider ollama일 때 필수. 실제 설치한 모델 태그")
+    parser.add_argument("--base-url", help="Ollama 주소")
+    parser.add_argument("--temperature", type=float)
     parser.add_argument("--seed", type=int)
-    parser.add_argument("--timeout", type=float, default=60.0, help="Ollama 호출 타임아웃(초)")
+    parser.add_argument("--timeout", type=float, help="Ollama 호출 타임아웃(초)")
     parser.add_argument("--expected-sha256", action="append", default=[], metavar="TYPE=HEX")
     return parser
 
 
-def _build_drafter(args: argparse.Namespace) -> ScenarioDrafter | None:
-    if args.llm_provider == "ollama":
-        return OllamaScenarioDrafter(OllamaDrafterConfig(
-            model_id=args.model_id or "",
-            base_url=args.base_url,
-            temperature=args.temperature,
-            seed=args.seed,
-            timeout_seconds=args.timeout,
-        ))
-    return ReplayScenarioDrafter.from_file(args.drafts) if args.drafts else None
+def build_drafter(settings: DrafterSettings) -> ScenarioDrafter | None:
+    """검증된 설정으로 drafter를 만든다. none이면 None(→ DRAFTER_NOT_CONFIGURED failed 파일)."""
+    if settings.provider == PROVIDER_NONE:
+        return None
+    if settings.provider == PROVIDER_REPLAY:
+        return ReplayScenarioDrafter.from_file(settings.drafts_path)
+    return OllamaScenarioDrafter(OllamaDrafterConfig(**settings.ollama_options))
+
+
+def _build_configured_drafter() -> ScenarioDrafter | None:
+    """설정 모드: 설정 파일로 drafter를 만든다. 만드는 중 오류(초안 파일 내용 깨짐 등)도 파일을 쓰기 전에 ValueError."""
+    config_path = resolve_config_path()
+    settings = load_drafter_settings(config_path)
+    try:
+        return build_drafter(settings)
+    except (DrafterError, ValueError, OSError) as error:
+        # 메시지에는 파일·키 이름만 넣는다. 원인은 예외 체인으로 남긴다.
+        key_name = DRAFTS_PATH_KEY if settings.provider == PROVIDER_REPLAY else MODEL_ID_KEY
+        raise ValueError(
+            f"{config_path.name} [llm]: {key_name} 설정으로 drafter를 만들지 못함"
+        ) from error
+
+
+def _cli_drafter_settings(args: argparse.Namespace) -> DrafterSettings | None:
+    """drafter 옵션을 하나라도 줬으면 그 설정(CLI 모드), 하나도 안 줬으면 None(설정 파일 모드).
+
+    CLI에서 준 옵션이 조용히 무시되는 조합은 ValueError(종료 코드 2, 파일 없음).
+    """
+    ollama_values = {
+        key: getattr(args, dest) for dest, key in CLI_OLLAMA_KEY_BY_DEST.items() if getattr(args, dest) is not None
+    }
+    if args.llm_provider is None and args.drafts is None and not ollama_values:
+        return None
+    if args.config is not None:
+        raise ValueError("--config와 drafter 옵션을 같이 줄 수 없다(--config가 무시된다)")
+    provider = args.llm_provider
+    if provider is None:
+        if ollama_values:
+            raise ValueError("ollama 옵션(--model-id 등)은 --llm-provider ollama와 같이 준다")
+        provider = PROVIDER_REPLAY  # --drafts만 준 경우(기존 호환)
+    if provider == PROVIDER_REPLAY:
+        if ollama_values:
+            raise ValueError("--llm-provider replay에는 ollama 옵션(--model-id 등)을 줄 수 없다")
+        if args.drafts is None:
+            raise ValueError("--llm-provider replay에는 --drafts가 필요하다")
+        return parse_drafter_settings({"provider": provider, "drafts_path": str(args.drafts)}, CLI_SOURCE)
+    if args.drafts is not None:
+        raise ValueError("--llm-provider ollama에는 --drafts를 줄 수 없다")
+    if args.model_id is None:
+        raise ValueError("--llm-provider ollama에는 --model-id가 필요하다")
+    return parse_drafter_settings({"provider": provider, **ollama_values}, CLI_SOURCE)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -271,7 +344,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(levelname)s %(name)s: %(message)s")
     args = _build_argument_parser().parse_args(argv)
     try:
-        drafter = _build_drafter(args)
+        cli_settings = _cli_drafter_settings(args)
+        # run()은 context에 실행 값만 받으므로 설정 파일 위치는 이 프로세스의 환경변수로 넘긴다(collector와 같은 방식).
+        if args.config is not None:
+            os.environ[CONFIG_PATH_ENV] = str(args.config)
+        drafter = None if cli_settings is None else build_drafter(cli_settings)
         response = run(
             args.operation,
             {"vulnerability_candidates": args.candidates, "crawl_result": args.crawl_result},

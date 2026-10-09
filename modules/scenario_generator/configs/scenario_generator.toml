@@ -1,0 +1,18 @@
+# scenario_generator 초안 생성기(LLM) 설정. 비밀값 없음.
+# 위치: SCENARIO_GENERATOR_CONFIG_PATH > modules/scenario_generator/configs/scenario_generator.toml (레포 루트 기준)
+# 실제 실행용 값은 이 파일을 고치지 말고 복사본을 만들어 SCENARIO_GENERATOR_CONFIG_PATH로 가리킨다.
+# provider 말고는 안내용이다. 키를 빼도 같은 기본값으로 동작한다(기본값은 OllamaDrafterConfig).
+
+[llm]
+# none | ollama | replay
+# none(기본): drafter 없음 → DRAFTER_NOT_CONFIGURED로 failed 파일. LLM 설정 없이 결과가 나온 것처럼 보이지 않게 한다.
+provider = "none"
+# ollama일 때 필수. 예시가 아니라 실제 설치한 모델 태그
+model_id = ""
+base_url = "http://localhost:11434"
+temperature = 0.0
+timeout_seconds = 60.0
+# seed = 0
+# model_version = ""
+# replay일 때 필수. 미리 적어 둔 초안 파일(개발·테스트용), 레포 루트 기준 경로
+drafts_path = ""
