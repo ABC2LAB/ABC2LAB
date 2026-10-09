@@ -5,10 +5,15 @@ import pytest
 
 from modules.safety_policy.exceptions import (
     ContractValidationError,
+    OutputArtifactExistsError,
     PathValidationError,
     StorageError,
 )
-from modules.safety_policy.utils.atomic_writer import write_json_atomically
+from modules.safety_policy.utils import atomic_writer
+from modules.safety_policy.utils.atomic_writer import (
+    write_bytes_atomically,
+    write_json_atomically,
+)
 from modules.safety_policy.utils.hashing import calculate_sha256
 from modules.safety_policy.utils.paths import (
     require_existing_file,
@@ -81,3 +86,44 @@ def test_load_json_rejects_non_finite_number(tmp_path: Path) -> None:
 
     with pytest.raises(ContractValidationError, match="유한하지 않은"):
         load_json(input_path)
+
+
+def test_atomic_bytes_writer_preserves_source_bytes(tmp_path: Path) -> None:
+    output_path = tmp_path / "private" / "policy.json"
+    content = b'{\n  "policy_id": "example"\n}\n'
+
+    write_bytes_atomically(output_path, content)
+
+    assert output_path.read_bytes() == content
+    assert list(output_path.parent.iterdir()) == [output_path]
+
+
+def test_atomic_bytes_writer_rejects_existing_file(tmp_path: Path) -> None:
+    output_path = tmp_path / "policy.json"
+    output_path.write_bytes(b"existing policy")
+
+    with pytest.raises(OutputArtifactExistsError, match="덮어쓸 수 없음"):
+        write_bytes_atomically(output_path, b"replacement policy")
+
+    assert output_path.read_bytes() == b"existing policy"
+    assert list(tmp_path.iterdir()) == [output_path]
+
+
+def test_atomic_bytes_writer_preserves_concurrently_published_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_path = tmp_path / "policy.json"
+    original_link = atomic_writer.os.link
+
+    def publish_competing_file(source_path: Path, destination_path: Path) -> None:
+        destination_path.write_bytes(b"competing policy")
+        original_link(source_path, destination_path)
+
+    monkeypatch.setattr(atomic_writer.os, "link", publish_competing_file)
+
+    with pytest.raises(OutputArtifactExistsError, match="덮어쓸 수 없음"):
+        write_bytes_atomically(output_path, b"replacement policy")
+
+    assert output_path.read_bytes() == b"competing policy"
+    assert list(tmp_path.iterdir()) == [output_path]

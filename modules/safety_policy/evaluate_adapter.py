@@ -7,8 +7,16 @@ from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from modules.safety_policy.exceptions import ContractValidationError
-from modules.safety_policy.models import EvaluationRequest
+from modules.safety_policy.config_adapter import (
+    POLICY_CONFIG_RELATIVE_PATH,
+    PreparedPolicyConfiguration,
+    prepare_policy_configuration,
+)
+from modules.safety_policy.exceptions import (
+    ContractValidationError,
+    OutputArtifactExistsError,
+)
+from modules.safety_policy.models import EvaluationArguments, EvaluationRequest
 from modules.safety_policy.utils.paths import (
     require_existing_file,
     resolve_trusted_relative_path,
@@ -16,11 +24,10 @@ from modules.safety_policy.utils.paths import (
 
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 CONTEXT_REQUIRED_KEYS = frozenset(
-    {"run_id", "iteration", "mode", "run_root", "policy_config"}
+    {"run_id", "iteration", "mode", "run_root"}
 )
 CONTEXT_OPTIONAL_KEYS = frozenset({"approval_record"})
 INPUT_DESCRIPTOR_KEYS = frozenset({"path", "sha256"})
-POLICY_CONFIG_RELATIVE_PATH = "private/safety_policy/policy.json"
 APPROVAL_RECORD_DIRECTORY = PurePosixPath(
     "private/safety_policy/approvals"
 )
@@ -33,7 +40,7 @@ def parse_evaluate_request(
     input_paths: Mapping[str, Any],
     output_dir: str | Path,
     context: Mapping[str, Any],
-) -> EvaluationRequest:
+) -> EvaluationArguments:
     input_values = _require_mapping(input_paths, "input_paths")
     context_values = _require_mapping(context, "context")
     _require_exact_keys(input_values, {"test_scenarios"}, "input_paths")
@@ -69,25 +76,6 @@ def parse_evaluate_request(
         descriptor["sha256"], "input_paths.test_scenarios.sha256"
     )
 
-    policy_descriptor = _require_mapping(
-        context_values["policy_config"],
-        "context.policy_config",
-    )
-    _require_exact_keys(
-        policy_descriptor,
-        INPUT_DESCRIPTOR_KEYS,
-        "context.policy_config",
-    )
-    policy_relative_path = _require_string(
-        policy_descriptor["path"],
-        "context.policy_config.path",
-    )
-    if policy_relative_path != POLICY_CONFIG_RELATIVE_PATH:
-        raise ContractValidationError("Policy 설정 경로가 실행 규약과 다름")
-    policy_expected_sha256 = _require_sha256(
-        policy_descriptor["sha256"],
-        "context.policy_config.sha256",
-    )
     approval_path, approval_expected_sha256 = _parse_approval_descriptor(
         context_values.get("approval_record"),
         run_root,
@@ -100,22 +88,61 @@ def parse_evaluate_request(
         output_relative_dir,
     )
     output_relative_path = f"{output_relative_dir}/safety_decisions.json"
-    return EvaluationRequest(
+    return EvaluationArguments(
         input_path=require_existing_file(run_root, relative_path),
         input_relative_path=relative_path,
         expected_sha256=expected_sha256,
-        policy_config_path=require_existing_file(
-            run_root,
-            policy_relative_path,
-        ),
-        policy_config_expected_sha256=policy_expected_sha256,
         approval_record_path=approval_path,
         approval_record_expected_sha256=approval_expected_sha256,
         output_path=resolved_output_dir / "safety_decisions.json",
         output_relative_path=output_relative_path,
+        run_root=run_root,
         run_id=run_id,
         iteration=iteration,
         mode=mode,
+    )
+
+
+def prepare_evaluate_request(
+    input_paths: Mapping[str, Any],
+    output_dir: str | Path,
+    context: Mapping[str, Any],
+) -> EvaluationRequest:
+    arguments = parse_evaluate_request(input_paths, output_dir, context)
+    if arguments.output_path.exists() or arguments.output_path.is_symlink():
+        raise OutputArtifactExistsError("safety_decisions 출력이 이미 존재함")
+    configuration = prepare_policy_configuration(arguments.run_root)
+    return bind_policy_configuration(arguments, configuration)
+
+
+def bind_policy_configuration(
+    arguments: EvaluationArguments,
+    configuration: PreparedPolicyConfiguration,
+) -> EvaluationRequest:
+    expected_path = require_existing_file(
+        arguments.run_root,
+        POLICY_CONFIG_RELATIVE_PATH,
+    )
+    if (
+        configuration.relative_path != POLICY_CONFIG_RELATIVE_PATH
+        or configuration.path != expected_path
+    ):
+        raise ContractValidationError("준비된 Policy 설정 경로가 현재 run과 다름")
+    expected_sha256 = _require_sha256(configuration.sha256, "prepared_policy.sha256")
+    return EvaluationRequest(
+        input_path=arguments.input_path,
+        input_relative_path=arguments.input_relative_path,
+        expected_sha256=arguments.expected_sha256,
+        approval_record_path=arguments.approval_record_path,
+        approval_record_expected_sha256=arguments.approval_record_expected_sha256,
+        output_path=arguments.output_path,
+        output_relative_path=arguments.output_relative_path,
+        run_root=arguments.run_root,
+        run_id=arguments.run_id,
+        iteration=arguments.iteration,
+        mode=arguments.mode,
+        policy_config_path=expected_path,
+        policy_config_expected_sha256=expected_sha256,
     )
 
 

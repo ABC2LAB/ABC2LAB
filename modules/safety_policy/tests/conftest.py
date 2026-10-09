@@ -4,6 +4,8 @@ from typing import Any
 
 import pytest
 
+from modules.safety_policy.config_adapter import POLICY_CONFIG_PATH_ENV
+
 
 @pytest.fixture
 def fixture_root() -> Path:
@@ -34,6 +36,19 @@ def completed_policy_config_path(fixture_root: Path) -> Path:
 
 
 @pytest.fixture
+def policy_source_path(
+    tmp_path: Path,
+    completed_policy_config_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    source_path = tmp_path / "settings" / "policy.json"
+    source_path.parent.mkdir()
+    copyfile(completed_policy_config_path, source_path)
+    monkeypatch.setenv(POLICY_CONFIG_PATH_ENV, str(source_path))
+    return source_path
+
+
+@pytest.fixture
 def completed_approval_record_path(fixture_root: Path) -> Path:
     return fixture_root / (
         "runs/run_demo_001/private/safety_policy/approvals/"
@@ -45,7 +60,7 @@ def completed_approval_record_path(fixture_root: Path) -> Path:
 def evaluate_run_root(
     tmp_path: Path,
     completed_input_path: Path,
-    completed_policy_config_path: Path,
+    policy_source_path: Path,
     completed_approval_record_path: Path,
 ) -> Path:
     run_root = tmp_path / "run_demo_001"
@@ -54,9 +69,6 @@ def evaluate_run_root(
     )
     input_path.parent.mkdir(parents=True)
     copyfile(completed_input_path, input_path)
-    policy_path = run_root / "private/safety_policy/policy.json"
-    policy_path.parent.mkdir(parents=True)
-    copyfile(completed_policy_config_path, policy_path)
     approval_path = run_root / (
         "private/safety_policy/approvals/approval_demo_001.json"
     )
@@ -75,8 +87,6 @@ def evaluate_arguments(
         "artifacts/iteration-000/scenario_generator/test_scenarios.json"
     )
     input_path = evaluate_run_root / relative_path
-    policy_relative_path = "private/safety_policy/policy.json"
-    policy_path = evaluate_run_root / policy_relative_path
     return (
         {
             "test_scenarios": {
@@ -90,9 +100,5 @@ def evaluate_arguments(
             "iteration": 0,
             "mode": "development",
             "run_root": evaluate_run_root,
-            "policy_config": {
-                "path": policy_relative_path,
-                "sha256": calculate_sha256(policy_path),
-            },
         },
     )

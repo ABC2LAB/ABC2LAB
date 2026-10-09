@@ -4,7 +4,7 @@ from typing import Callable
 
 import pytest
 
-from modules.safety_policy.evaluate_adapter import parse_evaluate_request
+from modules.safety_policy.evaluate_adapter import prepare_evaluate_request
 from modules.safety_policy.exceptions import (
     ApprovalRecordError,
     PolicyConfigurationError,
@@ -28,7 +28,7 @@ from modules.safety_policy.service import prepare_evaluation
 def evaluation_input(
     evaluate_arguments: tuple[dict[str, object], str, dict[str, object]],
 ) -> EvaluationInput:
-    return prepare_evaluation(parse_evaluate_request(*evaluate_arguments))
+    return prepare_evaluation(prepare_evaluate_request(*evaluate_arguments))
 
 
 @pytest.fixture

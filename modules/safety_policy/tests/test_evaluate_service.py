@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from modules.safety_policy.evaluate_adapter import parse_evaluate_request
+from modules.safety_policy.evaluate_adapter import prepare_evaluate_request
 from modules.safety_policy.exceptions import (
     ContractValidationError,
     SourceArtifactFailedError,
@@ -19,7 +19,7 @@ from modules.safety_policy.utils.validation import load_json
 def test_prepare_evaluation_returns_valid_internal_input(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
 ) -> None:
-    request = parse_evaluate_request(*evaluate_arguments)
+    request = prepare_evaluate_request(*evaluate_arguments)
 
     prepared = prepare_evaluation(request)
 
@@ -64,7 +64,7 @@ def test_prepare_evaluation_rejects_hash_mismatch(
 ) -> None:
     input_paths, output_dir, context = evaluate_arguments
     input_paths["test_scenarios"]["sha256"] = "f" * 64
-    request = parse_evaluate_request(input_paths, output_dir, context)
+    request = prepare_evaluate_request(input_paths, output_dir, context)
 
     with pytest.raises(ContractValidationError, match="실제 파일과 다름"):
         prepare_evaluation(request)
@@ -114,9 +114,7 @@ def _input_path(run_root: Path) -> Path:
 
 
 def _request_for(run_root: Path, input_path: Path) -> EvaluationRequest:
-    policy_relative_path = "private/safety_policy/policy.json"
-    policy_path = run_root / policy_relative_path
-    return parse_evaluate_request(
+    return prepare_evaluate_request(
         input_paths={
             "test_scenarios": {
                 "path": (
@@ -132,10 +130,6 @@ def _request_for(run_root: Path, input_path: Path) -> EvaluationRequest:
             "iteration": 0,
             "mode": "development",
             "run_root": run_root,
-            "policy_config": {
-                "path": policy_relative_path,
-                "sha256": calculate_sha256(policy_path),
-            },
         },
     )
 
