@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 
-from modules.safety_policy.evaluate_adapter import POLICY_CONFIG_RELATIVE_PATH
 from modules.safety_policy.exceptions import (
     ContractValidationError,
     PathValidationError,
@@ -24,6 +23,7 @@ from modules.safety_policy.utils.validation import (
 )
 
 POLICY_CONFIG_PATH_ENV = "SAFETY_POLICY_CONFIG_PATH"
+POLICY_CONFIG_RELATIVE_PATH = "private/safety_policy/policy.json"
 POLICY_CONFIG_SCHEMA = (
     Path(__file__).parent / "schemas" / "input" / "policy_config.schema.json"
 )

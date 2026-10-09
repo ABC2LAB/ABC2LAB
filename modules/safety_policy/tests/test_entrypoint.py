@@ -1,12 +1,20 @@
+import copy
 import json
+from dataclasses import replace
 from pathlib import Path
 from shutil import copyfile
 from typing import Any
 
 import pytest
 
-from modules.safety_policy import entrypoint
+from modules.safety_policy import config_adapter, entrypoint
+from modules.safety_policy.config_adapter import (
+    POLICY_CONFIG_PATH_ENV,
+    prepare_policy_configuration,
+)
 from modules.safety_policy.contracts import load_safety_decisions
+from modules.safety_policy.evaluate_adapter import prepare_evaluate_request
+from modules.safety_policy.utils import atomic_writer
 from modules.safety_policy.utils.hashing import calculate_sha256
 from modules.safety_policy.utils.validation import load_json
 
@@ -14,7 +22,12 @@ from modules.safety_policy.utils.validation import load_json
 def test_run_evaluate_writes_valid_completed_artifact(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
+    policy_source_path: Path,
 ) -> None:
+    original_arguments = copy.deepcopy(evaluate_arguments)
+    assert "policy_config" not in evaluate_arguments[2]
+    assert not _policy_path(evaluate_run_root).exists()
+
     response = entrypoint.run("evaluate", *evaluate_arguments)
 
     output_path = _output_path(evaluate_run_root)
@@ -24,6 +37,8 @@ def test_run_evaluate_writes_valid_completed_artifact(
     assert response["output_path"].endswith("safety_decisions.json")
     assert len(response["sha256"]) == 64
     assert artifact["data"]["policy_id"] == "abc2lab-fixture-policy"
+    assert _policy_path(evaluate_run_root).read_bytes() == policy_source_path.read_bytes()
+    assert evaluate_arguments == original_arguments
     assert len(artifact["input_refs"]) == 1
     assert "policy_config_sha256" not in artifact["data"]
     assert decisions is not None
@@ -211,37 +226,34 @@ def test_run_evaluate_rejects_input_hash_mismatch_without_output(
     assert not _output_path(evaluate_run_root).exists()
 
 
-def test_run_evaluate_publishes_failed_artifact_for_invalid_policy(
+def test_run_evaluate_rejects_invalid_policy_without_output(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
+    policy_source_path: Path,
 ) -> None:
     input_paths, output_dir, context = evaluate_arguments
-    policy_path = _policy_path(evaluate_run_root)
-    policy = load_json(policy_path)
+    policy = load_json(policy_source_path)
     policy["unexpected"] = True
-    policy_path.write_text(json.dumps(policy), encoding="utf-8")
-    context["policy_config"]["sha256"] = calculate_sha256(policy_path)
+    policy_source_path.write_text(json.dumps(policy), encoding="utf-8")
 
     response = entrypoint.run("evaluate", input_paths, output_dir, context)
 
-    artifact = load_json(_output_path(evaluate_run_root))
-    _assert_output_integrity(evaluate_run_root, artifact, response)
     assert response["status"] == "failed"
-    assert response["output_path"] is not None
-    assert artifact["data"] is None
-    assert artifact["errors"][0]["code"] == "CONFIG_INVALID"
+    assert response["output_path"] is None
+    assert response["errors"][0]["code"] == "CONFIG_INVALID"
+    assert not _output_path(evaluate_run_root).exists()
+    assert not _policy_path(evaluate_run_root).exists()
 
 
 def test_run_evaluate_publishes_failed_artifact_for_invalid_policy_origin(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
+    policy_source_path: Path,
 ) -> None:
     input_paths, output_dir, context = evaluate_arguments
-    policy_path = _policy_path(evaluate_run_root)
-    policy = load_json(policy_path)
+    policy = load_json(policy_source_path)
     policy["allowed_targets"][0]["origin"] = "not-an-origin"
-    policy_path.write_text(json.dumps(policy), encoding="utf-8")
-    context["policy_config"]["sha256"] = calculate_sha256(policy_path)
+    policy_source_path.write_text(json.dumps(policy), encoding="utf-8")
 
     response = entrypoint.run("evaluate", input_paths, output_dir, context)
 
@@ -253,11 +265,15 @@ def test_run_evaluate_publishes_failed_artifact_for_invalid_policy_origin(
 def test_run_evaluate_publishes_failed_artifact_for_policy_hash_mismatch(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    input_paths, output_dir, context = evaluate_arguments
-    context["policy_config"]["sha256"] = "0" * 64
+    request = replace(
+        prepare_evaluate_request(*evaluate_arguments),
+        policy_config_expected_sha256="0" * 64,
+    )
+    monkeypatch.setattr(entrypoint, "prepare_evaluate_request", lambda *args: request)
 
-    response = entrypoint.run("evaluate", input_paths, output_dir, context)
+    response = entrypoint.run("evaluate", *evaluate_arguments)
 
     artifact = load_json(_output_path(evaluate_run_root))
     assert response["status"] == "failed"
@@ -285,13 +301,12 @@ def test_run_evaluate_publishes_failed_artifact_for_approval_hash_mismatch(
 def test_run_evaluate_rejects_approval_for_unknown_impact(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
+    policy_source_path: Path,
 ) -> None:
     input_paths, output_dir, context = evaluate_arguments
-    policy_path = _policy_path(evaluate_run_root)
-    policy = load_json(policy_path)
+    policy = load_json(policy_source_path)
     policy["request_rules"] = []
-    policy_path.write_text(json.dumps(policy), encoding="utf-8")
-    context["policy_config"]["sha256"] = calculate_sha256(policy_path)
+    policy_source_path.write_text(json.dumps(policy), encoding="utf-8")
     approval_path = _approval_path(evaluate_run_root)
     approval = load_json(approval_path)
     approval["approved_scenario_ids"] = ["scenario_read_order_001"]
@@ -321,6 +336,7 @@ def test_run_evaluate_never_overwrites_completed_artifact(
     assert response["status"] == "failed"
     assert response["errors"][0]["code"] == "OUTPUT_EXISTS"
     assert output_path.read_text(encoding="utf-8") == "existing"
+    assert not _policy_path(evaluate_run_root).exists()
 
 
 def test_run_evaluate_reports_storage_failure_without_artifact(
@@ -359,7 +375,9 @@ def test_run_rejects_unsupported_operation_without_output(
 def test_cli_runs_evaluate_with_contract_paths(
     evaluate_run_root: Path,
     capsys: Any,
+    policy_source_path: Path,
 ) -> None:
+    assert not _policy_path(evaluate_run_root).exists()
     exit_code = entrypoint.main(
         [
             "evaluate",
@@ -380,6 +398,7 @@ def test_cli_runs_evaluate_with_contract_paths(
     assert exit_code == 0
     assert response["status"] == "completed"
     assert _output_path(evaluate_run_root).exists()
+    assert _policy_path(evaluate_run_root).read_bytes() == policy_source_path.read_bytes()
 
 
 def test_cli_accepts_private_approval_record(
@@ -413,6 +432,188 @@ def test_cli_accepts_private_approval_record(
     assert exit_code == 0
     assert response["status"] == "completed"
     assert approved["approval_ref"] == "approval_demo_001"
+
+
+@pytest.mark.parametrize("configured_path", [None, "", " "])
+def test_run_requires_explicit_policy_configuration(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    configured_path: str | None,
+) -> None:
+    if configured_path is None:
+        monkeypatch.delenv(POLICY_CONFIG_PATH_ENV)
+    else:
+        monkeypatch.setenv(POLICY_CONFIG_PATH_ENV, configured_path)
+
+    response = entrypoint.run("evaluate", *evaluate_arguments)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "CONFIG_INVALID"
+    assert response["artifact_id"] is None
+    assert response["output_path"] is None
+    assert not _policy_path(evaluate_run_root).exists()
+    assert not _output_path(evaluate_run_root).exists()
+
+
+def test_cli_requires_explicit_policy_configuration(
+    evaluate_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,
+) -> None:
+    monkeypatch.delenv(POLICY_CONFIG_PATH_ENV)
+
+    exit_code = entrypoint.main(_cli_arguments(evaluate_run_root))
+
+    response = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert response["errors"][0]["code"] == "CONFIG_INVALID"
+    assert response["output_path"] is None
+    assert not _policy_path(evaluate_run_root).exists()
+    assert not _output_path(evaluate_run_root).exists()
+
+
+def test_run_does_not_use_private_policy_as_configuration_fallback(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    policy_source_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copyfile(policy_source_path, _policy_path(evaluate_run_root))
+    existing_policy = _policy_path(evaluate_run_root).read_bytes()
+    monkeypatch.delenv(POLICY_CONFIG_PATH_ENV)
+
+    response = entrypoint.run("evaluate", *evaluate_arguments)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "CONFIG_INVALID"
+    assert not _output_path(evaluate_run_root).exists()
+    assert _policy_path(evaluate_run_root).read_bytes() == existing_policy
+
+
+def test_run_rejects_legacy_policy_descriptor_before_preparation(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    context["policy_config"] = {
+        "path": "private/safety_policy/policy.json",
+        "sha256": "0" * 64,
+    }
+    original_context = copy.deepcopy(context)
+
+    response = entrypoint.run("evaluate", input_paths, output_dir, context)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "CONTRACT_INVALID"
+    assert context == original_context
+    assert not _policy_path(evaluate_run_root).exists()
+    assert not _output_path(evaluate_run_root).exists()
+
+
+@pytest.mark.parametrize(
+    "context_update",
+    [{"run_id": "other_run"}, {"iteration": -1}, {"mode": "unsupported"}],
+)
+def test_run_validates_execution_context_before_policy_preparation(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    context_update: dict[str, Any],
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    context.update(context_update)
+
+    response = entrypoint.run("evaluate", input_paths, output_dir, context)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "CONTRACT_INVALID"
+    assert not _policy_path(evaluate_run_root).exists()
+    assert not _output_path(evaluate_run_root).exists()
+
+
+def test_run_reports_policy_snapshot_storage_failure(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_flush(descriptor: int) -> None:
+        raise OSError("fixture policy storage failure")
+
+    monkeypatch.setattr(atomic_writer.os, "fsync", fail_flush)
+
+    response = entrypoint.run("evaluate", *evaluate_arguments)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "STORAGE_FAILED"
+    assert response["errors"][0]["retryable"] is True
+    assert not _policy_path(evaluate_run_root).exists()
+    assert not _output_path(evaluate_run_root).exists()
+    assert list(_policy_path(evaluate_run_root).parent.glob(".policy.json.*.tmp")) == []
+
+
+def test_run_reports_policy_preparation_hash_mismatch(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config_adapter, "calculate_sha256", lambda path: "0" * 64)
+
+    response = entrypoint.run("evaluate", *evaluate_arguments)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "CONFIG_HASH_MISMATCH"
+    assert response["output_path"] is None
+    assert not _output_path(evaluate_run_root).exists()
+
+
+def test_run_preserves_existing_policy_until_reuse_is_implemented(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    prepared = prepare_policy_configuration(evaluate_run_root)
+    original_policy = prepared.path.read_bytes()
+    original_modified_at = prepared.path.stat().st_mtime_ns
+
+    response = entrypoint.run("evaluate", *evaluate_arguments)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "CONFIG_INVALID"
+    assert not _output_path(evaluate_run_root).exists()
+    assert prepared.path.read_bytes() == original_policy
+    assert prepared.path.stat().st_mtime_ns == original_modified_at
+
+
+def test_function_and_cli_use_the_same_policy_preparation_flow(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    tmp_path: Path,
+    capsys: Any,
+) -> None:
+    cli_run_root = tmp_path / "cli" / evaluate_run_root.name
+    cli_input_path = _input_path(cli_run_root)
+    cli_input_path.parent.mkdir(parents=True)
+    copyfile(_input_path(evaluate_run_root), cli_input_path)
+
+    function_response = entrypoint.run("evaluate", *evaluate_arguments)
+    cli_exit_code = entrypoint.main(_cli_arguments(cli_run_root))
+
+    cli_response = json.loads(capsys.readouterr().out)
+    assert function_response["status"] == cli_response["status"] == "completed"
+    assert cli_exit_code == 0
+    assert load_json(_output_path(evaluate_run_root))["data"] == load_json(
+        _output_path(cli_run_root)
+    )["data"]
+    assert _policy_path(evaluate_run_root).read_bytes() == _policy_path(cli_run_root).read_bytes()
+
+
+def _cli_arguments(run_root: Path) -> list[str]:
+    return [
+        "evaluate",
+        "--run-root", str(run_root),
+        "--run-id", run_root.name,
+        "--iteration", "0",
+        "--mode", "development",
+    ]
 
 
 def _assert_output_integrity(

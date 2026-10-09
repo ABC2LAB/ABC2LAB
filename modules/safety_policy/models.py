@@ -38,19 +38,24 @@ class ErrorItem:
 
 
 @dataclass(frozen=True)
-class EvaluationRequest:
+class EvaluationArguments:
     input_path: Path
     input_relative_path: str
     expected_sha256: str
-    policy_config_path: Path
-    policy_config_expected_sha256: str
     approval_record_path: Path | None
     approval_record_expected_sha256: str | None
     output_path: Path
     output_relative_path: str
+    run_root: Path
     run_id: str
     iteration: int
     mode: str
+
+
+@dataclass(frozen=True)
+class EvaluationRequest(EvaluationArguments):
+    policy_config_path: Path
+    policy_config_expected_sha256: str
 
 
 @dataclass(frozen=True)

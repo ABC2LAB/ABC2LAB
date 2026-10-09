@@ -1,11 +1,22 @@
 import copy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from modules.safety_policy.evaluate_adapter import parse_evaluate_request
+from modules.safety_policy.config_adapter import (
+    POLICY_CONFIG_PATH_ENV,
+    prepare_policy_configuration,
+)
+from modules.safety_policy.evaluate_adapter import (
+    POLICY_CONFIG_RELATIVE_PATH,
+    bind_policy_configuration,
+    parse_evaluate_request,
+    prepare_evaluate_request,
+)
 from modules.safety_policy.exceptions import ContractValidationError, SafetyPolicyError
+from modules.safety_policy.models import EvaluationArguments, EvaluationRequest
 from modules.safety_policy.utils.hashing import calculate_sha256
 
 
@@ -22,9 +33,8 @@ def test_parse_evaluate_request_resolves_contract_paths(
         / "artifacts/iteration-000/scenario_generator/test_scenarios.json"
     )
     assert request.input_relative_path.endswith("test_scenarios.json")
-    assert request.policy_config_path == (
-        evaluate_run_root / "private/safety_policy/policy.json"
-    )
+    assert request.run_root == evaluate_run_root
+    assert not (evaluate_run_root / POLICY_CONFIG_RELATIVE_PATH).exists()
     assert request.output_path == (
         evaluate_run_root
         / "artifacts/iteration-000/safety_policy/safety_decisions.json"
@@ -35,6 +45,8 @@ def test_parse_evaluate_request_resolves_contract_paths(
     assert request.mode == "development"
     assert request.approval_record_path is None
     assert request.approval_record_expected_sha256 is None
+    assert isinstance(request, EvaluationArguments)
+    assert not isinstance(request, EvaluationRequest)
 
 
 def test_parse_evaluate_request_accepts_approval_descriptor(
@@ -161,14 +173,14 @@ def test_parse_evaluate_request_rejects_invalid_sha256(
         {"unexpected": True},
     ],
 )
-def test_parse_evaluate_request_rejects_invalid_policy_descriptor(
+def test_parse_evaluate_request_rejects_legacy_policy_descriptor(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     change: dict[str, Any],
 ) -> None:
     input_paths, output_dir, context = copy.deepcopy(evaluate_arguments)
-    context["policy_config"].update(change)
+    context["policy_config"] = change
 
-    with pytest.raises(SafetyPolicyError):
+    with pytest.raises(ContractValidationError, match="context 필드 구성"):
         parse_evaluate_request(input_paths, output_dir, context)
 
 
@@ -214,31 +226,31 @@ def test_parse_evaluate_request_rejects_missing_input_file(
         parse_evaluate_request(input_paths, output_dir, context)
 
 
-def test_parse_evaluate_request_rejects_missing_policy_file(
+def test_parse_evaluate_request_accepts_missing_policy_file(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
 ) -> None:
     input_paths, output_dir, context = evaluate_arguments
-    policy_path = evaluate_run_root / context["policy_config"]["path"]
-    policy_path.unlink()
+    policy_path = evaluate_run_root / POLICY_CONFIG_RELATIVE_PATH
 
-    with pytest.raises(SafetyPolicyError, match="입력 파일이 존재하지 않음"):
-        parse_evaluate_request(input_paths, output_dir, context)
+    request = parse_evaluate_request(input_paths, output_dir, context)
+
+    assert request.run_root == evaluate_run_root
+    assert not policy_path.exists()
 
 
-def test_parse_evaluate_request_rejects_policy_symlink_escape(
+def test_prepare_evaluate_request_rejects_policy_symlink_escape(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
 ) -> None:
     input_paths, output_dir, context = evaluate_arguments
-    policy_path = evaluate_run_root / context["policy_config"]["path"]
+    policy_path = evaluate_run_root / POLICY_CONFIG_RELATIVE_PATH
     outside_path = evaluate_run_root.parent / "outside-policy.json"
     outside_path.write_text("{}", encoding="utf-8")
-    policy_path.unlink()
     policy_path.symlink_to(outside_path)
 
     with pytest.raises(SafetyPolicyError, match="신뢰 경로를 벗어난"):
-        parse_evaluate_request(input_paths, output_dir, context)
+        prepare_evaluate_request(input_paths, output_dir, context)
 
 
 @pytest.mark.parametrize(
@@ -265,4 +277,60 @@ def test_parse_evaluate_request_rejects_run_root_name_mismatch(
     context["run_root"] = other_root
 
     with pytest.raises(ContractValidationError, match="run_root와 run_id"):
+        parse_evaluate_request(input_paths, output_dir, context)
+
+
+def test_parse_evaluate_request_does_not_read_or_prepare_policy(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(POLICY_CONFIG_PATH_ENV)
+
+    arguments = parse_evaluate_request(*evaluate_arguments)
+
+    assert arguments.run_root == evaluate_run_root
+    assert not (evaluate_run_root / POLICY_CONFIG_RELATIVE_PATH).exists()
+
+
+def test_prepare_evaluate_request_binds_module_owned_policy_reference(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    request = prepare_evaluate_request(*evaluate_arguments)
+
+    assert isinstance(request, EvaluationRequest)
+    assert request.policy_config_path == evaluate_run_root / POLICY_CONFIG_RELATIVE_PATH
+    assert request.policy_config_expected_sha256 == calculate_sha256(request.policy_config_path)
+    assert "policy_config" not in evaluate_arguments[2]
+
+
+@pytest.mark.parametrize("field", ["relative_path", "path", "sha256"])
+def test_bind_policy_configuration_rejects_invalid_internal_reference(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    field: str,
+) -> None:
+    arguments = parse_evaluate_request(*evaluate_arguments)
+    prepared = prepare_policy_configuration(evaluate_run_root)
+    changes = {
+        "relative_path": "private/other/policy.json",
+        "path": evaluate_run_root.parent / "other_run" / "policy.json",
+        "sha256": "invalid",
+    }
+    invalid_reference = replace(prepared, **{field: changes[field]})
+
+    with pytest.raises(ContractValidationError):
+        bind_policy_configuration(arguments, invalid_reference)
+
+
+@pytest.mark.parametrize("field", ["run_id", "iteration", "mode", "run_root"])
+def test_parse_evaluate_request_rejects_missing_execution_context_key(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    field: str,
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    context.pop(field)
+
+    with pytest.raises(ContractValidationError, match="context 필드 구성"):
         parse_evaluate_request(input_paths, output_dir, context)

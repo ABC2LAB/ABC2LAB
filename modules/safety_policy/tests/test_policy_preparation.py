@@ -12,6 +12,7 @@ from modules.safety_policy.config_adapter import (
 )
 from modules.safety_policy.evaluate_adapter import (
     POLICY_CONFIG_RELATIVE_PATH,
+    bind_policy_configuration,
     parse_evaluate_request,
 )
 from modules.safety_policy.exceptions import (
@@ -217,15 +218,13 @@ def test_prepared_policy_is_compatible_with_existing_configuration_loader(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
 ) -> None:
     input_paths, output_dir, context = evaluate_arguments
-    (Path(context["run_root"]) / POLICY_CONFIG_RELATIVE_PATH).unlink()
     prepared = prepare_policy_configuration(Path(context["run_root"]))
-    context["policy_config"] = {
-        "path": prepared.relative_path,
-        "sha256": prepared.sha256,
-    }
 
     configuration = load_policy_configuration(
-        parse_evaluate_request(input_paths, output_dir, context)
+        bind_policy_configuration(
+            parse_evaluate_request(input_paths, output_dir, context),
+            prepared,
+        )
     )
 
     original_configuration = load_json(policy_source_path)

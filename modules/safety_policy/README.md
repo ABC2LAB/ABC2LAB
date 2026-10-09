@@ -5,14 +5,16 @@
 
 ## 현재 상태 — 2026-10-10
 
-기준 커밋은 `695b3c8`이다. PR #52·#53 병합 후 상태를 기록한다.
+기준 커밋은 `b664976`이다. PR #52·#53 계약 호환과 정책 설정 개선 2단계까지의
+작업 상태를 기록한다. 정책 준비 기능은 공개 `run()`·CLI에 연결됐으며,
+동일 run의 기존 정책 재사용은 다음 3단계 작업으로 남아 있다.
 
 | 구분 | 현재 상태 |
 |---|---|
-| 독립 구현 | 공개 `evaluate`·CLI, 6개 assessment, 승인 기록 재평가·원자 저장 구현 완료 |
+| 독립 구현 | 공개 `evaluate`·CLI, 외부 정책 설정 검증·private 자동 배치, 6개 assessment, 승인 기록 재평가·원자 저장 구현 완료 |
 | 공개 계약 | `test_scenarios` 입력·`safety_decisions` 출력 `0.2.0`, 필수 `Scenario.resource_ids` 수용 완료 |
 | 소비자 호환 | Verifier·Reporter의 `safety_decisions` 입력 사본 `0.2.0` 동기화 완료 |
-| 독립 회귀 | `165 passed` |
+| 독립 회귀 | `218 passed` |
 | 실제 전체 연결 | 미완료. 같은 run의 계획→판정→검증→리포트 연결 검증 필요 |
 
 승인 기록의 입력 검증·계획 바인딩·재평가는 구현됐지만, 실제 사용자 승인 수집·
@@ -108,11 +110,16 @@ assessment는 다음 6개 항목을 모두 포함한다.
 - `input_paths`의 유일한 키는 `test_scenarios`
 - 입력 descriptor는 `path`, `sha256`만 허용
 - 입력 경로는 현재 iteration의 scenario_generator 산출물 경로와 정확히 일치
-- `context`는 `run_id`, `iteration`, `mode`, `run_root`, `policy_config`만 허용
-- `policy_config` descriptor는 `path`, `sha256`만 허용
-- Policy 설정 경로는 `private/safety_policy/policy.json`으로 제한
+- `context` 필수 키는 `run_id`, `iteration`, `mode`, `run_root`
+- 선택 키는 `approval_record`이며 경로·해시 검증은 기존 승인 규약을 따른다
+- 호출자의 `policy_config` descriptor와 미정의 키는 거절
 - 출력 경로는 현재 iteration의 safety_policy 산출물 폴더와 정확히 일치
 - 상대 경로 이탈, 절대 외부 경로, 다른 run 경로, 잘못된 SHA-256 형식 거절
+
+실행 인자 검증은 `EvaluationArguments`를 반환하며 정책 파일을 읽거나 배치하지
+않는다. `prepare_evaluate_request()`가 검증된 run_root로 정책 준비를 호출하고,
+사본의 경로·해시를 내부 `EvaluationRequest`에 바인딩한다. 두 모델은 모듈 내부
+타입이며 Runner가 전달하는 공용 context 클래스가 아니다.
 
 `service.prepare_evaluation()`은 실제 파일 SHA-256과 Schema를 검증하고 envelope의
 `run_id`, `iteration`, `mode`가 실행 context와 일치하는지 확인한다. 유효한
@@ -141,8 +148,8 @@ assessment는 다음 6개 항목을 모두 포함한다.
 ## 4단계 공개 실행·출력 저장
 
 `entrypoint.run(operation, input_paths, output_dir, context)`는 `evaluate`만 지원한다.
-`context.policy_config`에는 Policy 설정 내용이 아니라 신뢰 경로 안의 상대 경로와
-정확한 파일 SHA-256만 전달한다.
+호출자는 정책 설정 내용이나 private 파일 descriptor를 `context`에 전달하지
+않는다. 설정 원본 위치는 `SAFETY_POLICY_CONFIG_PATH` 환경변수로 제공한다.
 
 ```python
 context = {
@@ -150,12 +157,14 @@ context = {
     "iteration": 0,
     "mode": "development",
     "run_root": "/trusted/runs/run_demo_001",
-    "policy_config": {
-        "path": "private/safety_policy/policy.json",
-        "sha256": "<64자리 소문자 SHA-256>",
-    },
 }
 ```
+
+모듈이 원본을 검증한 뒤 자기 `private/safety_policy/policy.json`에 같은 바이트로
+배치하고 내부에서 경로·SHA-256을 준비한다. Runner는 private 파일 생성·복사나
+설정 해시 계산을 담당하지 않는다. 상대 원본 경로는 현재 작업 디렉터리 기준이며,
+환경변수가 없거나 비어 있으면 기본 설정으로 대체하지 않는다. `.env` 파일을
+자동으로 읽지 않으므로 실행 프로세스에 환경변수를 실제로 제공해야 한다.
 
 Policy 설정은 `schemas/input/policy_config.schema.json`으로 검증하며 다음 값을
 포함한다.
@@ -169,18 +178,30 @@ Policy 설정은 `schemas/input/policy_config.schema.json`으로 검증하며 �
 비밀번호·쿠키·토큰은 설정 계약에 없으며 미정의 키는 거절한다. 설정 파일의
 경로 이탈·외부 symlink·해시 불일치도 평가 전에 거절한다.
 
-처리 순서는 입력 adapter → Policy 설정 adapter → 규칙 평가 → 출력 envelope 생성
+처리 순서는 실행 인자·경로 검증 → Policy 설정 검증·사본 배치 → 시나리오 입력
+검증 → 규칙 평가 → 출력 envelope 생성
 → 출력 Schema·시나리오 ID·입력 해시 재검증 → 임시 파일 flush·close → rename이다.
 정상 입력은 `completed`, 유효한 partial 입력은 원본 오류를 보존한 `partial`,
 평가·설정 실패는 `data=null`인 `failed`로 공개한다. 입력 계약이나 입력 파일
 자체를 신뢰할 수 없으면 출력 파일 없이 실패 제어 응답을 반환한다.
+
+설정 준비 단계의 누락·JSON/Schema 오류·기존 사본 충돌은 `CONFIG_INVALID`,
+사본 해시 불일치는 `CONFIG_HASH_MISMATCH`, 저장 실패는 `STORAGE_FAILED` 제어
+응답을 반환하고 판정 파일을 생성하지 않는다. 설정 사본을 준비한 뒤 평가에서
+발견한 Policy 의미 오류는 기존처럼 failed 산출물로 공개한다. 완료 출력이 이미
+있으면 정책을 배치하기 전에 `OUTPUT_EXISTS`로 거절한다.
+
+현재 2단계에서는 기존 정책 사본을 덮어쓰거나 자동 재사용하지 않는다.
+동일 run의 다음 회차·승인 후 재평가를 위한 같은 정책 재사용은 3단계에서
+연결한다. 기존 사본을 임의로 삭제·교체하여 이 제한을 우회하지 않는다.
 
 완료 제어 응답은 `operation`, `status`, `artifact_id`, `output_path`, `sha256`,
 `errors`를 반환한다. 입력이나 설정이 평가 도중 변경되면 출력을 공개하지 않는다.
 
 초기 4단계 구현에서는 `safety_decisions.json`의 v0.1 출력 Schema를 유지했다.
 현재 지원 버전은 위 계약 파일 절을 따른다. Policy 설정 해시는 실행 입력에서만
-검증하며 출력에는 기존 `policy_id`·`policy_version`을 기록한다.
+검증하며 출력에는 기존 `policy_id`·`policy_version`을 기록한다. 현재 설정 해시는
+호출자가 아니라 모듈이 준비한 내부 참조에서 검증한다.
 
 ## 5단계 승인 기록 재평가
 
@@ -219,6 +240,8 @@ context["approval_record"] = {
 ### CLI
 
 ```bash
+export SAFETY_POLICY_CONFIG_PATH=/absolute/path/to/policy.json
+
 .venv/bin/python -m modules.safety_policy.entrypoint evaluate \
   --run-root runs/run_demo_001 \
   --run-id run_demo_001 \
@@ -237,8 +260,8 @@ context["approval_record"] = {
   --approval-record private/safety_policy/approvals/approval_demo_001.json
 ```
 
-CLI도 같은 고정 입력·설정·출력 경로를 사용하며 파일 해시를 계산한 뒤 공개
-`run()`을 호출한다.
+CLI는 시나리오·선택 승인 파일 해시만 계산한 뒤 공개 `run()`을 호출한다.
+정책 로딩·검증·private 배치는 함수 호출과 같은 준비 로직에서 수행한다.
 
 ## 테스트
 
@@ -248,7 +271,7 @@ CLI도 같은 고정 입력·설정·출력 경로를 사용하며 파일 해시
 .venv/bin/python -m pytest modules/safety_policy/
 ```
 
-현재 결과: `165 passed`.
+현재 결과: `218 passed`.
 
 실제 비밀값과 실행 결과는 fixture나 Git에 저장하지 않는다.
 
@@ -432,3 +455,39 @@ skip 12건은 이번에 활성화하지 않은 KG 실제 Neo4j 테스트다. 이
 규약은 변경하지 않았다. 실제 run 폴더나 승인 기록은 읽거나 변경하지 않았다.
 다음 단계는 공개 `run()`·CLI에 준비 기능을 연결하고 호출자의 필수
 `context.policy_config` 전달을 제거하는 작업이다.
+
+### 2026-10-10 — 정책 설정 준비 2단계: 공개 run·CLI 연결
+
+기준 커밋 `b664976`의 정책 준비 기능을 공개 실행 창구에 연결했다.
+
+- `context`에서 `policy_config`를 제거했다. 필수 실행 값 4개와 선택 승인
+  descriptor만 받으며 기존 Policy descriptor·미정의 키는 묵시적으로 무시하지
+  않고 `CONTRACT_INVALID`로 거절한다. 호출자의 mapping은 변경하지 않는다.
+- 실행 인자·입출력·승인 경로를 먼저 검증하고, 기존 완료 출력도 먼저 거절한다.
+  이어 환경변수의 정책을 검증·배치하고 내부 `EvaluationRequest`에 사본 경로와
+  해시를 묶는다. CLI는 private 정책 파일 존재 확인·해시 계산을 하지 않는다.
+- 공개 실행에서 설정 준비 오류를 실패 제어 응답으로 반환한다. 준비 이후의
+  기존 Policy 의미 오류·승인 오류·출력 저장 실패 처리와 판정 규칙은 유지했다.
+- 내부 모델을 실행 인자와 정책이 바인딩된 평가 요청으로 구분했다. Policy 경로
+  상수는 설정 adapter가 소유하도록 옮겨 입력·설정 adapter의 순환 의존을 피했다.
+- 테스트 준비는 외부 정책 파일·환경변수를 제공하고 private 정책은 실제 모듈이
+  생성하게 바꿨다. 기존 입력·Policy·승인·출력 회귀를 새 내부 요청 준비 방식에
+  맞추고 함수/CLI 동일 결과, 필수 환경변수, legacy context 거절, 준비 실패,
+  내부 참조·필수 실행 키 검증 등 22건을 추가했다.
+
+```bash
+.venv/bin/python -m pytest modules/safety_policy -q
+# 218 passed
+
+.venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter modules/verifier -q -rs
+# 950 passed, 12 skipped
+```
+
+합동 회귀의 skip 12건은 활성화하지 않은 KG 실제 Neo4j 통합 테스트다.
+동일 run의 실제 전체 pipeline·사용자 승인 창구 연결은 이번 검증 범위가 아니다.
+
+기존 1단계 이력과 공개 JSON Schema·버전·fixture 파일·안전 규칙·승인 판정·
+의존성은 유지했다. 변경 범위는 `modules/safety_policy/**`다. Runner 담당자는
+기존 `context.policy_config` 전달을 제거하고 실행 프로세스에 환경변수를 제공해야
+하며, 다른 모듈·Runner·공통 명세 파일은 직접 수정하지 않았다.
+동일 run의 기존 정책 사본 재사용·정책 변경 보호는 다음 3단계에서 추가한다.
