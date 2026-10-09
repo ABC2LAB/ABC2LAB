@@ -48,12 +48,19 @@ def resolve_config_path() -> Path:
 
 
 def load_drafter_settings(path: Path) -> DrafterSettings:
-    """설정 파일을 읽어 검증한다. 파일 없음·형식 오류·미정의 키·타입·범위·provider 규칙 위반은 ValueError."""
-    if not path.is_file():
-        raise ValueError(f"scenario_generator 설정 파일이 없음: {path}")
+    """설정 파일을 읽어 검증한다. 파일 없음·읽기 실패·형식 오류·미정의 키·타입·범위·provider 규칙 위반은 ValueError."""
     try:
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
+        if not path.is_file():
+            raise ValueError(f"scenario_generator 설정 파일이 없음: {path}")
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        # 권한 등으로 읽지 못함. 설정 문제는 모두 ValueError로 알리고 원인은 예외 체인에 남긴다.
+        raise ValueError(f"scenario_generator 설정 파일을 읽지 못함: {path}") from error
+    except UnicodeDecodeError as error:
+        raise ValueError(f"설정 파일 형식 오류 ({path.name}): {error}") from None
+    try:
+        document = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
         raise ValueError(f"설정 파일 형식 오류 ({path.name}): {error}") from None
     unknown_tables = sorted(key for key in document if key != LLM_TABLE)
     if unknown_tables:
@@ -110,6 +117,11 @@ def _existing_drafts_path(values: Mapping[str, Any], source: str) -> Path:
     if not raw_path:
         raise ValueError(f"{source}: {PROVIDER_KEY}={PROVIDER_REPLAY}에는 {DRAFTS_PATH_KEY}가 필요함")
     drafts_path = Path(raw_path)
-    if not drafts_path.is_file():
+    try:
+        is_file = drafts_path.is_file()
+    except OSError as error:
+        # 부모 폴더 권한 등으로 확인하지 못함. 경로 값은 메시지에 넣지 않는다.
+        raise ValueError(f"{source}: {DRAFTS_PATH_KEY}가 가리키는 파일을 확인하지 못함") from error
+    if not is_file:
         raise ValueError(f"{source}: {DRAFTS_PATH_KEY}가 가리키는 파일이 없음")
     return drafts_path

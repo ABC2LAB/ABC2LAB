@@ -270,6 +270,51 @@ def test_invalid_config_raises_before_writing(
         assert forbidden not in str(caught.value)
 
 
+def test_unreadable_config_file_raises_value_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, folder: RunFolder, transport: TransportRecorder
+) -> None:
+    # 권한 오류는 chmod 대신 읽기 함수로 낸다(root로 돌면 chmod 000 파일도 읽혀서 테스트가 무의미해진다).
+    config_path = use_config(monkeypatch, tmp_path / "locked.toml", '[llm]\nprovider = "none"\n')
+    original_read_text = Path.read_text
+
+    def read_text_denied(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self == config_path:
+            raise PermissionError(13, "Permission denied")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text_denied)
+
+    with pytest.raises(ValueError, match="locked.toml") as caught:
+        folder.run()
+
+    assert isinstance(caught.value.__cause__, PermissionError)
+    assert not folder.output_dir.exists()
+    assert transport.calls == []
+
+
+def test_unreadable_drafts_path_raises_value_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, folder: RunFolder, transport: TransportRecorder
+) -> None:
+    drafts_path = tmp_path / "locked" / "drafts.json"
+    use_config(monkeypatch, tmp_path / "replay.toml", replay_config(drafts_path))
+    original_is_file = Path.is_file
+
+    def is_file_denied(self: Path, *args: Any, **kwargs: Any) -> bool:
+        if self == drafts_path:
+            raise PermissionError(13, "Permission denied")
+        return original_is_file(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_file", is_file_denied)
+
+    with pytest.raises(ValueError, match="drafts_path") as caught:
+        folder.run()
+
+    assert isinstance(caught.value.__cause__, PermissionError)
+    assert "locked" not in str(caught.value)
+    assert not folder.output_dir.exists()
+    assert transport.calls == []
+
+
 def test_config_mode_build_error_names_config_file_and_key(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, folder: RunFolder
 ) -> None:
