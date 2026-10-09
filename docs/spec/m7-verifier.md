@@ -59,7 +59,7 @@
 
 | 입력 파일·정보 | 작성·제공 주체 | 사용할 내용 |
 | --- | --- | --- |
-| test_scenarios.json | `scenario_generator` | data.scenarios의 원본 candidate_id, 단계·계정·세션·요청·바인딩·사전조건·assertions. |
+| test_scenarios.json | `scenario_generator` | data.scenarios의 원본 candidate_id, 단계·계정·세션·요청·바인딩·사전조건·assertions, resource_ids(검증 관계 `target_id`의 출처). |
 | safety_decisions.json | `safety_policy` | data.scenarios_sha256·Policy 버전과 decisions의 scenario_id·decision_id·판정·범위·limits. |
 | crawl_result.json / 세션 공개 창구 | `collector / 명시된 참조` | 원본 요청 형식, 계정·역할·session_ref와 보호된 실행 컨텍스트. |
 | 실행 인자 / 기준 KG revision | `사용자 실행 인자 / 후보·계획 출처 참조` | 신뢰된 실행·경로 범위와 시나리오의 기준 graph_revision. |
@@ -172,9 +172,27 @@
 | --- | --- | --- | --- |
 | `source_verification_ids` | `array<string>` | 필수 | 이 갱신을 뒷받침하는 실행 검증 결과 ID. |
 | `nodes` | `array<GraphNode>` | 필수 | 새로 확인한 노드. `basis=verified`·`evidence_refs` 1개 이상. `node_type`에 **Resource 금지**(verifier는 신규 Resource를 만들지 않고 앞 단계 node_id를 target으로 쓴다). |
-| `relationships` | `array<GraphEdge>` | 필수 | 새로 확인한 관계. `relation_type`은 **`VERIFIED_ACCESS`·`VERIFIED_DENIAL`만**, `basis=verified`·`evidence_refs` 1개 이상. KG 입력 제약과 일치시켜 소비자 입력을 항상 통과한다. |
+| `relationships` | `array<VerificationRelationship>` | 필수 | 새로 확인한 검증 관계. 일반 GraphEdge(`source_id`)가 아니라 아래 VerificationRelationship이다. KG 입력 `verificationRelationship`과 같은 필드라 소비자 입력을 항상 통과한다. |
 
-**재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [EvidenceRef](02-common-contract.md), [GraphEdge](m2-semantic_analyzer.md), [GraphNode](m2-semantic_analyzer.md), [RuntimeMetrics](02-common-contract.md).
+### VerificationRelationship
+
+KG 입력(`modules/knowledge_graph/schemas/input/verification_results.schema.json`의 `verificationRelationship`)과 같은 필드·순서다. 일반 그래프 관계의 `source_id`(KG node_id)와 달리 source는 계정 원본 ID다.
+
+| 필드 | 타입·허용값 | 필수 | 의미 |
+| --- | --- | --- | --- |
+| `relationship_id` | `string`(빈 문자열 금지) | 필수 | 검증 관계 ID. |
+| `source_account_id` | `string`(빈 문자열 금지) | 필수 | 실제로 요청을 보낸(접근한) 계정의 원본 `account_id`. User node_id가 아니다. 출처는 그 결과 시나리오의 실행 계정 단계(`steps[].account_id`). KG가 같은 run/graph의 User(`properties.account_id`)로 해석해 연결한다. |
+| `target_id` | `string`(빈 문자열 금지) | 필수 | 대상 Resource instance의 KG node_id. 출처는 그 결과 시나리오의 `Scenario.resource_ids`([m5](m5-scenario_generator.md) 0.2.0) 중 하나다. Resource 종류 이름·URL·상품 번호를 대신 넣지 않는다. |
+| `relation_type` | `enum: VERIFIED_ACCESS, VERIFIED_DENIAL` | 필수 | 접근 재현 / 거부 확인. |
+| `properties` | `object` (값은 JsonValue) | 필수 | 추가 속성 JSON map. |
+| `basis` | `const: verified` | 필수 | 실제 실행으로 확인한 관계만. |
+| `evidence_refs` | `array<EvidenceRef>` (1개 이상) | 필수 | 실제 실행 근거. KG 입력은 개수 제한이 없고 reporter 입력은 1개 이상이다. verifier는 1개 이상으로 둔다. |
+
+- **`target_id` 경로:** access_analyzer `Candidate.resource_ids`(KG Resource instance node_id) → scenario_generator `Scenario.resource_ids`(순서·값 그대로 복사) → verifier 검증 관계 `target_id`. verifier는 값을 만들거나 형식을 해석하지 않는다.
+- 이전 `source_id`, 두 source 필드의 동시 입력은 KG·reporter가 거절한다(자동 변환 없음).
+- 현재 `graph_updates`는 빈 배열이다. 위 관계를 실제로 채우는 것은 PR3-c다.
+
+**재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [EvidenceRef](02-common-contract.md), [GraphNode](m2-semantic_analyzer.md), [RuntimeMetrics](02-common-contract.md).
 
 ## 동작 규칙 (구현)
 
@@ -191,7 +209,8 @@
 출력 `verification_results.json`의 `schema_version`을 0.2.0으로 올렸다(전원 동시 전환). 필드 의미 변경은 아래뿐이고 나머지는 버전 상수만 바뀌었다.
 
 - **`graph_updates` 제약을 KG 입력(0.2.0)에 맞춰 좁힘**: 관계 `relation_type`은 `VERIFIED_ACCESS`·`VERIFIED_DENIAL`만, 노드 `node_type`에 Resource 금지. `basis=verified`·`evidence_refs≥1`은 유지. 현재 graph_updates는 빈 배열이며 node_id 매핑은 PR3-c에서 채운다.
-- 입력 `test_scenarios`·`safety_decisions`·`crawl_result`는 각 생산자 계약 0.2.0을 미러한다(필드 정의는 [m5](m5-scenario_generator.md)·[m6](m6-safety_policy.md)·[m1](m1-collector.md), 버전 0.2.0).
+- 입력 `test_scenarios`·`safety_decisions`·`crawl_result`는 각 생산자 계약 0.2.0을 미러한다(필드 정의는 [m5](m5-scenario_generator.md)·[m6](m6-safety_policy.md)·[m1](m1-collector.md), 버전 0.2.0). **2026-10-10에 반영했다**(그 전까지 verifier 입력 사본은 0.1.0이었다). 생산자 출력 Schema와 title·description 외 같고, `test_scenarios`에는 `Scenario.resource_ids`가 들어 있다. `0.1.0` 입력은 묵시 변환 없이 `INPUT_CONTRACT_INVALID`(failed, 전송 0건)로 거절한다.
+- **검증 관계 source를 `source_id` → `source_account_id`로 전환**(2026-10-10): `graph_updates.relationships`를 KG 입력 `verificationRelationship`과 같은 형태로 맞췄다(위 VerificationRelationship 표). 같은 0.2.0 안에서 KG·reporter와 동시 전환한 합의이며 버전은 올리지 않는다.
 
 ---
 
