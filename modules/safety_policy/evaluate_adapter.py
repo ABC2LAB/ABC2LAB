@@ -15,7 +15,6 @@ from modules.safety_policy.config_adapter import (
 from modules.safety_policy.exceptions import (
     ContractValidationError,
     OutputArtifactExistsError,
-    PolicyConfigurationError,
 )
 from modules.safety_policy.models import EvaluationArguments, EvaluationRequest
 from modules.safety_policy.utils.paths import (
@@ -112,10 +111,7 @@ def prepare_evaluate_request(
     arguments = parse_evaluate_request(input_paths, output_dir, context)
     if arguments.output_path.exists() or arguments.output_path.is_symlink():
         raise OutputArtifactExistsError("safety_decisions 출력이 이미 존재함")
-    try:
-        configuration = prepare_policy_configuration(arguments.run_root)
-    except OutputArtifactExistsError as error:
-        raise PolicyConfigurationError("Policy 설정 사본이 이미 존재함") from error
+    configuration = prepare_policy_configuration(arguments.run_root)
     return bind_policy_configuration(arguments, configuration)
 
 

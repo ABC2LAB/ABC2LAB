@@ -566,7 +566,7 @@ def test_run_reports_policy_preparation_hash_mismatch(
     assert not _output_path(evaluate_run_root).exists()
 
 
-def test_run_preserves_existing_policy_until_reuse_is_implemented(
+def test_run_reuses_existing_policy_without_overwriting_it(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
 ) -> None:
@@ -576,11 +576,158 @@ def test_run_preserves_existing_policy_until_reuse_is_implemented(
 
     response = entrypoint.run("evaluate", *evaluate_arguments)
 
-    assert response["status"] == "failed"
-    assert response["errors"][0]["code"] == "CONFIG_INVALID"
-    assert not _output_path(evaluate_run_root).exists()
+    assert response["status"] == "completed"
+    artifact = load_json(_output_path(evaluate_run_root))
+    _assert_output_integrity(evaluate_run_root, artifact, response)
     assert prepared.path.read_bytes() == original_policy
     assert prepared.path.stat().st_mtime_ns == original_modified_at
+
+
+@pytest.mark.parametrize("execution_method", ["function", "cli"])
+def test_next_iteration_reuses_policy_and_preserves_previous_results(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    capsys: Any,
+    execution_method: str,
+) -> None:
+    assert entrypoint.run("evaluate", *evaluate_arguments)["status"] == "completed"
+    original_output = _output_path(evaluate_run_root).read_bytes()
+    original_input = _input_path(evaluate_run_root).read_bytes()
+    original_policy = _policy_path(evaluate_run_root).read_bytes()
+    original_stat = _policy_path(evaluate_run_root).stat()
+    next_arguments = _prepare_iteration_arguments(evaluate_run_root, 1)
+
+    if execution_method == "function":
+        response = entrypoint.run("evaluate", *next_arguments)
+    else:
+        exit_code = entrypoint.main(_cli_arguments(evaluate_run_root, 1))
+        response = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+
+    artifact = load_json(_output_path(evaluate_run_root, 1))
+    _assert_output_integrity(evaluate_run_root, artifact, response)
+    assert response["status"] == "completed"
+    assert artifact["iteration"] == 1
+    assert len(artifact["data"]["decisions"]) == len(
+        load_json(_input_path(evaluate_run_root, 1))["data"]["scenarios"]
+    )
+    assert _output_path(evaluate_run_root).read_bytes() == original_output
+    assert _input_path(evaluate_run_root).read_bytes() == original_input
+    assert _policy_path(evaluate_run_root).read_bytes() == original_policy
+    assert _policy_path(evaluate_run_root).stat().st_mtime_ns == original_stat.st_mtime_ns
+    assert _policy_path(evaluate_run_root).stat().st_ino == original_stat.st_ino
+
+
+def test_next_iteration_reuses_policy_for_approval_reevaluation(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    assert entrypoint.run("evaluate", *evaluate_arguments)["status"] == "completed"
+    original_output = _output_path(evaluate_run_root).read_bytes()
+    original_policy = _policy_path(evaluate_run_root).read_bytes()
+    original_approval = _approval_path(evaluate_run_root).read_bytes()
+    input_paths, output_dir, context = _prepare_iteration_arguments(evaluate_run_root, 1)
+    approval = load_json(_approval_path(evaluate_run_root))
+    approval["approval_id"] = "approval_reuse_001"
+    approval["iteration"] = 1
+    approval["scenarios_sha256"] = input_paths["test_scenarios"]["sha256"]
+    approval_relative = "private/safety_policy/approvals/approval_reuse_001.json"
+    approval_path = evaluate_run_root / approval_relative
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+    context["approval_record"] = {
+        "path": approval_relative,
+        "sha256": calculate_sha256(approval_path),
+    }
+
+    response = entrypoint.run("evaluate", input_paths, output_dir, context)
+
+    artifact = load_json(_output_path(evaluate_run_root, 1))
+    _assert_output_integrity(evaluate_run_root, artifact, response)
+    decisions = {item["scenario_id"]: item for item in artifact["data"]["decisions"]}
+    approved = decisions["scenario_update_order_001"]
+    assert response["status"] == "completed"
+    assert approved["decision"] == "allow"
+    assert approved["approval_ref"] == approval["approval_id"]
+    assert approved["limits"]["allow_state_change"] is True
+    assert all(item["status"] == "pass" for item in approved["assessment"].values())
+    assert _output_path(evaluate_run_root).read_bytes() == original_output
+    assert _policy_path(evaluate_run_root).read_bytes() == original_policy
+    assert _approval_path(evaluate_run_root).read_bytes() == original_approval
+
+
+@pytest.mark.parametrize("execution_method", ["function", "cli"])
+def test_next_iteration_rejects_changed_policy_without_new_decisions(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    policy_source_path: Path,
+    capsys: Any,
+    execution_method: str,
+) -> None:
+    assert entrypoint.run("evaluate", *evaluate_arguments)["status"] == "completed"
+    original_output = _output_path(evaluate_run_root).read_bytes()
+    original_policy = _policy_path(evaluate_run_root).read_bytes()
+    original_modified_at = _policy_path(evaluate_run_root).stat().st_mtime_ns
+    next_arguments = _prepare_iteration_arguments(evaluate_run_root, 1)
+    configuration = load_json(policy_source_path)
+    configuration["limits"]["max_requests"] += 1
+    policy_source_path.write_text(json.dumps(configuration), encoding="utf-8")
+
+    if execution_method == "function":
+        response = entrypoint.run("evaluate", *next_arguments)
+    else:
+        exit_code = entrypoint.main(_cli_arguments(evaluate_run_root, 1))
+        response = json.loads(capsys.readouterr().out)
+        assert exit_code == 1
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "CONFIG_HASH_MISMATCH"
+    assert response["errors"][0]["retryable"] is False
+    assert response["artifact_id"] is None
+    assert response["output_path"] is None
+    assert not _output_path(evaluate_run_root, 1).exists()
+    assert _output_path(evaluate_run_root).read_bytes() == original_output
+    assert _policy_path(evaluate_run_root).read_bytes() == original_policy
+    assert _policy_path(evaluate_run_root).stat().st_mtime_ns == original_modified_at
+
+
+def test_retry_after_input_failure_reuses_prepared_policy(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+) -> None:
+    invalid_arguments = copy.deepcopy(evaluate_arguments)
+    invalid_arguments[0]["test_scenarios"]["sha256"] = "0" * 64
+    failed_response = entrypoint.run("evaluate", *invalid_arguments)
+    assert failed_response["errors"][0]["code"] == "INPUT_HASH_MISMATCH"
+    assert not _output_path(evaluate_run_root).exists()
+    prepared_policy = _policy_path(evaluate_run_root).read_bytes()
+
+    response = entrypoint.run("evaluate", *evaluate_arguments)
+
+    assert response["status"] == "completed"
+    _assert_output_integrity(
+        evaluate_run_root,
+        load_json(_output_path(evaluate_run_root)),
+        response,
+    )
+    assert _policy_path(evaluate_run_root).read_bytes() == prepared_policy
+
+
+def test_repeated_completed_evaluation_remains_rejected_before_policy_preparation(
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+    evaluate_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert entrypoint.run("evaluate", *evaluate_arguments)["status"] == "completed"
+    original_output = _output_path(evaluate_run_root).read_bytes()
+    original_policy = _policy_path(evaluate_run_root).read_bytes()
+    monkeypatch.delenv(POLICY_CONFIG_PATH_ENV)
+
+    response = entrypoint.run("evaluate", *evaluate_arguments)
+
+    assert response["status"] == "failed"
+    assert response["errors"][0]["code"] == "OUTPUT_EXISTS"
+    assert _output_path(evaluate_run_root).read_bytes() == original_output
+    assert _policy_path(evaluate_run_root).read_bytes() == original_policy
 
 
 def test_function_and_cli_use_the_same_policy_preparation_flow(
@@ -606,12 +753,12 @@ def test_function_and_cli_use_the_same_policy_preparation_flow(
     assert _policy_path(evaluate_run_root).read_bytes() == _policy_path(cli_run_root).read_bytes()
 
 
-def _cli_arguments(run_root: Path) -> list[str]:
+def _cli_arguments(run_root: Path, iteration: int = 0) -> list[str]:
     return [
         "evaluate",
         "--run-root", str(run_root),
         "--run-id", run_root.name,
-        "--iteration", "0",
+        "--iteration", str(iteration),
         "--mode", "development",
     ]
 
@@ -621,7 +768,8 @@ def _assert_output_integrity(
     artifact: dict[str, Any],
     response: dict[str, Any],
 ) -> None:
-    input_path = _input_path(run_root)
+    iteration = artifact["iteration"]
+    input_path = _input_path(run_root, iteration)
     source = load_json(input_path)
     source_sha256 = calculate_sha256(input_path)
 
@@ -635,7 +783,7 @@ def _assert_output_integrity(
             "sha256": source_sha256,
         }
     ]
-    assert response["sha256"] == calculate_sha256(_output_path(run_root))
+    assert response["sha256"] == calculate_sha256(_output_path(run_root, iteration))
     if artifact["data"] is not None:
         configuration = load_json(_policy_path(run_root))
         assert artifact["data"]["scenarios_sha256"] == source_sha256
@@ -643,9 +791,36 @@ def _assert_output_integrity(
         assert artifact["data"]["policy_version"] == configuration["policy_version"]
 
 
-def _input_path(run_root: Path) -> Path:
+def _prepare_iteration_arguments(
+    run_root: Path,
+    iteration: int,
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    source = load_json(_input_path(run_root))
+    source["iteration"] = iteration
+    source["artifact_id"] = f"test_scenarios_{run_root.name}_{iteration:03d}"
+    input_path = _input_path(run_root, iteration)
+    input_path.parent.mkdir(parents=True)
+    input_path.write_text(json.dumps(source), encoding="utf-8")
+    return (
+        {
+            "test_scenarios": {
+                "path": input_path.relative_to(run_root).as_posix(),
+                "sha256": calculate_sha256(input_path),
+            }
+        },
+        _output_path(run_root, iteration).parent.relative_to(run_root).as_posix(),
+        {
+            "run_id": run_root.name,
+            "iteration": iteration,
+            "mode": source["mode"],
+            "run_root": run_root,
+        },
+    )
+
+
+def _input_path(run_root: Path, iteration: int = 0) -> Path:
     return run_root / (
-        "artifacts/iteration-000/scenario_generator/test_scenarios.json"
+        f"artifacts/iteration-{iteration:03d}/scenario_generator/test_scenarios.json"
     )
 
 
@@ -659,7 +834,7 @@ def _approval_path(run_root: Path) -> Path:
     )
 
 
-def _output_path(run_root: Path) -> Path:
+def _output_path(run_root: Path, iteration: int = 0) -> Path:
     return run_root / (
-        "artifacts/iteration-000/safety_policy/safety_decisions.json"
+        f"artifacts/iteration-{iteration:03d}/safety_policy/safety_decisions.json"
     )

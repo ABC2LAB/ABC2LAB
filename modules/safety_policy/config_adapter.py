@@ -7,6 +7,7 @@ from pathlib import Path
 
 from modules.safety_policy.exceptions import (
     ContractValidationError,
+    OutputArtifactExistsError,
     PathValidationError,
     PolicyConfigHashMismatchError,
     PolicyConfigurationError,
@@ -37,12 +38,18 @@ class PreparedPolicyConfiguration:
 
 
 def prepare_policy_configuration(run_root: Path) -> PreparedPolicyConfiguration:
-    """Validate an explicit external policy and publish its run-local snapshot."""
+    """Publish or reuse a run-local snapshot matching the explicit source bytes."""
     content = _read_policy_source()
     _validate_policy_source(content)
     policy_path = _resolve_policy_snapshot_path(run_root)
     try:
-        write_bytes_atomically(policy_path, content)
+        try:
+            write_bytes_atomically(policy_path, content)
+        except OutputArtifactExistsError:
+            # Another writer may have published the snapshot after path validation.
+            policy_path = _resolve_policy_snapshot_path(run_root)
+            if not policy_path.is_file():
+                raise PolicyConfigurationError("Policy 설정 사본은 파일이어야 함")
         actual_sha256 = calculate_sha256(policy_path)
     except OSError as error:
         raise StorageError("Policy 설정 사본을 저장하거나 읽을 수 없음") from error
