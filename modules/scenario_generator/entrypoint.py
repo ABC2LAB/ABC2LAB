@@ -60,10 +60,12 @@ class ExecutionContext:
     iteration: int
     mode: str
     expected_sha256_by_type: dict[str, str]
-    drafter: ScenarioDrafter | None
 
 
 def _parse_context(context: Mapping[str, Any]) -> ExecutionContext:
+    # context에는 JSON으로 표현되는 실행 값만 둔다(명세 03). 객체를 조용히 무시하지 않고 거절한다.
+    if "drafter" in context:
+        raise ValueError("drafter는 context가 아니라 drafter= 인자로 넘긴다")
     raw_run_root = context.get("run_root")
     if raw_run_root is None or not Path(raw_run_root).is_dir():
         raise ValueError("context.run_root가 존재하는 폴더여야 한다")
@@ -81,7 +83,7 @@ def _parse_context(context: Mapping[str, Any]) -> ExecutionContext:
     for artifact_type, digest in expected_sha256_by_type.items():
         if artifact_type not in SUPPORTED_INPUT_TYPES or not SHA256_PATTERN.fullmatch(str(digest)):
             raise ValueError("context.expected_sha256은 {입력 종류: 소문자 hex 64자} 형태여야 한다")
-    return ExecutionContext(run_root, run_id, iteration, mode, expected_sha256_by_type, context.get("drafter"))
+    return ExecutionContext(run_root, run_id, iteration, mode, expected_sha256_by_type)
 
 
 def _parse_input_paths(input_paths: Mapping[str, str | Path]) -> dict[str, Path]:
@@ -138,12 +140,12 @@ def _make_failed_parts(
 
 
 def _produce_parts(
-    input_paths: Mapping[str, Path], execution: ExecutionContext, started: float
+    input_paths: Mapping[str, Path], execution: ExecutionContext, drafter: ScenarioDrafter | None, started: float
 ) -> OutputParts:
     loaded, input_errors = _load_inputs(input_paths, execution)
     if input_errors:
         return _make_failed_parts([error.to_error_item() for error in input_errors], loaded, started)
-    if execution.drafter is None:
+    if drafter is None:
         error_item = {
             "code": DRAFTER_NOT_CONFIGURED_CODE,
             "message": "시나리오 초안 생성기(LLM)가 설정되지 않았다",
@@ -154,7 +156,7 @@ def _produce_parts(
 
     try:
         outcome = generate_scenarios(
-            loaded["vulnerability_candidates"], loaded["crawl_result"], execution.drafter
+            loaded["vulnerability_candidates"], loaded["crawl_result"], drafter
         )
     except InputError as error:
         return _make_failed_parts([error.to_error_item()], loaded, started)
@@ -165,7 +167,7 @@ def _produce_parts(
         errors=outcome.errors,
         input_refs=[loaded[artifact_type].artifact_ref for artifact_type in SUPPORTED_INPUT_TYPES],
         scenarios=None if status == STATUS_FAILED else outcome.scenarios,
-        model_info=execution.drafter.model_info,
+        model_info=drafter.model_info,
         runtime_metrics=_make_runtime_metrics(started, outcome),
     )
 
@@ -179,10 +181,13 @@ def run(
     input_paths: Mapping[str, str | Path],
     output_dir: str | Path,
     context: Mapping[str, Any],
+    *,
+    drafter: ScenarioDrafter | None = None,
 ) -> dict[str, Any]:
     """test_scenarios.json을 만들어 저장하고 완료 응답을 돌려준다.
 
-    context: run_root, run_id, iteration, mode (필수) / expected_sha256, drafter (선택).
+    context: run_root, run_id, iteration, mode (필수) / expected_sha256 (선택). JSON으로 표현되는 값만 받는다.
+    drafter: 초안 생성기(LLM 객체). context가 아니라 이 인자로 받는다.
     응답: status, artifact_id, output_path, sha256, scenario_count, error_count.
     """
     started = time.monotonic()
@@ -198,7 +203,7 @@ def run(
         mode=execution.mode,
         artifact_id=f"test_scenarios_{execution.run_id}_iteration{execution.iteration:03d}",
     )
-    parts = _produce_parts(parsed_input_paths, execution, started)
+    parts = _produce_parts(parsed_input_paths, execution, drafter, started)
     document = build_output_document(identity, _make_created_at(), parts)
 
     try:
@@ -277,8 +282,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "iteration": args.iteration,
                 "mode": args.mode,
                 "expected_sha256": _parse_expected_sha256_args(args.expected_sha256),
-                "drafter": drafter,
             },
+            drafter=drafter,
         )
     except (ValueError, DrafterError, OutputWriteError, OutputContractError, OSError) as error:
         logger.error("실행하지 못했다: %s", error)

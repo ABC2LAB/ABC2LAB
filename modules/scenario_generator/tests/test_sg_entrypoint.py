@@ -32,12 +32,12 @@ class Workspace:
         }
         self.output_dir = run_root / OUTPUT_DIR
 
-    def context(self, drafter: Any = None, **overrides: Any) -> dict[str, Any]:
-        base = {"run_root": self.run_root, "run_id": self.run_id, "iteration": 0, "mode": "development", "drafter": drafter}
+    def context(self, **overrides: Any) -> dict[str, Any]:
+        base = {"run_root": self.run_root, "run_id": self.run_id, "iteration": 0, "mode": "development"}
         return {**base, **overrides}
 
     def run(self, drafter: Any = None, **overrides: Any) -> dict[str, Any]:
-        return run("generate", self.input_paths, self.output_dir, self.context(drafter, **overrides))
+        return run("generate", self.input_paths, self.output_dir, self.context(**overrides), drafter=drafter)
 
     def read_output(self) -> dict[str, Any]:
         return json.loads((self.output_dir / "test_scenarios.json").read_text(encoding="utf-8"))
@@ -262,7 +262,7 @@ def test_input_paths_must_name_exactly_the_two_inputs(workspace: Workspace) -> N
 def test_output_dir_outside_run_root_is_refused(workspace: Workspace, tmp_path: Path) -> None:
     outside = tmp_path / "elsewhere"
     with pytest.raises(OutputWriteError):
-        run("generate", workspace.input_paths, outside, workspace.context(None))
+        run("generate", workspace.input_paths, outside, workspace.context())
     assert not outside.exists()
 
 
