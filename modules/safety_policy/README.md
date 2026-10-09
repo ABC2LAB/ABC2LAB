@@ -388,3 +388,47 @@ SG 공개 시나리오 2개의 Schema·의미 검증, 입력 불변, 정상/part
 
 skip 12건은 이번에 활성화하지 않은 KG 실제 Neo4j 테스트다. 이번 변경은 문서만
 갱신하며 코드·Schema·fixture·테스트·의존성·실제 승인 기록을 변경하지 않는다.
+
+### 2026-10-10 — 정책 설정 준비 1단계: 외부 설정 검증·private 배치
+
+기준 커밋 `5ecbba4`에서 정책 설정을 모듈이 직접 준비하는 내부 기능을 추가했다.
+이번 단계는 `config_adapter.prepare_policy_configuration(run_root)`와 자기
+유틸리티·테스트만 구현하며, 공개 `run()`·CLI에는 아직 연결하지 않았다.
+따라서 기존 실행 창구의 `context.policy_config`와 사전 private 파일 요구는
+2단계 연결 전까지 그대로 유지된다.
+
+- `SAFETY_POLICY_CONFIG_PATH` 환경변수로 원본 정책 JSON 경로를 받는다.
+  상대 경로는 현재 작업 디렉터리 기준이다. 미설정·빈 값·파일 누락·읽기 실패는
+  오류로 처리하며 기본 정책이나 자동 허용 설정을 생성하지 않는다.
+- 원본을 한 번 읽고 UTF-8 JSON·중복 키·비유한 숫자·최상위 object와 기존
+  `policy_config` Schema `0.1.0`을 검증한다. 검증한 동일 바이트를 저장하므로
+  원본 파일의 공백·줄바꿈과 규칙 값을 변경하지 않는다.
+- 자기 `private/safety_policy/policy.json`에 임시 파일 write·flush·fsync·close 후
+  기존 파일을 대체하지 않는 원자적 공개로 배치한다. 사본의 실제 SHA-256과
+  원본 바이트 해시가 일치해야 경로·해시를 담은 불변 내부 참조를 반환한다.
+- 존재하는 정책은 덮어쓰지 않는다. 동시 작성으로 파일이 먼저 공개된 경우도
+  보존한다. 저장 실패 시 임시 파일을 정리하며 private 경로의 외부·다른 모듈
+  symlink를 거절한다. 동일 정책 재사용은 3단계에서 추가한다.
+- 준비 기능·바이트 저장 테스트 31건을 추가했다. 기존 설정 loader 호환,
+  설정 누락·JSON/Schema 오류·읽기/저장 실패·해시 불일치·원본 변경·동시 공개
+  및 symlink 경계를 검증했다.
+
+```bash
+.venv/bin/python -m pytest modules/safety_policy/tests/test_policy_preparation.py modules/safety_policy/tests/test_config_adapter.py modules/safety_policy/tests/test_utils.py -q
+# 44 passed
+
+.venv/bin/python -m pytest modules/safety_policy -q
+# 196 passed
+
+.venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter modules/verifier -q -rs
+# 928 passed, 12 skipped
+```
+
+합동 회귀의 skip 12건은 활성화하지 않은 KG 실제 Neo4j 통합 테스트다.
+이번 단계에서 실제 pipeline 연결이나 Neo4j 실행은 수행하지 않았다.
+
+수정은 `modules/safety_policy/**` 안에서만 수행했다. 기존 6개 안전 판정 규칙,
+입출력 Schema `0.2.0`, 정책·승인 Schema `0.1.0`, 승인 로직·의존성·공개 호출
+규약은 변경하지 않았다. 실제 run 폴더나 승인 기록은 읽거나 변경하지 않았다.
+다음 단계는 공개 `run()`·CLI에 준비 기능을 연결하고 호출자의 필수
+`context.policy_config` 전달을 제거하는 작업이다.

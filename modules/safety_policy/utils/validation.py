@@ -51,6 +51,21 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def parse_json_bytes(content: bytes) -> dict[str, Any]:
+    """Validate the same bytes that will be stored as a policy snapshot."""
+    try:
+        value = json.loads(
+            content.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_non_finite,
+        )
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ContractValidationError("JSON 데이터 읽기 실패") from error
+    if not isinstance(value, dict):
+        raise ContractValidationError("설정 최상위 값은 object여야 함")
+    return value
+
+
 def validate_schema(value: dict[str, Any], schema_path: Path) -> None:
     schema = load_json(schema_path)
     validator = Draft202012Validator(schema, format_checker=FormatChecker())

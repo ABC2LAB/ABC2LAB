@@ -1,0 +1,302 @@
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from modules.safety_policy import config_adapter
+from modules.safety_policy.config_adapter import (
+    POLICY_CONFIG_PATH_ENV,
+    load_policy_configuration,
+    prepare_policy_configuration,
+)
+from modules.safety_policy.evaluate_adapter import (
+    POLICY_CONFIG_RELATIVE_PATH,
+    parse_evaluate_request,
+)
+from modules.safety_policy.exceptions import (
+    OutputArtifactExistsError,
+    PathValidationError,
+    PolicyConfigHashMismatchError,
+    PolicyConfigurationError,
+    StorageError,
+)
+from modules.safety_policy.utils import atomic_writer
+from modules.safety_policy.utils.hashing import calculate_sha256
+from modules.safety_policy.utils.validation import load_json
+
+
+@pytest.fixture
+def policy_source_path(
+    tmp_path: Path,
+    completed_policy_config_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    source_path = tmp_path / "settings" / "policy.json"
+    source_path.parent.mkdir()
+    source_path.write_bytes(completed_policy_config_path.read_bytes())
+    monkeypatch.setenv(POLICY_CONFIG_PATH_ENV, str(source_path))
+    return source_path
+
+
+@pytest.fixture
+def policy_run_root(tmp_path: Path) -> Path:
+    run_root = tmp_path / "run_demo_001"
+    run_root.mkdir()
+    return run_root
+
+
+def test_prepare_policy_configuration_publishes_exact_source_bytes(
+    policy_source_path: Path,
+    policy_run_root: Path,
+) -> None:
+    original_bytes = policy_source_path.read_bytes()
+
+    prepared = prepare_policy_configuration(policy_run_root)
+
+    assert prepared.path == policy_run_root / POLICY_CONFIG_RELATIVE_PATH
+    assert prepared.relative_path == POLICY_CONFIG_RELATIVE_PATH
+    assert prepared.path.read_bytes() == original_bytes
+    assert policy_source_path.read_bytes() == original_bytes
+    assert prepared.sha256 == calculate_sha256(prepared.path)
+    assert prepared.sha256 == calculate_sha256(policy_source_path)
+    assert list(prepared.path.parent.iterdir()) == [prepared.path]
+
+
+def test_prepare_policy_configuration_accepts_relative_source_path(
+    policy_source_path: Path,
+    policy_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(policy_source_path.parent)
+    monkeypatch.setenv(POLICY_CONFIG_PATH_ENV, policy_source_path.name)
+
+    prepared = prepare_policy_configuration(policy_run_root)
+
+    assert prepared.path.read_bytes() == policy_source_path.read_bytes()
+
+
+@pytest.mark.parametrize("configured_path", [None, "", " ", "\t\n"])
+def test_prepare_policy_configuration_requires_explicit_source_path(
+    policy_source_path: Path,
+    policy_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    configured_path: str | None,
+) -> None:
+    if configured_path is None:
+        monkeypatch.delenv(POLICY_CONFIG_PATH_ENV)
+    else:
+        monkeypatch.setenv(POLICY_CONFIG_PATH_ENV, configured_path)
+
+    with pytest.raises(PolicyConfigurationError, match=POLICY_CONFIG_PATH_ENV):
+        prepare_policy_configuration(policy_run_root)
+
+    assert not (policy_run_root / "private").exists()
+
+
+@pytest.mark.parametrize("source_kind", ["missing", "directory"])
+def test_prepare_policy_configuration_rejects_non_file_source(
+    policy_source_path: Path,
+    policy_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_kind: str,
+) -> None:
+    source_path = (
+        policy_source_path.parent / "missing.json"
+        if source_kind == "missing"
+        else policy_source_path.parent
+    )
+    monkeypatch.setenv(POLICY_CONFIG_PATH_ENV, str(source_path))
+
+    with pytest.raises(PolicyConfigurationError):
+        prepare_policy_configuration(policy_run_root)
+
+    assert not (policy_run_root / "private").exists()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"{",
+        b"[]",
+        b"null",
+        b"\xff",
+        b'{"policy_id":"first","policy_id":"second"}',
+        b'{"value":NaN}',
+        b'{"value":Infinity}',
+    ],
+)
+def test_prepare_policy_configuration_rejects_invalid_json_before_storage(
+    policy_source_path: Path,
+    policy_run_root: Path,
+    content: bytes,
+) -> None:
+    policy_source_path.write_bytes(content)
+
+    with pytest.raises(PolicyConfigurationError, match="계약"):
+        prepare_policy_configuration(policy_run_root)
+
+    assert not (policy_run_root / "private").exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", "0.2.0"),
+        ("unexpected", True),
+        ("limits", {"max_requests": 0, "max_duration_ms": 1000}),
+    ],
+)
+def test_prepare_policy_configuration_rejects_schema_violation_before_storage(
+    policy_source_path: Path,
+    policy_run_root: Path,
+    field: str,
+    value: Any,
+) -> None:
+    configuration = load_json(policy_source_path)
+    configuration[field] = value
+    policy_source_path.write_text(json.dumps(configuration), encoding="utf-8")
+
+    with pytest.raises(PolicyConfigurationError, match="계약"):
+        prepare_policy_configuration(policy_run_root)
+
+    assert not (policy_run_root / "private").exists()
+
+
+def test_prepare_policy_configuration_reports_source_read_failure(
+    policy_source_path: Path,
+    policy_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_read(path: Path) -> bytes:
+        raise PermissionError("fixture read failure")
+
+    monkeypatch.setattr(Path, "read_bytes", fail_read)
+
+    with pytest.raises(PolicyConfigurationError, match="읽을 수 없음"):
+        prepare_policy_configuration(policy_run_root)
+
+    assert not (policy_run_root / "private").exists()
+
+
+def test_prepare_policy_configuration_reports_storage_failure_and_cleans_temp(
+    policy_source_path: Path,
+    policy_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_flush(descriptor: int) -> None:
+        raise OSError("fixture storage failure")
+
+    monkeypatch.setattr(atomic_writer.os, "fsync", fail_flush)
+
+    with pytest.raises(StorageError, match="저장하거나 읽을 수 없음"):
+        prepare_policy_configuration(policy_run_root)
+
+    policy_path = policy_run_root / POLICY_CONFIG_RELATIVE_PATH
+    assert not policy_path.exists()
+    assert list(policy_path.parent.iterdir()) == []
+
+
+def test_prepare_policy_configuration_never_overwrites_existing_snapshot(
+    policy_source_path: Path,
+    policy_run_root: Path,
+) -> None:
+    prepared = prepare_policy_configuration(policy_run_root)
+    original_bytes = prepared.path.read_bytes()
+    original_modified_at = prepared.path.stat().st_mtime_ns
+
+    with pytest.raises(OutputArtifactExistsError, match="덮어쓸 수 없음"):
+        prepare_policy_configuration(policy_run_root)
+
+    assert prepared.path.read_bytes() == original_bytes
+    assert prepared.path.stat().st_mtime_ns == original_modified_at
+
+
+def test_prepared_policy_is_compatible_with_existing_configuration_loader(
+    policy_source_path: Path,
+    evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
+) -> None:
+    input_paths, output_dir, context = evaluate_arguments
+    (Path(context["run_root"]) / POLICY_CONFIG_RELATIVE_PATH).unlink()
+    prepared = prepare_policy_configuration(Path(context["run_root"]))
+    context["policy_config"] = {
+        "path": prepared.relative_path,
+        "sha256": prepared.sha256,
+    }
+
+    configuration = load_policy_configuration(
+        parse_evaluate_request(input_paths, output_dir, context)
+    )
+
+    original_configuration = load_json(policy_source_path)
+    assert configuration.policy_id == original_configuration["policy_id"]
+    assert configuration.policy_version == original_configuration["policy_version"]
+    assert configuration.max_requests == original_configuration["limits"]["max_requests"]
+
+
+@pytest.mark.parametrize("target_kind", ["outside_run", "other_module"])
+def test_prepare_policy_configuration_rejects_private_directory_symlink(
+    policy_source_path: Path,
+    policy_run_root: Path,
+    target_kind: str,
+) -> None:
+    target_path = (
+        policy_run_root.parent / "outside_run"
+        if target_kind == "outside_run"
+        else policy_run_root / "private" / "collector"
+    )
+    target_path.mkdir(parents=True)
+    private_path = policy_run_root / "private"
+    private_path.mkdir(exist_ok=True)
+    (private_path / "safety_policy").symlink_to(target_path, target_is_directory=True)
+
+    with pytest.raises(PathValidationError):
+        prepare_policy_configuration(policy_run_root)
+
+    assert list(target_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("root_kind", ["missing", "file"])
+def test_prepare_policy_configuration_requires_existing_run_directory(
+    policy_source_path: Path,
+    policy_run_root: Path,
+    root_kind: str,
+) -> None:
+    run_root = policy_run_root.parent / "invalid_root"
+    if root_kind == "file":
+        run_root.write_bytes(b"not a directory")
+
+    with pytest.raises(PathValidationError):
+        prepare_policy_configuration(run_root)
+
+
+def test_prepare_policy_configuration_rejects_published_hash_mismatch(
+    policy_source_path: Path,
+    policy_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config_adapter, "calculate_sha256", lambda path: "0" * 64)
+
+    with pytest.raises(PolicyConfigHashMismatchError, match="원본 바이트와 다름"):
+        prepare_policy_configuration(policy_run_root)
+
+
+def test_prepare_policy_configuration_stores_the_validated_read_once_bytes(
+    policy_source_path: Path,
+    policy_run_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_bytes = policy_source_path.read_bytes()
+    original_sha256 = calculate_sha256(policy_source_path)
+    original_writer = config_adapter.write_bytes_atomically
+
+    def change_source_before_storage(output_path: Path, content: bytes) -> None:
+        policy_source_path.write_bytes(b"invalid replacement")
+        original_writer(output_path, content)
+
+    monkeypatch.setattr(config_adapter, "write_bytes_atomically", change_source_before_storage)
+
+    prepared = prepare_policy_configuration(policy_run_root)
+
+    assert prepared.path.read_bytes() == original_bytes
+    assert prepared.sha256 == original_sha256
