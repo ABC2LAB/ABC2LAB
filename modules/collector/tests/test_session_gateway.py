@@ -4,8 +4,8 @@
 verifier 쪽(SessionExpiredError→indeterminate)은 verifier가 자기 대역으로 이미 검증한다(test_execution.py).
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 from modules.collector.core.config import CrawlerConfig, load_config
 from modules.collector.session_gateway import (
@@ -15,6 +15,7 @@ from modules.collector.session_gateway import (
     SessionResponse,
     SessionTransportError,
 )
+from modules.collector.tests.helpers import FakeBackend
 
 ALLOWED_URL = "http://localhost:8001/orders/7"
 
@@ -27,30 +28,6 @@ class _Req:
     url: str
     headers: tuple[tuple[str, str], ...] = ()
     body: Any | None = None
-
-
-@dataclass
-class FakeBackend:
-    """스크립트된 전송 대역. 보낸 요청을 기록하고, 응답·쿠키 이름·로그인 상태를 테스트가 정한다."""
-
-    response: SessionResponse = field(default_factory=lambda: SessionResponse(200, (), {"ok": True}))
-    logged_in: bool = True
-    cookies: frozenset[str] = frozenset()
-    requests: list[tuple[str, str, tuple[tuple[str, str], ...], Any]] = field(default_factory=list)
-    close_calls: int = 0
-
-    def is_logged_in(self) -> bool:
-        return self.logged_in
-
-    def request(self, method: str, url: str, headers: Sequence[tuple[str, str]], body: Any | None) -> SessionResponse:
-        self.requests.append((method, url, tuple(headers), body))
-        return self.response
-
-    def cookie_names(self) -> frozenset[str]:
-        return self.cookies
-
-    def close(self) -> None:
-        self.close_calls += 1
 
 
 def _config(success_check: str = "left_login_page", success_value: str | None = None) -> CrawlerConfig:
