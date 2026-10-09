@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "safety_decisions",
   "artifact_id": "safety_decisions-run_demo_001-000-cccc0001",
   "run_id": "run_demo_001",
@@ -14,7 +14,7 @@
   "data": {
     "policy_id": "abc2lab-default",
     "policy_version": "0.1.0",
-    "scenarios_sha256": "6a4a3d8fc10706b23cfb2528118b1f99e0b17bb7dfdb279b5441234d7b77590e",
+    "scenarios_sha256": "d0bc99ec03248b9422226fa1f9a959ae5bdd48052d87f74b93dfdb26fb4f0e2a",
     "decisions": [
       {
         "decision_id": "decision_allow",

@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "artifact_type": "test_scenarios",
   "artifact_id": "test_scenarios-run_demo_001-000-aaaa0001",
   "run_id": "run_demo_001",
@@ -17,6 +17,9 @@
         "scenario_id": "scenario_allow",
         "candidate_id": "cand_allow",
         "expected_basis": "inferred",
+        "resource_ids": [
+          "resource:order_7"
+        ],
         "preconditions": [],
         "steps": [
           {
@@ -59,6 +62,9 @@
         "scenario_id": "scenario_block",
         "candidate_id": "cand_block",
         "expected_basis": "unknown",
+        "resource_ids": [
+          "resource:order_7"
+        ],
         "preconditions": [],
         "steps": [
           {

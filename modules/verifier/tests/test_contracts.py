@@ -57,6 +57,14 @@ def test_crawl_result_requires_page_account_id() -> None:
     assert schema_errors("input/crawl_result.schema.json", document)
 
 
+def test_test_scenarios_requires_resource_ids() -> None:
+    # resource_ids는 scenario_generator 0.2.0 필수 필드(미러링). 빠지면 거절되어야 한다.
+    document = json.loads((FIXTURE_RUN / "scenario_generator/test_scenarios.json").read_bytes())
+    for scenario in document["data"]["scenarios"]:
+        scenario.pop("resource_ids")
+    assert schema_errors("input/test_scenarios.schema.json", document)
+
+
 # ── 출력 검증: pairing ──
 
 def test_valid_results_pass() -> None:
@@ -109,6 +117,60 @@ def test_graph_update_requires_source_when_present() -> None:
     node = {"node_id": "user:a", "node_type": "User", "properties": {}, "basis": "verified", "evidence_refs": [EVIDENCE]}
     doc = _doc([_item("success", "completed")], graph_updates={"source_verification_ids": [], "nodes": [node], "relationships": []})
     assert "GRAPH_UPDATE_INVALID" in _codes(doc)
+
+
+def _evidence(kind: str, name: str) -> dict:
+    return {"evidence_id": name, "kind": kind, "path": f"evidence/verifier/{name}.json", "sha256": "0" * 64, "redacted": True}
+
+
+def coherent_verified_access_doc() -> dict:
+    """fixture의 allow 시나리오 하나로 앞뒤가 맞는 success 결과와 VERIFIED_ACCESS 관계를 만든다(PR3-c가 채울 모양).
+
+    source_account_id는 판정 조건이 가리키는 단계(실행 계정 단계)의 계정, target_id는 그 시나리오 resource_ids 중 하나다.
+    """
+    scenarios = json.loads((FIXTURE_RUN / "scenario_generator/test_scenarios.json").read_bytes())["data"]["scenarios"]
+    decisions_data = json.loads((FIXTURE_RUN / "safety_policy/safety_decisions.json").read_bytes())["data"]
+    allowed = {d["scenario_id"]: d for d in decisions_data["decisions"] if d["decision"] == "allow"}
+    scenario = next(s for s in scenarios if s["scenario_id"] in allowed)
+    asserted_step_ids = {c["subject_ref"] for c in scenario["assertions"]}
+    actor_step = next(step for step in scenario["steps"] if step["step_id"] in asserted_step_ids)
+    verification_id = f"verification_{scenario['scenario_id']}"
+    request_ref, response_ref = _evidence("request", "req1"), _evidence("response", "res1")
+    executed_step = {
+        "step_id": actor_step["step_id"], "status": "completed", "request_url": actor_step["request"]["url_template"],
+        "response_status": 200, "request_ref": request_ref, "response_ref": response_ref,
+        "check_results": [], "evidence_refs": [request_ref, response_ref], "errors": [],
+    }
+    item = {
+        **_item("success", "completed", steps=[executed_step], vid=verification_id),
+        "candidate_id": scenario["candidate_id"], "scenario_id": scenario["scenario_id"],
+        "decision_id": allowed[scenario["scenario_id"]]["decision_id"], "evidence_refs": [response_ref],
+    }
+    relationship = {
+        "relationship_id": f"verified_access_{verification_id}",
+        "source_account_id": actor_step["account_id"],
+        "target_id": scenario["resource_ids"][0],
+        "relation_type": "VERIFIED_ACCESS",
+        "properties": {},
+        "basis": "verified",
+        "evidence_refs": [response_ref],
+    }
+    doc = _doc([item], graph_updates={"source_verification_ids": [verification_id], "nodes": [], "relationships": [relationship]})
+    doc["data"]["scenarios_sha256"] = decisions_data["scenarios_sha256"]
+    return doc
+
+
+def test_verified_access_relationship_uses_account_and_resource_node() -> None:
+    # KG 입력 verificationRelationship과 같은 형태: source는 실제 접근한 계정의 원본 ID, target은 Resource instance node_id.
+    doc = coherent_verified_access_doc()
+    assert v.validate_verification_results_bytes(json.dumps(doc).encode()) == []
+
+
+def test_relationship_with_old_source_id_rejected() -> None:
+    doc = coherent_verified_access_doc()
+    relationship = doc["data"]["graph_updates"]["relationships"][0]
+    relationship["source_id"] = relationship.pop("source_account_id")
+    assert "SCHEMA_INVALID" in _codes(doc)
 
 
 def test_producer_sample_validates_against_output_schema() -> None:

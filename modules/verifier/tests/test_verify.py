@@ -8,9 +8,12 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from modules.verifier import entrypoint as ep
 from modules.verifier.executor import ReplayResponse
 from modules.verifier.tests.helpers import (
+    INPUT_RELS,
     ScriptedExecutor,
     account,
     check,
@@ -41,6 +44,14 @@ def _published(run_root: Path) -> dict:
 
 def _item(doc: dict, scenario_id: str) -> dict:
     return next(it for it in doc["data"]["results"] if it["scenario_id"] == scenario_id)
+
+
+def _relink_scenarios_hash(run_root: Path) -> None:
+    scenarios_sha256 = hashlib.sha256((run_root / INPUT_RELS["test_scenarios"]).read_bytes()).hexdigest()
+    decisions_path = run_root / INPUT_RELS["safety_decisions"]
+    decisions = json.loads(decisions_path.read_bytes())
+    decisions["data"]["scenarios_sha256"] = scenarios_sha256
+    decisions_path.write_text(json.dumps(decisions), encoding="utf-8")
 
 
 # ── 정상 게이트(커밋 fixture) ──
@@ -234,6 +245,25 @@ def test_input_contract_invalid_failed_file(tmp_path: Path) -> None:
     result = ep.run("verify", paths, output_dir_for(run_root), make_context(run_root))
     assert result["status"] == "failed"
     assert result["errors"][0]["code"] == "INPUT_CONTRACT_INVALID"
+
+
+@pytest.mark.parametrize("input_type", sorted(INPUT_RELS))
+def test_previous_contract_version_input_fails_without_sending(tmp_path: Path, input_type: str) -> None:
+    # 입력 3종은 생산자 0.2.0만 받는다. 0.1.0을 묵시 변환해 실행하면 바뀐 계약(예: resource_ids)을 모른 채 보낸다.
+    run_root = tmp_path / "run_demo_001"
+    paths = copy_committed_triple(run_root)
+    target = run_root / INPUT_RELS[input_type]
+    document = json.loads(target.read_bytes())
+    document["schema_version"] = "0.1.0"
+    target.write_text(json.dumps(document), encoding="utf-8")
+    # 해시 게이트가 대신 막지 않게 계획 해시를 다시 잇는다. 버전만 틀린 입력이 남는다.
+    _relink_scenarios_hash(run_root)
+    # 실행되면 보낼 수 있게 응답을 정해 둔다. 그래도 전송이 0건이어야 한다.
+    result, executor = _run(run_root, paths, ScriptedExecutor({ORDERS_7: ReplayResponse(200, body={"owner_id": 3})}))
+    assert result["status"] == "failed"
+    assert result["errors"][0]["code"] == "INPUT_CONTRACT_INVALID"
+    assert result["errors"][0]["message"].startswith(input_type)
+    assert executor.send_calls == 0
 
 
 def test_republish_rejected(tmp_path: Path) -> None:

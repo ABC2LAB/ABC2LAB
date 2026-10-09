@@ -136,10 +136,10 @@
     "graphUpdateEdge": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["relationship_id", "source_id", "target_id", "relation_type", "properties", "basis", "evidence_refs"],
+      "required": ["relationship_id", "source_account_id", "target_id", "relation_type", "properties", "basis", "evidence_refs"],
       "properties": {
         "relationship_id": { "$ref": "#/$defs/nonEmptyString" },
-        "source_id": { "$ref": "#/$defs/nonEmptyString" },
+        "source_account_id": { "$ref": "#/$defs/nonEmptyString" },
         "target_id": { "$ref": "#/$defs/nonEmptyString" },
         "relation_type": { "enum": ["VERIFIED_ACCESS", "VERIFIED_DENIAL"] },
         "properties": { "type": "object", "additionalProperties": { "$ref": "#/$defs/jsonValue" } },

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:abc2lab:collector:crawl_result:0.1.0",
+  "$id": "urn:abc2lab:collector:crawl_result:0.2.0",
   "title": "crawl_result.json",
   "description": "verifier 입력 사본. 생산자 collector의 실제 출력 Schema를 그대로 미러링한다(더 엄격하게 하지 않음). Page.account_id는 m1 명세 표엔 없고 collector가 추가한 필드(collector README '명세 대비 변경', 이경준·이동찬 합의)라 사본에도 포함한다. 계약이 바뀌면 생산자와 합의 후 같이 고친다.",
   "type": "object",
@@ -21,7 +21,7 @@
     "data"
   ],
   "properties": {
-    "schema_version": { "const": "0.1.0" },
+    "schema_version": { "const": "0.2.0" },
     "artifact_type": { "const": "crawl_result" },
     "artifact_id": { "type": "string" },
     "run_id": { "type": "string" },
