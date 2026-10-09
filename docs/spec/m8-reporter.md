@@ -12,6 +12,25 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
+## 현재 구현·연결 상태 — 2026-10-10
+
+기준 커밋 `695b3c8`의 구현·공개 계약을 반영했다. PR #52·#53 병합 후 상태이며,
+이번 저장소 문서 갱신이 노션 원본의 export 갱신을 의미하지는 않는다.
+
+| 구분 | 현재 상태 |
+| --- | --- |
+| 독립 구현 | 공개 `report`·`evaluate`·CLI, 6개 진단 분류·개발 평가·원자 저장 구현 완료 |
+| 리포트 화면 | 로컬 HTML 생성 구현 완료. PDF 출력은 미구현 |
+| 공개 계약 | 실행 입력 7종·출력 2종 `0.2.0`, Ground Truth 입력은 기존 `0.1.0` 유지 |
+| 소비자 호환 | Scenario.resource_ids, 검증 관계 source_account_id, KG Resource Type/Instance·원본 ID 대응 완료 |
+| 독립 회귀 | Reporter `418 passed`; KG·Safety Policy·Reporter·Verifier 합동 `897 passed, 12 skipped` |
+| 실제 전체 연결 | 미완료. 같은 run의 실제 후보·계획·판정·검증 결과와 평가 snapshot으로 연결 검증 필요 |
+
+skip 12건은 이번에 활성화하지 않은 KG 실제 Neo4j 테스트다. Verifier 공개 결과는
+Reporter 입력 Schema를 통과하지만 graph_updates 관계는 아직 0개다. Schema 수용과
+실제 검증 관계 수신은 구분한다. 상세 구현 이력은
+[모듈 README](../../modules/reporter/README.md)를 따른다.
+
 ## 독립 동작·수정 책임
 
 **이 모듈 담당자의 전체 책임:** 명세에 맞는 입력을 받으면 입력 검증·변환·실제 처리·출력 변환·출력 검증·저장·오류 처리·설정·모듈별 의존성 선언·테스트·동작 확인을 자기 폴더 안에서 끝낸다. 실행·테스트는 팀 공통 Python과 루트 잠금 환경에서 수행한다. 외부 모듈의 내부 코드·공유 도구에 의존하지 않는다.
@@ -69,11 +88,36 @@
 
 **입력 파일의 전체 필드:** [vulnerability_candidates.json 필드](m4-access_analyzer.md) · [test_scenarios.json 필드](m5-scenario_generator.md) · [safety_decisions.json 필드](m6-safety_policy.md) · [verification_results.json 필드](m7-verifier.md) · [crawl_result.json 필드](m1-collector.md) · [semantic_analysis.json 필드](m2-semantic_analyzer.md) · [ground_truth.json 필드](m8-reporter.md).
 
+### 현재 입력·출력 계약과 ID 경계
+
+| 계약 | 지원 버전 |
+| --- | --- |
+| report 입력: vulnerability_candidates·test_scenarios·safety_decisions·verification_results | `0.2.0` |
+| evaluate 추가 실행 입력: crawl_result·semantic_analysis·graph_query_result | `0.2.0` |
+| reporter 출력: diagnosis_report·evaluation_results | `0.2.0` |
+| evaluate 전용 정적 입력: ground_truth | 기존 `0.1.0` |
+
+- 필수 `Scenario.resource_ids`는 하나 이상의 비어 있지 않은 문자열이다. 원본
+  후보의 불투명 Resource instance node_id를 순서·값 그대로 수용한다. 후보와의
+  일치는 생산자가 보장하며 Reporter가 ID를 생성·정렬·중복 제거하지 않는다.
+- 검증 관계는 m7의 `source_account_id`(실제 접근 계정의 원본 ID)와 `target_id`
+  (기존 Resource instance node_id)를 받는다. 이전 source_id·동시 입력·누락은
+  거절한다. 계정→User node_id 변환·DB 반영은 KG 책임이다.
+- semantic 및 KG snapshot의 일반 관계는 계속 source_id·target_id를 사용한다.
+  원본 계정·역할 ID와 노드 ID는 속성 인덱스로 구분하며 접두사로 추측하지 않는다.
+- 개발 평가는 실제 KG snapshot의 Resource Type/Instance와 match_key를 사용한다.
+  복합 식별값은 순서와 무관하게 비교하되 식별값의 원문 대소문자·공백을 보존한다.
+- 같은 계획의 정확한 파일 해시·후보/시나리오/판정/검증 ID·근거·revision을 검증한다.
+  미실행·누락·판단불가를 정상 빈 결과나 취약점 없음으로 바꾸지 않는다.
+- 실행 계약 0.1.0·미지원 버전은 묵시 변환하지 않는다. 공통 계약의 11개 파일 0.2
+  안내와 본 문서의 Ground Truth 0.1 표는 불일치하므로 정답 Schema·fixture는
+  유지하고 버전 변경은 생산자·소비자·관리자 합의 대상으로 남긴다.
+
 ## 구현할 일
 
 1. report: 후보 ID를 시나리오·Policy·검증 결과와 대응시키고 실제 요청·응답 근거를 연결한다.
 2. 취약점 확인·위반 의심·미재현·판단불가·정책 차단·승인 대기를 분류하고 미검증 사유를 보존한다.
-3. diagnosis_report.json과 사용자에게 보여줄 로컬 HTML·PDF 등의 리포트를 생성한다.
+3. diagnosis_report.json과 사용자에게 보여줄 로컬 HTML 리포트를 생성한다. 현재 구현은 HTML이며 PDF 출력은 미구현이다.
 4. evaluate: 개발 모드에서 정답 버전·KG snapshot·매칭 규칙·동일 평가 조건을 확인한다.
 5. 구조·관계·역할·업무 흐름·후보/확정 진단 지표, 원시 분자·분모, 미검증 수와 모델·시간·자원 측정값을 evaluation_results.json으로 출력한다.
 
@@ -88,10 +132,14 @@
 
 ## 완료 기준
 
-- [ ]  후보 ID를 계획·Policy·검증 결과와 연결하고 미검증 후보와 처리 오류도 리포트에 남긴다.
-- [ ]  확인·의심·미재현·판단불가·차단·승인 대기를 근거에 따라 구분한다.
-- [ ]  report는 Ground Truth 없이 동작하고 evaluate만 정답·실제 KG snapshot·모델 및 자원 측정값을 사용한다.
-- [ ]  평가 분모·미검증 수를 공개하고 분모 0의 비율은 null로 기록한다.
+아래 표시는 모듈 독립 구현·소유 fixture 검증 기준이며 실제 동일 run 전체 연결
+또는 Ground Truth 버전 합의 완료를 뜻하지 않는다.
+
+- [x]  후보 ID를 계획·Policy·검증 결과와 연결하고 미검증 후보와 처리 오류도 리포트에 남긴다.
+- [x]  확인·의심·미재현·판단불가·차단·승인 대기를 근거에 따라 구분한다.
+- [x]  report는 Ground Truth 없이 동작하고 evaluate만 정답·실제 KG snapshot·모델 및 자원 측정값을 사용한다.
+- [x]  평가 분모·미검증 수를 공개하고 분모 0의 비율은 null로 기록한다.
+- [ ]  같은 run의 실제 후보·계획·판정·검증 결과 및 개발 평가 입력으로 전체 연결을 검증한다.
 
 ## 구현 주의사항
 
@@ -173,7 +221,7 @@
 
 ### diagnosis_report.json
 
-- 고정 값: `artifact_type=diagnosis_report`, `producer=reporter`.
+- 고정 값: `artifact_type=diagnosis_report`, `producer=reporter`, `schema_version=0.2.0`.
 - 예상 Schema 경로: `modules/reporter/schemas/output/diagnosis_report.schema.json`.
 - 예상 출력 fixture 경로: `modules/reporter/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/reporter/diagnosis_report.json`.
 
@@ -186,7 +234,7 @@
 
 ### evaluation_results.json
 
-- 고정 값: `artifact_type=evaluation_results`, `producer=reporter`.
+- 고정 값: `artifact_type=evaluation_results`, `producer=reporter`, `schema_version=0.2.0`.
 - 예상 Schema 경로: `modules/reporter/schemas/output/evaluation_results.schema.json`.
 - 예상 출력 fixture 경로: `modules/reporter/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/reporter/evaluation_results.json`.
 
@@ -269,6 +317,17 @@
 | `indeterminate` | `integer` | 필수 | 판단불가 수. |
 
 **재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [EvidenceRef](02-common-contract.md), [ModelInfo](02-common-contract.md), [RuntimeMetrics](02-common-contract.md).
+
+## 변경 이력
+
+| 날짜 | 문서 변경 | 기준·영향 |
+| --- | --- | --- |
+| 2026-10-10 | 현재 구현·연결 상태, 실행 입력 7종·출력 2종의 0.2.0, 자원 ID·계정 source·KG 평가 경계와 HTML 구현 범위를 반영 | `695b3c8`, PR #52·#53 반영. 기존 결과 분류·평가·출력 필드 유지, Ground Truth 0.1 유지 |
+
+기존 책임 경계·미검증 후보 보존·평가 분모 규칙과 정답 필드 표는 유지하며 상세
+과거 구현 이력은 모듈 README에 보존한다. 합동 회귀는 `897 passed, 12 skipped`다.
+실제 동일 run 전체 연결, 비어 있지 않은 Verifier 검증 관계 수신, Ground Truth
+버전 합의는 미완료다. 노션 원본 반영·export 기준일 갱신은 별도 관리 작업으로 남긴다.
 
 ---
 
