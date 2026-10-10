@@ -200,7 +200,8 @@ KG 입력(`modules/knowledge_graph/schemas/input/verification_results.schema.jso
 - **execution_status**: 중단 없이 전부 전송=`completed`, 중단 시 전송 0건=`not_executed`·1건 이상=`error`(result 분류와 독립).
 - **`max_redirects` 기본 0**: 로그인 리다이렉트를 자동으로 따라가면 최종 200을 접근 성공으로 오탐하므로 3xx를 그 단계 응답으로 기록한다(`configs/verifier.toml`에서 조정). 따라갈 때는 hop마다 `effective_origins` 재검사.
 - **status-only 규칙**: 참인 assertion이 `response_status`·`session_valid`뿐이면(응답 내용 미확인) success 대신 indeterminate. 응답 내용을 본 조건이 하나 이상 참이어야 success.
-- **result 분류**: precondition 중 거짓/판단불가 → indeterminate. 모두 참이면 assertion 하나라도 판단불가 → indeterminate, 모두 참 → success, 하나 이상 거짓 → failure.
+- **result 분류**: precondition 중 거짓/판단불가 → indeterminate. 모두 참이면 assertion 중 `response_status`가 거부 코드(401·403·404)로 거짓 → failure(판단불가 assertion보다 우선, assertion에만 적용), 아니면 assertion 하나라도 판단불가 → indeterminate, 하나 이상 거짓 → failure, 모두 참 → success.
+- **적용 불가 Check**: `response_json`을 응답에 적용할 수 없으면 판단불가다. selector가 null·`""`이거나 본문이 JSON 객체·배열이 아니면 `CHECK_NOT_APPLICABLE`, selector 첫 키가 응답에 없으면 `SELECTOR_ROOT_MISSING`. 첫 키가 있고 더 깊은 경로가 없으면 `exists`는 거짓, 값 비교는 판단불가. 5xx 응답의 `response_status`는 판단불가(`SERVER_ERROR_RESPONSE`). 사유는 Check마다 `VerificationItem.errors`(`item_ref`=check_id)에 남긴다.
 - **CheckResult 부착**: subject가 단계면 그 단계에, 계정이면 그 계정이 처음 쓰인 단계에, 못 찾으면 첫 단계에. `observed`는 비밀 제거.
 - **세션 공개 창구**(collector 소유): verifier는 Protocol로만 쓰고 collector 코드를 import하지 않는다(런너 주입). `session_valid` Check 의미는 "창구 세션 보유 + 만료 감지 없음"이며 실제 만료는 send 응답 신호로 잡는다. 창구 `lease` 로그인 요청은 세션 준비라 `limits.max_requests`에 세지 않는다. 규약은 [m1-collector](m1-collector.md) "세션 공개 창구".
 
@@ -211,6 +212,7 @@ KG 입력(`modules/knowledge_graph/schemas/input/verification_results.schema.jso
 - **`graph_updates` 제약을 KG 입력(0.2.0)에 맞춰 좁힘**: 관계 `relation_type`은 `VERIFIED_ACCESS`·`VERIFIED_DENIAL`만, 노드 `node_type`에 Resource 금지. `basis=verified`·`evidence_refs≥1`은 유지. 현재 graph_updates는 빈 배열이며 node_id 매핑은 PR3-c에서 채운다.
 - 입력 `test_scenarios`·`safety_decisions`·`crawl_result`는 각 생산자 계약 0.2.0을 미러한다(필드 정의는 [m5](m5-scenario_generator.md)·[m6](m6-safety_policy.md)·[m1](m1-collector.md), 버전 0.2.0). **2026-10-10에 반영했다**(그 전까지 verifier 입력 사본은 0.1.0이었다). 생산자 출력 Schema와 title·description 외 같고, `test_scenarios`에는 `Scenario.resource_ids`가 들어 있다. `0.1.0` 입력은 묵시 변환 없이 `INPUT_CONTRACT_INVALID`(failed, 전송 0건)로 거절한다.
 - **검증 관계 source를 `source_id` → `source_account_id`로 전환**(2026-10-10): `graph_updates.relationships`를 KG 입력 `verificationRelationship`과 같은 형태로 맞췄다(위 VerificationRelationship 표). 같은 0.2.0 안에서 KG·reporter와 동시 전환한 합의이며 버전은 올리지 않는다.
+- **판정 기준 보강**(2026-10-11, 의미 변경·Schema 그대로): 적용할 수 없는 `response_json`과 5xx `response_status`를 failure가 아니라 indeterminate로 두고 사유 코드를 남긴다. 거부 코드(401·403·404) 상태 거짓은 판단불가 Check보다 우선해 failure. `result` enum·필드는 그대로라 버전은 올리지 않으며, 이전 failure 일부가 indeterminate로 옮겨 간다(KG는 indeterminate를 갱신 근거로 쓰지 않음, reporter 집계는 미재현 → 판단불가).
 
 ---
 

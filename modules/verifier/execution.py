@@ -30,6 +30,11 @@ PLACEHOLDER_SUFFIX = "}"
 EVALUATED_CHECK_KINDS = frozenset({"session_valid", "response_status", "response_json"})
 # 응답 내용을 보지 않는 Check 종류. 이것만으로는 위반을 확정하지 않는다(명세 m7 51행: HTTP 200만으로 확정 금지).
 STATUS_ONLY_CHECK_KINDS = frozenset({"response_status", "session_valid"})
+# 접근 거부로 읽는 상태 코드. 상태 Check가 이 값으로 거짓이면 적용 불가 Check보다 앞서 failure(거부 근거)다.
+# 400·422(잘못 만든 요청일 수 있음)·3xx(리다이렉트)는 거부 근거로 보지 않는다.
+DENIAL_STATUS_CODES = frozenset({401, 403, 404})
+# 이 값 이상은 서버 오류. 거부도 허용도 관찰하지 못한 것이라 상태 Check를 판단불가로 둔다.
+SERVER_ERROR_STATUS_MIN = 500
 
 
 class _Missing:
@@ -82,6 +87,15 @@ class ExecutionOutcome:
     account_first_step: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class _CheckOutcome:
+    """Check 하나의 평가 결과. error는 그 Check를 응답에 적용할 수 없었던 사유(ErrorItem, 적용했으면 None)."""
+
+    passed: bool | None
+    observed: Any
+    error: dict[str, Any] | None = None
+
+
 def execution_status_for(outcome: ExecutionOutcome) -> str:
     """실행 상태는 전송 수로 정한다(result 분류와 독립). 중단 없이 전부 전송되면 completed,
     중단됐으면 전송 0건은 not_executed, 1건 이상은 error. result 분류(step4)가 바뀌어도 이 규칙은 그대로다."""
@@ -112,19 +126,26 @@ def _classify_by_checks(scenario: dict[str, Any], outcome: ExecutionOutcome) -> 
     precondition이 하나라도 거짓/판단불가 → indeterminate. 모두 참이면 assertions가 하나라도 판단불가 → indeterminate,
     하나 이상 거짓 → failure, 모두 참이면 → success. 단, 참인 assertion이 상태 코드·세션 유효성뿐이면(응답 내용 미확인)
     success 대신 indeterminate로 둔다(m7 51행: HTTP 200만으로 확정 금지).
+    응답에 적용할 수 없었던 Check(CHECK_NOT_APPLICABLE·SELECTOR_ROOT_MISSING·SERVER_ERROR_RESPONSE)는 판단불가이고,
+    그 사유를 Check마다 errors에 남긴다. 단 상태 Check가 거부 코드(DENIAL_STATUS_CODES)로 거짓이면 거부 근거라서
+    판단불가 Check가 있어도 failure다(거부 응답엔 내용 Check를 적용할 값이 없는 게 보통이다).
     """
-    precondition_passed = [_run_check(check, outcome) for check in scenario["preconditions"]]
-    if any(passed is None for passed in precondition_passed):
-        return "indeterminate", "사전조건을 판단할 수 없어 재현 여부를 판정하지 않음", []
-    if any(passed is False for passed in precondition_passed):
-        return "indeterminate", "사전조건이 성립하지 않아 재현 여부를 판정하지 않음", []
+    preconditions = [_run_check(check, outcome) for check in scenario["preconditions"]]
+    errors = _not_applicable_errors(preconditions)
+    if any(evaluation.passed is None for evaluation in preconditions):
+        return "indeterminate", "사전조건을 판단할 수 없어 재현 여부를 판정하지 않음", errors
+    if any(evaluation.passed is False for evaluation in preconditions):
+        return "indeterminate", "사전조건이 성립하지 않아 재현 여부를 판정하지 않음", errors
     assertions = [(check, _run_check(check, outcome)) for check in scenario["assertions"]]
+    errors += _not_applicable_errors([evaluation for _, evaluation in assertions])
     if not assertions:
-        return "indeterminate", "판정 조건이 없어 재현 여부를 판정할 수 없음", []
-    if any(passed is None for _, passed in assertions):
-        return "indeterminate", "일부 판정 조건을 평가할 수 없어 판단불가(미평가 Check 등)", []
-    if any(passed is False for _, passed in assertions):
-        return "failure", "유효 실행에서 위반이 재현되지 않음", []
+        return "indeterminate", "판정 조건이 없어 재현 여부를 판정할 수 없음", errors
+    if any(_is_denied(check, evaluation) for check, evaluation in assertions):
+        return "failure", "거부 상태 코드를 받아 유효 실행에서 위반이 재현되지 않음", errors
+    if any(evaluation.passed is None for _, evaluation in assertions):
+        return "indeterminate", "일부 판정 조건을 평가할 수 없어 판단불가(미평가·적용 불가 Check 등)", errors
+    if any(evaluation.passed is False for _, evaluation in assertions):
+        return "failure", "유효 실행에서 위반이 재현되지 않음", errors
     # 모두 참. 응답 내용을 확인한 참 assertion이 하나도 없으면(상태·세션뿐) 확정하지 않는다.
     if not any(check["kind"] not in STATUS_ONLY_CHECK_KINDS for check, _ in assertions):
         error = make_error_item(
@@ -132,41 +153,84 @@ def _classify_by_checks(scenario: dict[str, Any], outcome: ExecutionOutcome) -> 
             "참인 판정 조건이 상태 코드·세션 유효성뿐이라 응답 내용 확인 없이 재현으로 확정하지 않음",
             item_ref=scenario["scenario_id"], is_retryable=False,
         )
-        return "indeterminate", "상태 코드만 맞고 응답 내용을 확인한 조건이 없어 판단불가", [error]
-    return "success", "응답 내용을 포함한 모든 판정 조건이 충족되어 위반이 재현됨", []
+        return "indeterminate", "상태 코드만 맞고 응답 내용을 확인한 조건이 없어 판단불가", errors + [error]
+    return "success", "응답 내용을 포함한 모든 판정 조건이 충족되어 위반이 재현됨", errors
 
 
-def _run_check(check: dict[str, Any], outcome: ExecutionOutcome) -> bool | None:
-    """Check 하나를 평가하고 CheckResult를 대상 단계에 붙인다. passed(True/False/None)를 돌려준다."""
-    passed, observed = _evaluate_check(check, outcome)
+def _not_applicable_errors(evaluations: list[_CheckOutcome]) -> list[dict[str, Any]]:
+    return [evaluation.error for evaluation in evaluations if evaluation.error is not None]
+
+
+def _is_denied(check: dict[str, Any], evaluation: _CheckOutcome) -> bool:
+    return (
+        check["kind"] == "response_status"
+        and evaluation.passed is False
+        and evaluation.observed in DENIAL_STATUS_CODES
+    )
+
+
+def _run_check(check: dict[str, Any], outcome: ExecutionOutcome) -> _CheckOutcome:
+    """Check 하나를 평가하고 CheckResult를 대상 단계에 붙인다. 평가 결과(passed·적용 불가 사유)를 돌려준다."""
+    evaluation = _evaluate_check(check, outcome)
     check_result = {
         "check_id": check["check_id"],
-        "passed": passed,
-        "observed": _redact_observed(check, observed),
-        "description": _check_description(check, passed),
+        "passed": evaluation.passed,
+        "observed": _redact_observed(check, evaluation.observed),
+        "description": _check_description(check, evaluation.passed),
     }
     _attach_check_result(check, outcome, check_result)
-    return passed
+    return evaluation
 
 
-def _evaluate_check(check: dict[str, Any], outcome: ExecutionOutcome) -> tuple[bool | None, Any]:
+def _evaluate_check(check: dict[str, Any], outcome: ExecutionOutcome) -> _CheckOutcome:
     kind = check["kind"]
     if kind not in EVALUATED_CHECK_KINDS:
         # resource_state·resource_owner·baseline_match는 PR2에서 평가하지 않는다(판단불가).
-        return None, MISSING
+        return _CheckOutcome(None, MISSING)
     if kind == "session_valid":
         valid = outcome.session_valid_by_account.get(check["subject_ref"], MISSING)
         if valid is MISSING:
-            return None, MISSING  # 어느 단계에도 안 쓰인 계정 → 유효로 기록하지 않는다
-        return _apply_operator(check["operator"], valid, check["expected"]), valid
+            return _CheckOutcome(None, MISSING)  # 어느 단계에도 안 쓰인 계정 → 유효로 기록하지 않는다
+        return _CheckOutcome(_apply_operator(check["operator"], valid, check["expected"]), valid)
     response = outcome.responses_by_step.get(check["subject_ref"])
     if response is None:
-        return None, MISSING  # subject_ref가 전송된 단계가 아님
+        return _CheckOutcome(None, MISSING)  # subject_ref가 전송된 단계가 아님
     if kind == "response_status":
         observed = response["status_code"]
-    else:  # response_json
-        observed = _json_pointer(response["body"], check["selector"] or "")
-    return _apply_operator(check["operator"], observed, check["expected"]), observed
+        if observed >= SERVER_ERROR_STATUS_MIN:
+            return _not_applicable(
+                check, ErrorCode.SERVER_ERROR_RESPONSE, "서버 오류 응답이라 거부·허용을 관찰하지 못함", observed=observed
+            )
+        return _CheckOutcome(_apply_operator(check["operator"], observed, check["expected"]), observed)
+    return _evaluate_response_json(check, response["body"])
+
+
+def _evaluate_response_json(check: dict[str, Any], body: Any) -> _CheckOutcome:
+    """응답에 적용할 수 없으면 판단불가와 그 사유를 돌려준다. 적용 못 한 Check를 미재현으로 쓰면 놓친 위반이 '없음'이 된다.
+
+    selector 없음(null·"")은 응답 전체를 가리켜 내용 확인 없는 참이 되므로 적용하지 않는다. 첫 키가 있으면 operator대로
+    평가한다: 더 깊은 경로가 없을 때 exists는 '없음'을 관찰한 것(False), 값 비교는 판단불가(_apply_operator).
+    """
+    selector = check["selector"]
+    if not selector:
+        return _not_applicable(check, ErrorCode.CHECK_NOT_APPLICABLE, "selector가 없어(null·빈 문자열) 응답 내용을 확인할 수 없음")
+    if not isinstance(body, (dict, list)):
+        return _not_applicable(check, ErrorCode.CHECK_NOT_APPLICABLE, "응답이 JSON 객체·배열이 아니라 response_json을 적용할 수 없음")
+    if _json_pointer(body, _root_pointer(selector)) is MISSING:
+        return _not_applicable(
+            check, ErrorCode.SELECTOR_ROOT_MISSING, "selector 첫 키가 응답에 없어 selector 오류인지 자원 부재인지 구분할 수 없음"
+        )
+    observed = _json_pointer(body, selector)
+    return _CheckOutcome(_apply_operator(check["operator"], observed, check["expected"]), observed)
+
+
+def _root_pointer(selector: str) -> str:
+    """JSON Pointer의 첫 토큰만 남긴다("/a/b" → "/a")."""
+    return "/" + selector.lstrip("/").split("/", 1)[0]
+
+
+def _not_applicable(check: dict[str, Any], code: ErrorCode, message: str, observed: Any = MISSING) -> _CheckOutcome:
+    return _CheckOutcome(None, observed, make_error_item(code, message, item_ref=check["check_id"], is_retryable=False))
 
 
 def _apply_operator(operator: str, observed: Any, expected: Any) -> bool | None:

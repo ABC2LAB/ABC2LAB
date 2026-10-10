@@ -5,6 +5,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from modules.verifier.execution import ExecutionContext, classify_scenario, execute_scenario
 from modules.verifier.executor import ReplayResponse
 from modules.verifier.tests.helpers import ScriptedExecutor, check, decision, scenario, step
@@ -34,6 +36,8 @@ def _one(assertions=None, preconditions=None, url=f"{ORIGIN}/orders/7"):
 
 
 RESP = {("GET", f"{ORIGIN}/orders/7"): ReplayResponse(200, body={"owner_id": 3, "name": "a"})}
+NESTED_RESP = {("GET", f"{ORIGIN}/orders/7"): ReplayResponse(200, body={"order": {"owner_id": 3}})}
+HTML_RESP = {("GET", f"{ORIGIN}/orders/7"): ReplayResponse(200, body="<html><body>order 7</body></html>")}
 
 
 def test_all_assertions_true_is_success(tmp_path: Path) -> None:
@@ -56,17 +60,101 @@ def test_unevaluated_kind_is_indeterminate_not_failure(tmp_path: Path) -> None:
     assert item["result"] == "indeterminate"
 
 
-def test_response_json_missing_path_is_indeterminate(tmp_path: Path) -> None:
-    # 없는 경로 eq 비교 → 판단불가(null) → indeterminate(불일치 failure로 단정하지 않음).
-    scn = _one(assertions=[check("a1", "response_json", "st1", "eq", 1, selector="/missing")])
+def _error_refs(item: dict) -> list[tuple[str, str | None]]:
+    return [(error["code"], error["item_ref"]) for error in item["errors"]]
+
+
+def _passed(outcome) -> list:
+    return [c["passed"] for s in outcome.executed_steps for c in s["check_results"]]
+
+
+@pytest.mark.parametrize("operator, expected", [("exists", True), ("eq", 1)])
+def test_root_key_missing_is_indeterminate_not_failure(tmp_path: Path, operator: str, expected: object) -> None:
+    # JSON인데 selector 첫 키부터 없음 → selector 오류인지 자원 부재인지 모름 → exists도 failure가 아니라 판단불가.
+    scn = _one(assertions=[check("a1", "response_json", "st1", operator, expected, selector="/missing")])
+    item, outcome = _run(scn, RESP, tmp_path / "run_demo_001")
+    assert item["result"] == "indeterminate"
+    assert _error_refs(item) == [("SELECTOR_ROOT_MISSING", "a1")]
+    assert _passed(outcome) == [None]
+
+
+def test_exists_on_deeper_path_missing_is_failure(tmp_path: Path) -> None:
+    # 첫 키는 있고 그 아래 경로가 없음 → '없음'을 관찰했다 → exists False → 미재현. 적용 불가 사유는 없다.
+    scn = _one(assertions=[check("a1", "response_json", "st1", "exists", True, selector="/order/missing")])
+    item, _ = _run(scn, NESTED_RESP, tmp_path / "run_demo_001")
+    assert item["result"] == "failure"
+    assert item["errors"] == []
+
+
+def test_value_compare_on_deeper_path_missing_is_indeterminate(tmp_path: Path) -> None:
+    # 첫 키는 있지만 비교할 값이 없음 → eq는 판단불가(불일치로 단정하지 않음). 적용 불가는 아니라 오류 항목은 없다.
+    scn = _one(assertions=[check("a1", "response_json", "st1", "eq", 3, selector="/order/missing")])
+    item, outcome = _run(scn, NESTED_RESP, tmp_path / "run_demo_001")
+    assert item["result"] == "indeterminate"
+    assert item["errors"] == []
+    assert _passed(outcome) == [None]
+
+
+@pytest.mark.parametrize("body", ["<html><body>order 7</body></html>", None, 42])
+def test_response_json_on_non_json_body_is_not_applicable(tmp_path: Path, body: object) -> None:
+    # HTML·본문 없음·JSON 스칼라에는 response_json을 적용할 수 없다 → 미재현(failure)이 아니라 판단불가.
+    responses = {("GET", f"{ORIGIN}/orders/7"): ReplayResponse(200, body=body)}
+    scn = _one(assertions=[check("a1", "response_status", "st1", "eq", 200), check("a2", "response_json", "st1", "exists", True, selector="/owner_id")])
+    item, outcome = _run(scn, responses, tmp_path / "run_demo_001")
+    assert item["result"] == "indeterminate"
+    assert _error_refs(item) == [("CHECK_NOT_APPLICABLE", "a2")]
+    assert _passed(outcome) == [True, None]
+
+
+def test_root_selector_on_html_is_not_success(tmp_path: Path) -> None:
+    # selector ""는 응답 전체 → HTML 문자열이 '존재'해서 내용 확인 없이 success가 되던 구멍. 적용하지 않고 원문도 남기지 않는다.
+    scn = _one(assertions=[check("a1", "response_status", "st1", "eq", 200), check("a2", "response_json", "st1", "exists", True, selector="")])
+    item, outcome = _run(scn, HTML_RESP, tmp_path / "run_demo_001")
+    assert item["result"] == "indeterminate"
+    assert _error_refs(item) == [("CHECK_NOT_APPLICABLE", "a2")]
+    assert outcome.executed_steps[0]["check_results"][1]["observed"] is None
+
+
+@pytest.mark.parametrize("selector", [None, ""])
+def test_missing_selector_on_json_is_not_applicable(tmp_path: Path, selector: str | None) -> None:
+    # JSON 응답이어도 selector가 없으면 응답 전체가 관찰값이 되어 내용을 확인하지 않은 참이 된다 → 적용하지 않는다.
+    scn = _one(assertions=[check("a1", "response_status", "st1", "eq", 200), check("a2", "response_json", "st1", "exists", True, selector=selector)])
     item, _ = _run(scn, RESP, tmp_path / "run_demo_001")
     assert item["result"] == "indeterminate"
+    assert _error_refs(item) == [("CHECK_NOT_APPLICABLE", "a2")]
 
 
-def test_exists_operator_on_missing_is_false_then_failure(tmp_path: Path) -> None:
-    scn = _one(assertions=[check("a1", "response_json", "st1", "exists", True, selector="/missing")])
-    item, _ = _run(scn, RESP, tmp_path / "run_demo_001")
-    assert item["result"] == "failure"  # 경로 없음 → exists False → 미재현
+def test_list_body_index_is_first_key(tmp_path: Path) -> None:
+    # 배열 응답의 첫 토큰은 첨자다. 범위 안이면 평가하고, 범위 밖이면 첫 키 없음.
+    responses = {("GET", f"{ORIGIN}/orders/7"): ReplayResponse(200, body=[{"owner_id": 3}])}
+    found = _one(assertions=[check("a1", "response_status", "st1", "eq", 200), check("a2", "response_json", "st1", "eq", 3, selector="/0/owner_id")])
+    item, _ = _run(found, responses, tmp_path / "run_found")
+    assert item["result"] == "success"
+    out_of_range = _one(assertions=[check("a1", "response_json", "st1", "exists", True, selector="/5/owner_id")])
+    item, _ = _run(out_of_range, responses, tmp_path / "run_out_of_range")
+    assert _error_refs(item) == [("SELECTOR_ROOT_MISSING", "a1")]
+
+
+def test_not_applicable_precondition_records_error(tmp_path: Path) -> None:
+    # 사전조건도 같은 규칙: 적용 못 한 response_json 사전조건 → 판단불가, 사유를 그 Check ID로 남긴다.
+    scn = _one(
+        preconditions=[check("p1", "response_json", "st1", "exists", True, selector="/owner_id")],
+        assertions=[check("a1", "response_status", "st1", "eq", 200)],
+    )
+    item, _ = _run(scn, HTML_RESP, tmp_path / "run_demo_001")
+    assert item["result"] == "indeterminate"
+    assert _error_refs(item) == [("CHECK_NOT_APPLICABLE", "p1")]
+
+
+def test_each_not_applicable_check_gets_own_error(tmp_path: Path) -> None:
+    scn = _one(assertions=[
+        check("a1", "response_status", "st1", "eq", 200),
+        check("a2", "response_json", "st1", "exists", True, selector="/owner_id"),
+        check("a3", "response_json", "st1", "eq", "a", selector="/name"),
+    ])
+    item, _ = _run(scn, HTML_RESP, tmp_path / "run_demo_001")
+    assert _error_refs(item) == [("CHECK_NOT_APPLICABLE", "a2"), ("CHECK_NOT_APPLICABLE", "a3")]
+    assert all(error["retryable"] is False for error in item["errors"])
 
 
 def test_precondition_false_is_indeterminate_not_failure(tmp_path: Path) -> None:
@@ -131,3 +219,46 @@ def test_check_observed_is_redacted(tmp_path: Path) -> None:
     # observed에 비밀 키 값이 그대로 남지 않는다(collector와 같은 기준으로 가림).
     observed = outcome.executed_steps[0]["check_results"][0]["observed"]
     assert observed == "***"
+
+
+def _status_and_json_on(status: int, body: object) -> dict:
+    return {("GET", f"{ORIGIN}/orders/7"): ReplayResponse(status, body=body)}
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_denial_status_beats_not_applicable_json(tmp_path: Path, status: int) -> None:
+    # 거부 응답엔 내용 Check를 적용할 값이 없는 게 보통이다. 상태 거부가 거부 근거라 판단불가 Check보다 앞서 failure.
+    scn = _one(assertions=[check("a1", "response_status", "st1", "eq", 200), check("a2", "response_json", "st1", "exists", True, selector="/owner_id")])
+    item, outcome = _run(scn, _status_and_json_on(status, "<html>forbidden</html>"), tmp_path / "run_demo_001")
+    assert item["result"] == "failure"
+    assert _error_refs(item) == [("CHECK_NOT_APPLICABLE", "a2")]  # 적용 못 한 사유는 failure여도 남긴다
+    assert _passed(outcome) == [False, None]
+
+
+@pytest.mark.parametrize("status", [400, 422, 302])
+def test_non_denial_status_does_not_take_precedence(tmp_path: Path, status: int) -> None:
+    # 400·422(잘못 만든 요청일 수 있음)·3xx는 거부 근거가 아니다 → 판단불가 Check가 있으면 indeterminate.
+    scn = _one(assertions=[check("a1", "response_status", "st1", "eq", 200), check("a2", "response_json", "st1", "exists", True, selector="/owner_id")])
+    item, _ = _run(scn, _status_and_json_on(status, "<html>error</html>"), tmp_path / "run_demo_001")
+    assert item["result"] == "indeterminate"
+
+
+@pytest.mark.parametrize("status", [500, 503])
+def test_server_error_status_is_indeterminate_not_failure(tmp_path: Path, status: int) -> None:
+    # 5xx는 거부도 허용도 관찰하지 못한 것 → 상태 Check 판단불가. 다른 Check가 모두 평가돼도 failure가 아니다.
+    scn = _one(assertions=[check("a1", "response_status", "st1", "eq", 200), check("a2", "response_json", "st1", "eq", 3, selector="/owner_id")])
+    item, outcome = _run(scn, _status_and_json_on(status, {"owner_id": 3}), tmp_path / "run_demo_001")
+    assert item["result"] == "indeterminate"
+    assert _error_refs(item) == [("SERVER_ERROR_RESPONSE", "a1")]
+    assert _passed(outcome) == [None, True]
+    assert outcome.executed_steps[0]["check_results"][0]["observed"] == status  # 받은 상태 코드는 근거로 남긴다
+
+
+def test_denial_precedence_applies_to_assertions_only(tmp_path: Path) -> None:
+    # 사전조건이 403으로 거짓이면 전제 미충족이다(거부 근거로 failure를 만들지 않는다).
+    scn = _one(
+        preconditions=[check("p1", "response_status", "st1", "eq", 200)],
+        assertions=[check("a1", "response_json", "st1", "exists", True, selector="/owner_id")],
+    )
+    item, _ = _run(scn, _status_and_json_on(403, "<html>forbidden</html>"), tmp_path / "run_demo_001")
+    assert item["result"] == "indeterminate"
