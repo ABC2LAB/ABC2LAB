@@ -53,6 +53,10 @@ class ErrorCode(StrEnum):
     SESSION_UNAVAILABLE = "SESSION_UNAVAILABLE"
     # 참인 assertion이 상태 코드·세션 유효성뿐이라 응답 내용 확인 없이 success로 올리지 않음(m7 51행).
     ASSERTION_STATUS_ONLY = "ASSERTION_STATUS_ONLY"
+    # response_json Check를 그 응답에 적용할 수 없음(비JSON 본문·selector 없음). 미재현이 아니라 판단불가(절대 규칙 9).
+    CHECK_NOT_APPLICABLE = "CHECK_NOT_APPLICABLE"
+    # JSON 응답에 selector 첫 키가 없음. selector 오류인지 자원 부재인지 구분할 수 없어 판단불가.
+    SELECTOR_ROOT_MISSING = "SELECTOR_ROOT_MISSING"
     # 파일을 쓸 수 없어 반환값으로만 알리는 오류
     CONTEXT_INVALID = "CONTEXT_INVALID"
     OUTPUT_PATH_INVALID = "OUTPUT_PATH_INVALID"
