@@ -43,13 +43,15 @@ def _view_account(account: dict[str, Any]) -> dict[str, Any]:
 
 
 def _view_request(request: dict[str, Any]) -> dict[str, Any]:
+    # 출력 ParameterValue와 같은 모양으로 보여 준다. 입력 모양({..., is_sensitive})을 베낀 초안이 필수 키
+    # binding_ref를 빠뜨려 DRAFT_INVALID가 났다(10/11 실행). is_sensitive는 출력에 없는 키라 보여 주지 않는다.
     parameters = [
         {
             "name": parameter["name"],
             "location": parameter["location"],
             # 스키마가 이미 보장하지만, 비밀값이 LLM으로 새는 일은 한 겹 더 막는다.
             "value": None if parameter["is_sensitive"] else parameter["value"],
-            "is_sensitive": parameter["is_sensitive"],
+            "binding_ref": None,
         }
         for parameter in request["parameters"]
         if parameter["location"] not in HIDDEN_PARAMETER_LOCATIONS
