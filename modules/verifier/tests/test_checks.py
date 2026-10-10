@@ -219,3 +219,46 @@ def test_check_observed_is_redacted(tmp_path: Path) -> None:
     # observed에 비밀 키 값이 그대로 남지 않는다(collector와 같은 기준으로 가림).
     observed = outcome.executed_steps[0]["check_results"][0]["observed"]
     assert observed == "***"
+
+
+def _status_and_json_on(status: int, body: object) -> dict:
+    return {("GET", f"{ORIGIN}/orders/7"): ReplayResponse(status, body=body)}
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_denial_status_beats_not_applicable_json(tmp_path: Path, status: int) -> None:
+    # 거부 응답엔 내용 Check를 적용할 값이 없는 게 보통이다. 상태 거부가 거부 근거라 판단불가 Check보다 앞서 failure.
+    scn = _one(assertions=[check("a1", "response_status", "st1", "eq", 200), check("a2", "response_json", "st1", "exists", True, selector="/owner_id")])
+    item, outcome = _run(scn, _status_and_json_on(status, "<html>forbidden</html>"), tmp_path / "run_demo_001")
+    assert item["result"] == "failure"
+    assert _error_refs(item) == [("CHECK_NOT_APPLICABLE", "a2")]  # 적용 못 한 사유는 failure여도 남긴다
+    assert _passed(outcome) == [False, None]
+
+
+@pytest.mark.parametrize("status", [400, 422, 302])
+def test_non_denial_status_does_not_take_precedence(tmp_path: Path, status: int) -> None:
+    # 400·422(잘못 만든 요청일 수 있음)·3xx는 거부 근거가 아니다 → 판단불가 Check가 있으면 indeterminate.
+    scn = _one(assertions=[check("a1", "response_status", "st1", "eq", 200), check("a2", "response_json", "st1", "exists", True, selector="/owner_id")])
+    item, _ = _run(scn, _status_and_json_on(status, "<html>error</html>"), tmp_path / "run_demo_001")
+    assert item["result"] == "indeterminate"
+
+
+@pytest.mark.parametrize("status", [500, 503])
+def test_server_error_status_is_indeterminate_not_failure(tmp_path: Path, status: int) -> None:
+    # 5xx는 거부도 허용도 관찰하지 못한 것 → 상태 Check 판단불가. 다른 Check가 모두 평가돼도 failure가 아니다.
+    scn = _one(assertions=[check("a1", "response_status", "st1", "eq", 200), check("a2", "response_json", "st1", "eq", 3, selector="/owner_id")])
+    item, outcome = _run(scn, _status_and_json_on(status, {"owner_id": 3}), tmp_path / "run_demo_001")
+    assert item["result"] == "indeterminate"
+    assert _error_refs(item) == [("SERVER_ERROR_RESPONSE", "a1")]
+    assert _passed(outcome) == [None, True]
+    assert outcome.executed_steps[0]["check_results"][0]["observed"] == status  # 받은 상태 코드는 근거로 남긴다
+
+
+def test_denial_precedence_applies_to_assertions_only(tmp_path: Path) -> None:
+    # 사전조건이 403으로 거짓이면 전제 미충족이다(거부 근거로 failure를 만들지 않는다).
+    scn = _one(
+        preconditions=[check("p1", "response_status", "st1", "eq", 200)],
+        assertions=[check("a1", "response_json", "st1", "exists", True, selector="/owner_id")],
+    )
+    item, _ = _run(scn, _status_and_json_on(403, "<html>forbidden</html>"), tmp_path / "run_demo_001")
+    assert item["result"] == "indeterminate"

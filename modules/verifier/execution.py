@@ -30,6 +30,11 @@ PLACEHOLDER_SUFFIX = "}"
 EVALUATED_CHECK_KINDS = frozenset({"session_valid", "response_status", "response_json"})
 # 응답 내용을 보지 않는 Check 종류. 이것만으로는 위반을 확정하지 않는다(명세 m7 51행: HTTP 200만으로 확정 금지).
 STATUS_ONLY_CHECK_KINDS = frozenset({"response_status", "session_valid"})
+# 접근 거부로 읽는 상태 코드. 상태 Check가 이 값으로 거짓이면 적용 불가 Check보다 앞서 failure(거부 근거)다.
+# 400·422(잘못 만든 요청일 수 있음)·3xx(리다이렉트)는 거부 근거로 보지 않는다.
+DENIAL_STATUS_CODES = frozenset({401, 403, 404})
+# 이 값 이상은 서버 오류. 거부도 허용도 관찰하지 못한 것이라 상태 Check를 판단불가로 둔다.
+SERVER_ERROR_STATUS_MIN = 500
 
 
 class _Missing:
@@ -121,7 +126,9 @@ def _classify_by_checks(scenario: dict[str, Any], outcome: ExecutionOutcome) -> 
     precondition이 하나라도 거짓/판단불가 → indeterminate. 모두 참이면 assertions가 하나라도 판단불가 → indeterminate,
     하나 이상 거짓 → failure, 모두 참이면 → success. 단, 참인 assertion이 상태 코드·세션 유효성뿐이면(응답 내용 미확인)
     success 대신 indeterminate로 둔다(m7 51행: HTTP 200만으로 확정 금지).
-    응답에 적용할 수 없었던 Check(CHECK_NOT_APPLICABLE·SELECTOR_ROOT_MISSING)는 판단불가이고, 그 사유를 Check마다 errors에 남긴다.
+    응답에 적용할 수 없었던 Check(CHECK_NOT_APPLICABLE·SELECTOR_ROOT_MISSING·SERVER_ERROR_RESPONSE)는 판단불가이고,
+    그 사유를 Check마다 errors에 남긴다. 단 상태 Check가 거부 코드(DENIAL_STATUS_CODES)로 거짓이면 거부 근거라서
+    판단불가 Check가 있어도 failure다(거부 응답엔 내용 Check를 적용할 값이 없는 게 보통이다).
     """
     preconditions = [_run_check(check, outcome) for check in scenario["preconditions"]]
     errors = _not_applicable_errors(preconditions)
@@ -133,6 +140,8 @@ def _classify_by_checks(scenario: dict[str, Any], outcome: ExecutionOutcome) -> 
     errors += _not_applicable_errors([evaluation for _, evaluation in assertions])
     if not assertions:
         return "indeterminate", "판정 조건이 없어 재현 여부를 판정할 수 없음", errors
+    if any(_is_denied(check, evaluation) for check, evaluation in assertions):
+        return "failure", "거부 상태 코드를 받아 유효 실행에서 위반이 재현되지 않음", errors
     if any(evaluation.passed is None for _, evaluation in assertions):
         return "indeterminate", "일부 판정 조건을 평가할 수 없어 판단불가(미평가·적용 불가 Check 등)", errors
     if any(evaluation.passed is False for _, evaluation in assertions):
@@ -150,6 +159,14 @@ def _classify_by_checks(scenario: dict[str, Any], outcome: ExecutionOutcome) -> 
 
 def _not_applicable_errors(evaluations: list[_CheckOutcome]) -> list[dict[str, Any]]:
     return [evaluation.error for evaluation in evaluations if evaluation.error is not None]
+
+
+def _is_denied(check: dict[str, Any], evaluation: _CheckOutcome) -> bool:
+    return (
+        check["kind"] == "response_status"
+        and evaluation.passed is False
+        and evaluation.observed in DENIAL_STATUS_CODES
+    )
 
 
 def _run_check(check: dict[str, Any], outcome: ExecutionOutcome) -> _CheckOutcome:
@@ -180,6 +197,10 @@ def _evaluate_check(check: dict[str, Any], outcome: ExecutionOutcome) -> _CheckO
         return _CheckOutcome(None, MISSING)  # subject_ref가 전송된 단계가 아님
     if kind == "response_status":
         observed = response["status_code"]
+        if observed >= SERVER_ERROR_STATUS_MIN:
+            return _not_applicable(
+                check, ErrorCode.SERVER_ERROR_RESPONSE, "서버 오류 응답이라 거부·허용을 관찰하지 못함", observed=observed
+            )
         return _CheckOutcome(_apply_operator(check["operator"], observed, check["expected"]), observed)
     return _evaluate_response_json(check, response["body"])
 
@@ -208,8 +229,8 @@ def _root_pointer(selector: str) -> str:
     return "/" + selector.lstrip("/").split("/", 1)[0]
 
 
-def _not_applicable(check: dict[str, Any], code: ErrorCode, message: str) -> _CheckOutcome:
-    return _CheckOutcome(None, MISSING, make_error_item(code, message, item_ref=check["check_id"], is_retryable=False))
+def _not_applicable(check: dict[str, Any], code: ErrorCode, message: str, observed: Any = MISSING) -> _CheckOutcome:
+    return _CheckOutcome(None, observed, make_error_item(code, message, item_ref=check["check_id"], is_retryable=False))
 
 
 def _apply_operator(operator: str, observed: Any, expected: Any) -> bool | None:

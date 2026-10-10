@@ -57,6 +57,8 @@ class ErrorCode(StrEnum):
     CHECK_NOT_APPLICABLE = "CHECK_NOT_APPLICABLE"
     # JSON 응답에 selector 첫 키가 없음. selector 오류인지 자원 부재인지 구분할 수 없어 판단불가.
     SELECTOR_ROOT_MISSING = "SELECTOR_ROOT_MISSING"
+    # 서버 오류(5xx) 응답이라 거부·허용을 관찰하지 못함. 상태 Check를 판단불가로 둔다.
+    SERVER_ERROR_RESPONSE = "SERVER_ERROR_RESPONSE"
     # 파일을 쓸 수 없어 반환값으로만 알리는 오류
     CONTEXT_INVALID = "CONTEXT_INVALID"
     OUTPUT_PATH_INVALID = "OUTPUT_PATH_INVALID"
