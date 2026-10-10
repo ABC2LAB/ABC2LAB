@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from modules.scenario_generator.candidate_matcher import build_crawl_index, match_candidates
+from modules.scenario_generator.candidate_matcher import CrawlIndex, MatchedCandidate, build_crawl_index, match_candidates
 from modules.scenario_generator.input_adapter import InputErrorCode, LoadedArtifact
 from modules.scenario_generator.scenario_drafter import (
     DRAFT_KEYS,
@@ -19,6 +19,7 @@ from modules.scenario_generator.scenario_drafter import (
 )
 from modules.scenario_generator.scenario_validator import (
     ValidationContext,
+    drop_non_json_response_checks,
     find_scenario_problems,
     summarize_problems,
 )
@@ -32,6 +33,8 @@ SCENARIO_ID_PREFIX = "scenario_"
 class GenerationErrorCode(StrEnum):
     DRAFTER_FAILED = "DRAFTER_FAILED"
     DRAFT_INVALID = "DRAFT_INVALID"
+    # JSON이 아닌 응답 단계를 가리키는 response_json 조건을 버림(시나리오는 발행). 버린 check_id만 메시지에 적는다.
+    ASSERTION_NON_JSON_RESPONSE = "ASSERTION_NON_JSON_RESPONSE"
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,33 @@ def _compose_scenario(candidate: dict[str, Any], draft_scenario: Any) -> tuple[d
     return scenario, None
 
 
+def _finalize_scenario(
+    matched: MatchedCandidate, draft_scenario: Any, index: CrawlIndex, target_url: str
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """초안을 조립·검증하고, 통과하면 JSON이 아닌 응답 단계의 response_json 조건을 버린다. 실패면 (None, [DRAFT_INVALID])."""
+    candidate_id = matched.candidate["candidate_id"]
+    context = ValidationContext(matched, index, target_url)
+    scenario, problem = _compose_scenario(matched.candidate, draft_scenario)
+    problems = [problem] if scenario is None else find_scenario_problems(scenario, context)
+    dropped_check_ids: list[str] = []
+    if not problems:
+        scenario, dropped_check_ids = drop_non_json_response_checks(scenario, index)
+        # 버린 뒤에도 규칙(실행 계정 단계 판정 조건 등)을 만족하는지 다시 본다.
+        problems = find_scenario_problems(scenario, context) if dropped_check_ids else []
+    if problems:
+        logger.warning("후보 %s의 초안이 검증을 통과하지 못했다 (%d건)", candidate_id, len(problems))
+        return None, [_make_error_item(GenerationErrorCode.DRAFT_INVALID.value, summarize_problems(problems), candidate_id, False)]
+    return scenario, [
+        _make_error_item(
+            GenerationErrorCode.ASSERTION_NON_JSON_RESPONSE.value,
+            f"JSON이 아닌 응답 단계를 가리키는 response_json 조건 {check_id}를 버렸다",
+            candidate_id,
+            False,
+        )
+        for check_id in dropped_check_ids
+    ]
+
+
 def _upstream_partial_errors(artifacts: list[LoadedArtifact]) -> list[dict[str, Any]]:
     # 일부만 받은 입력으로 전체 범위가 정상이라고 단정하지 않는다 (명세 02).
     return [
@@ -99,8 +129,7 @@ def generate_scenarios(
     llm_calls = 0
 
     for matched in match_result.matched:
-        candidate = matched.candidate
-        candidate_id = candidate["candidate_id"]
+        candidate_id = matched.candidate["candidate_id"]
         llm_calls += 1
         try:
             draft = drafter.draft(build_draft_request(matched, crawl_data["target_url"]))
@@ -113,17 +142,10 @@ def generate_scenarios(
         input_token_counts.append(draft.input_tokens)
         output_token_counts.append(draft.output_tokens)
 
-        scenario, problem = _compose_scenario(candidate, draft.scenario)
-        problems = [problem] if scenario is None else find_scenario_problems(
-            scenario, ValidationContext(matched, index, crawl_data["target_url"])
-        )
-        if problems:
-            logger.warning("후보 %s의 초안이 검증을 통과하지 못했다 (%d건)", candidate_id, len(problems))
-            errors.append(
-                _make_error_item(GenerationErrorCode.DRAFT_INVALID.value, summarize_problems(problems), candidate_id, False)
-            )
-            continue
-        scenarios.append(scenario)
+        scenario, scenario_errors = _finalize_scenario(matched, draft.scenario, index, crawl_data["target_url"])
+        errors += scenario_errors
+        if scenario is not None:
+            scenarios.append(scenario)
 
     return GenerationOutcome(
         scenarios=scenarios,
