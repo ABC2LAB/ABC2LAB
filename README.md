@@ -131,6 +131,103 @@ docker compose up -d --build
 - Vulnerable 테스트 앱 (기본 8001)
 - Neo4j (기본 7474·7687)
 
+## 파이프라인 실행 (`pipeline.py`)
+
+루트 `pipeline.py`가 8개 모듈의 공개 `entrypoint.run()`을 순서대로 부르고 경로·실행 인자만 잇습니다(명세 03). 1차 구현은 iteration 0 한 회차만 돕니다.
+
+### 실행 전제
+
+- 테스트 앱·Neo4j 컨테이너가 떠 있어야 합니다(위 "Docker 실행").
+- collector 브라우저가 설치돼 있어야 합니다(위 "최초 설치"의 `playwright install chromium`).
+- ollama가 떠 있고, 실제 설치한 모델 태그(`ollama list`로 확인)를 각 모듈 설정에 적어야 합니다. 모델 태그를 코드·커밋 파일에 박지 않습니다.
+- 환경변수는 **knowledge_graph가 읽는 `NEO4J_*` 키만** export합니다. `.env` 전체를 export하지 않습니다(collector 계정 값까지 셸에 올라갑니다). 값에 따옴표·특수문자가 있으면 아래 명령이 깨질 수 있으니 KG 연결이 실패하면 먼저 확인합니다.
+
+  ```bash
+  set -a; source <(grep -E '^NEO4J_(URI|USERNAME|PASSWORD|DATABASE)=' .env); set +a
+  ```
+- 모듈별 설정 위치는 각 모듈이 자기 환경변수로 읽습니다. 런너는 이 값을 읽거나 넘기지 않습니다. 아래 셋은 `.env`에서 export하지 않고(`.env`에서는 `NEO4J_*`만) 셸에서 직접 지정합니다.
+
+| 모듈 | 환경변수 | 비고 |
+|---|---|---|
+| collector | `COLLECTOR_CONFIG_PATH` · `COLLECTOR_SECRETS_PATH` | 없으면 `modules/collector/configs/collector.toml` · `.env`. 계정 값은 collector가 파일에서 직접 읽음 |
+| scenario_generator | `SCENARIO_GENERATOR_CONFIG_PATH` | 커밋된 기본값은 `provider = "none"`이라 복사본을 만들어 가리킴 |
+| safety_policy | `SAFETY_POLICY_CONFIG_PATH` | 필수, 기본값 없음. 운영자가 쓴 policy JSON을 run_root 밖에 두고 가리킴. safety_policy가 `run_root/private/safety_policy/`에 사본을 직접 만들고, 같은 run에서는 원본 해시가 같을 때만 재사용 |
+| semantic_analyzer | `SEMANTIC_ANALYZER_CONFIG_PATH` | #57 머지 후. 그 전에는 커밋된 기본 설정(fake) |
+
+### 명령과 인자
+
+```bash
+.venv/bin/python pipeline.py --mode development --target-url <대상 URL> \
+  --dataset-id <dataset_id> --matching-profile <matching_profile>
+.venv/bin/python pipeline.py --mode diagnosis --target-url <대상 URL>
+```
+
+| 인자 | 필수 | 내용 |
+|---|---|---|
+| `--mode` | 예 | `development` 또는 `diagnosis` |
+| `--target-url` | 예 | reporter에 넘기는 대상 URL. **collector 설정의 `target_url`과 글자 하나까지 같아야 합니다**(끝 슬래시 포함). reporter.evaluate가 `crawl_result`의 값과 문자열로 비교합니다 |
+| `--run-id` | 아니오 | 없으면 시각+난수. 영문·숫자로 시작하고 영문·숫자·`._-`만 |
+| `--runs-dir` | 아니오 | 기본 `runs`. 결과는 `<runs-dir>/<run_id>/` |
+| `--project-root` | 아니오 | ground_truth 경로 기준. 기본 레포 루트 |
+| `--dataset-id` | development만 | `datasets/<dataset_id>/ground_truth.json`(개발 평가 전용) |
+| `--matching-profile` | development만 | reporter.evaluate 매칭 프로파일 |
+
+- `development`에서 `--dataset-id`·`--matching-profile`이 빠지면 CLI 오류(종료 코드 2).
+- `diagnosis`에서 둘 중 하나라도 주면 CLI 오류(종료 코드 2). 조용히 무시하지 않습니다. diagnosis는 reporter.evaluate를 부르지 않고 ground_truth를 열지도 해시하지도 않습니다.
+
+### 단계 순서와 중단·계속 규칙
+
+| # | 단계 | 실패하면 |
+|---|---|---|
+| 1 | `collector.collect` | 멈춤 |
+| 2 | `semantic_analyzer.analyze` | 멈춤 |
+| 3 | `knowledge_graph.ingest` | 멈춤(`is_ready`가 참이 아니어도) |
+| 4 | `access_analyzer.prepare_queries` | 멈춤 |
+| 5 | `knowledge_graph.query` | 멈춤(ingest와 graph_id가 다르면 실패) |
+| 6 | `access_analyzer.analyze` | 멈춤 |
+| 7 | `scenario_generator.generate` | 멈춤 |
+| 8 | `safety_policy.evaluate` | 멈춤 |
+| 9 | `verifier.verify` | 멈춤 |
+| 10 | `knowledge_graph.apply_verification` | **계속**: 뒤 단계(report·evaluate)가 이 결과를 입력으로 쓰지 않음. 다음 회차만 막힘 |
+| 11 | `reporter.report` | **계속**: 뒤 단계(evaluate)가 `diagnosis_report.json`을 입력으로 쓰지 않음 |
+| 12 | `reporter.evaluate` | development에서만 |
+
+- 실패는 모듈 반환 `status=failed`, 결과 파일 경로 없음, 반환 경로가 규칙 경로(`artifacts/iteration-<NNN>/<producer>/<파일>`)와 다름, 파일 SHA-256이 반환값과 다름, 모듈 예외를 모두 포함합니다.
+- 멈추면 뒤 단계는 부르지 않고 요약에 `skipped`(사유: 앞 단계 이름)로 남깁니다. "0건"으로 쓰지 않습니다. `partial`은 계속합니다.
+- 세션 창구는 `verifier.verify` 직전에 열고 verify가 끝나면 닫습니다. 열지 못하면(`ValueError`·`RuntimeError`·`OSError`) `session_executor=None`으로 verify를 부릅니다. verifier는 allow 시나리오를 보내지 않고 `execution_status=not_executed`·`result=indeterminate`·`steps=[]`, 오류 `SESSION_UNAVAILABLE`로 남깁니다(미실행).
+
+### 종료 코드와 요약
+
+| 종료 코드 | 경우 |
+|---|---|
+| `0` | 모든 단계 completed |
+| `1` | partial이 있거나 세션 창구를 열지 못함(실패·skipped는 없음) |
+| `2` | failed 또는 skipped가 있음, CLI 오류, `<runs-dir>/<run_id>`가 이미 있음(새 `--run-id`로 다시 실행) |
+
+stdout에는 요약 JSON 한 줄만 나오고 로그는 stderr로 갑니다. 요약 필드:
+
+- `run_id` · `mode` · `iteration` · `run_root` · `exit_code`
+- `halted_by`: 멈춘 단계 이름(없으면 null)
+- `session_window`: `not_opened` · `opened` · `failed`, `session_window_error`: 열기 실패 예외 타입
+- `steps[]`: `step`(`<module>.<operation>`), `status`(`completed`·`partial`·`failed`·`skipped`), `artifact`(run_root 기준 상대 경로), `sha256`, `error_codes`, `error_count`, `detail`(런너가 붙인 사유), `control`(응답에 있으면 `graph_id`·`graph_revision`·`previous_graph_revision`·`is_ready`·`is_applied`·`report_path`)
+
+### 전제가 없을 때 멈추는 곳
+
+| 아직 안 된 것 | 증상 |
+|---|---|
+| `SCENARIO_GENERATOR_CONFIG_PATH`를 안 줌 | 커밋된 기본값이 `none`이라 `scenario_generator.generate`가 `DRAFTER_NOT_CONFIGURED`로 failed |
+| `SAFETY_POLICY_CONFIG_PATH`를 안 줌·파일 오류 | `safety_policy.evaluate`가 `CONFIG_INVALID`로 failed(런너는 Policy 파일을 찾거나 만들지 않음) |
+| #57 머지 전·`SEMANTIC_ANALYZER_CONFIG_PATH`를 안 줌 | 커밋된 기본 설정(fake: 경로 세그먼트 기반 규칙 추론, `model_info=null`)으로 돈다. 후보는 나오지만 추론 품질은 실제 모델보다 낮음 |
+| collector 창구의 Playwright 예외 감싸기 | 브라우저 쪽 문제면 런너가 요약 없이 traceback으로 끝남(파이썬 기본 종료 코드 1이라 위 표의 1과 섞임) |
+
+### 런너 규칙
+
+- `modules.<module_id>.entrypoint`만 불러옵니다. 모듈 내부(service·utils·schemas)는 import하지 않습니다.
+- 산출물 JSON 본문은 읽지 않습니다. 모듈 반환값·파일 존재·파일 SHA-256만 봅니다.
+- `<runs-dir>/<run_id>`가 이미 있으면 거절합니다(완료 파일 불변).
+- `.env`·`NEO4J_*`·계정 값을 읽거나 넘기지 않고 로그에도 남기지 않습니다. 모듈 소유 경로(`private/<module_id>/`)에 쓰지 않습니다.
+- 테스트: `tests/pipeline/`(가짜 모듈). 한계: 가짜 모듈은 지금의 모듈 반환 모양을 흉내 낸 것이라, 모듈 반환 모양이 바뀌면 실제 실행에서만 드러납니다.
+
 ## 환경 검증 기록
 
 새 clone·새 `.venv`에서 "최초 설치" 명령과 전체 테스트를 실행한 결과입니다.
