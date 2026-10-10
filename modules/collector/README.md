@@ -342,7 +342,7 @@ issues = validate_crawl_result_file(artifact_path, run_root, known_secrets=[...]
 | send 리다이렉트 | 자동으로 따라가지 않는다(`max_redirects=0`). 3xx를 그대로 돌려줘 verifier가 Location을 재검사 |
 | 외부 주소 2차 차단 | send에서 `is_request_allowed(config, url)`로 한 번 더 검사. 밖이면 보내지 않고 `SessionTransportError`(차단 URL·사유를 로그에 남김, 비밀값 제외). verifier `effective_origins`와 별개의 2차 방어 |
 | 여는 법 | `entrypoint.open_session_executor()`(인자 없음). 설정 위치는 collect와 같다: `COLLECTOR_CONFIG_PATH` > `modules/collector/configs/collector.toml`, 계정 값은 `COLLECTOR_SECRETS_PATH` > `.env`. 반환은 컨텍스트 매니저 |
-| 여는 중 오류 | 기본 타입으로 알린다. 설정이 없거나 틀리면 **호출 즉시** `ValueError`(브라우저를 띄우기 전), 브라우저를 못 띄우면 **with 진입 때** `RuntimeError`, 설정 파일을 읽을 권한이 없으면 `OSError`. 메시지에는 위치·키 이름만 있고 계정 값은 없다 |
+| 여는 중 오류 | 기본 타입으로 알린다. 설정이 없거나 틀리면 **호출 즉시** `ValueError`(브라우저를 띄우기 전), Playwright를 시작하지 못하거나 브라우저를 못 띄우면 **with 진입 때** `RuntimeError`(Playwright 시작 실패·빈 오류 메시지 포함, 전부 `SessionTransportError`), 설정 파일을 읽을 권한이 없으면 `OSError`. 메시지에는 위치·키 이름만 있고 계정 값은 없다 |
 | 창구 수명 | 브라우저는 with 진입 때 뜨고 로그인은 `lease()` 때만 한다. with를 나오면(예외 포함) `close()`가 반납 안 된 세션과 브라우저를 닫는다. 런너는 verify 직전에 열고 verify가 끝나면 닫는다 |
 
 ### 런너 사용 예

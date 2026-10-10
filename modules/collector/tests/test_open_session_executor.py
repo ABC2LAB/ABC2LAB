@@ -264,3 +264,58 @@ def test_browser_launch_failure_raises_runtime_error_on_enter(
 
     for secret in (LOGIN_ID_VALUE, PASSWORD_VALUE):
         assert secret not in caplog.text
+
+
+class _PlaywrightThatFailsToStart:
+    """sync_playwright() 대역: with 진입에서 Playwright 오류를 낸다(드라이버 시작 실패)."""
+
+    def __init__(self, message: str) -> None:
+        self._message = message
+
+    def __enter__(self) -> Any:
+        raise PlaywrightError(self._message)
+
+    def __exit__(self, *exc_info: Any) -> bool:
+        return False
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["Playwright driver failed to start\n설치 안내 둘째 줄", ""],
+    ids=["with_message", "empty_message"],
+)
+def test_playwright_start_failure_raises_runtime_error_on_enter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture, message: str
+) -> None:
+    # 브라우저를 띄우기 전, Playwright 드라이버 시작(sync_playwright 진입)이 실패하는 경우.
+    monkeypatch.setattr(session_gateway, "sync_playwright", lambda: _PlaywrightThatFailsToStart(message))
+    _use_env_paths(monkeypatch, tmp_path, _settings(), _secrets())
+    caplog.set_level(logging.DEBUG)
+
+    session = entrypoint.open_session_executor()
+    with pytest.raises(RuntimeError, match="Playwright를 시작하지 못함") as caught:
+        with session:
+            pass
+
+    assert "둘째 줄" not in str(caught.value)
+    for secret in (LOGIN_ID_VALUE, PASSWORD_VALUE):
+        assert secret not in str(caught.value)
+        assert secret not in caplog.text
+
+
+def test_browser_launch_failure_with_empty_message_is_still_runtime_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @contextmanager
+    def playwright_with_silent_launch_failure() -> Iterator[SimpleNamespace]:
+        def launch() -> None:
+            raise PlaywrightError("")
+
+        yield SimpleNamespace(chromium=SimpleNamespace(launch=launch))
+
+    monkeypatch.setattr(session_gateway, "sync_playwright", playwright_with_silent_launch_failure)
+    _use_env_paths(monkeypatch, tmp_path, _settings(), _secrets())
+
+    with pytest.raises(RuntimeError, match="브라우저를 띄우지 못함"):
+        with entrypoint.open_session_executor():
+            pass
