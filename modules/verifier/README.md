@@ -88,13 +88,30 @@ CLI:
 | kind | PR2 평가 | 방법 |
 |---|---|---|
 | `session_valid` | 평가 | subject 계정의 `lease.is_valid()`. 어느 단계에도 안 쓰인 계정은 `passed=null`(안 써본 세션을 유효로 기록하지 않음) |
-| `response_status` | 평가 | subject 단계 응답 status_code |
-| `response_json` | 평가 | subject 단계 응답 body에 JSON Pointer(selector) |
+| `response_status` | 평가 | subject 단계 응답 status_code. 5xx면 `passed=null`·`SERVER_ERROR_RESPONSE`(서버 오류는 거부도 허용도 관찰한 게 아님) |
+| `response_json` | 평가 | subject 단계 응답 body에 JSON Pointer(selector). 응답에 적용할 수 없으면 `passed=null`과 사유(아래 표) |
 | `resource_state`·`resource_owner`·`baseline_match` | **미평가** | `passed=null` → 그 시나리오 indeterminate. 완전 평가는 뒤 PR |
+
+`response_json` 판정(2026-10-11). 적용하지 못한 Check를 미재현(failure)으로 쓰면 놓친 위반이 "없음"으로 기록되므로(절대 규칙 9) 판단불가로 둔다.
+
+| 응답·selector | operator | `passed` | errors |
+|---|---|---|---|
+| selector가 null·`""` | 전부 | null | `CHECK_NOT_APPLICABLE`(응답 전체를 가리켜 내용 확인 없는 참이 되므로 적용 안 함) |
+| 본문이 JSON 객체·배열이 아님(HTML·본문 없음·스칼라) | 전부 | null | `CHECK_NOT_APPLICABLE` |
+| JSON, 첫 키(배열이면 첨자)가 없음 | 전부(`exists` 포함) | null | `SELECTOR_ROOT_MISSING`(selector 오류인지 자원 부재인지 구분 불가) |
+| JSON, 첫 키는 있고 더 깊은 경로가 없음 | `exists` | false | 없음 |
+| 〃 | `eq`·`ne`·`in`·`contains` | null | 없음 |
+| JSON, 경로가 있음 | 전부 | 비교 결과 | 없음 |
 
 - operator: `exists`(값/경로 존재) · `eq` · `ne` · `in`(observed ∈ expected) · `contains`(expected ∈ observed). 관찰값이 없으면(`exists` 제외) `passed=null`(불일치 failure로 단정하지 않음). `subject_ref`를 못 찾으면 `passed=null`.
 - **status-only 규칙(m7 51행)**: assertions가 전부 참이어도 참인 조건이 `response_status`·`session_valid`뿐이면(응답 내용 미확인) success 대신 `indeterminate`(`ASSERTION_STATUS_ONLY`). 응답 내용을 본 조건(`response_json` 등)이 하나 이상 참이어야 success로 올린다.
-- **result 분류**: preconditions 중 하나라도 거짓/판단불가 → `indeterminate`(전제 미충족·판단불가, failure 아님). 모두 참이면 assertions 중 하나라도 판단불가 → `indeterminate`, 모두 참 → `success`, 하나 이상 거짓 → `failure`.
+- **result 분류**: preconditions 중 하나라도 거짓/판단불가 → `indeterminate`(전제 미충족·판단불가, failure 아님). 모두 참이면 assertions를 아래 순서로 본다.
+  1. `response_status`가 거부 코드(`DENIAL_STATUS_CODES` = 401·403·404)로 거짓 → `failure`. 판단불가 Check보다 우선한다(거부 응답엔 내용 Check를 적용할 값이 없는 게 보통이다). 400·422(잘못 만든 요청일 수 있음)·3xx는 거부 근거가 아니다.
+  2. 하나라도 판단불가 → `indeterminate`
+  3. 하나 이상 거짓 → `failure`
+  4. 모두 참 → `success`(status-only 규칙 적용)
+  - 거부 우선은 assertions에만 적용한다. 사전조건이 403으로 거짓이면 전제 미충족이라 `indeterminate`.
+- **판단불가 사유**: `CHECK_NOT_APPLICABLE`·`SELECTOR_ROOT_MISSING`·`SERVER_ERROR_RESPONSE`는 Check마다 `VerificationItem.errors`에 ErrorItem(`item_ref`=check_id, `retryable=false`)으로 남긴다. 거부 우선으로 result가 failure여도 남긴다. 적용 불가 Check의 `observed`는 null(응답 원문을 남기지 않음), 5xx 상태 Check의 `observed`는 받은 상태 코드.
 - **CheckResult 부착**: subject가 단계면 그 단계의 `check_results`에, 계정이면 그 계정이 처음 쓰인 단계에, 둘 다 못 찾으면 첫 단계에 붙인다. `observed`는 비밀 제거(민감 키 selector로 뽑은 스칼라도 가림).
 - `graph_updates`는 `basis=verified`와 실제 실행 근거가 있는 success만 출처로 삼는다. 지금은 **빈 배열**이다(PR3-c에서 채움). 관계 형태는 KG 입력 `verificationRelationship`과 같다: `source_account_id`=실제 요청한 계정의 원본 ID, `target_id`=그 시나리오 `Scenario.resource_ids`(Resource instance node_id) 중 하나. 경로는 access_analyzer `Candidate.resource_ids` → scenario_generator `Scenario.resource_ids` → verifier `target_id`.
 
@@ -124,8 +141,8 @@ CLI:
 
 ### 한계 (라이브 1회 결과)
 
-- 같은 IDOR 시나리오(`GET /api/users/{id}`)를 docker vulnerable(:8001)·secure(:8000)에 각각 실행: vulnerable은 **success**(위반 재현), secure는 403을 그대로 받아 **indeterminate**(거짓 success를 만들지 않음). 산출물·근거에서 비밀값 0건, 세션 쿠키는 창구 안에만.
-- 403으로 거부하는 앱에서는 현재 Check 세트(`response_status`·`response_json`)로는 failure가 아니라 indeterminate가 나온다(거부 응답엔 내용 조건을 평가할 값이 없어 그 Check가 `passed=null`). 깔끔한 failure 판정은 `baseline_match` 등 Check 3종 평가가 들어와야 한다(PR3-c 뒤 작업).
+- 같은 IDOR 시나리오(`GET /api/users/{id}`)를 docker vulnerable(:8001)·secure(:8000)에 각각 실행: vulnerable은 **success**(위반 재현), secure는 403을 그대로 받아 **indeterminate**(거짓 success를 만들지 않음, 2026-10-11 판정 변경 전 규칙). 산출물·근거에서 비밀값 0건, 세션 쿠키는 창구 안에만.
+- 403으로 거부하는 앱은 2026-10-11부터 **failure**다(거부 코드 우선). 거부 응답에 붙은 `response_json`은 적용 불가로 errors에 남는다. 남은 한계는 HTML로만 응답하는 앱의 위반 재현이다: 내용 Check를 적용할 수 없어 200이어도 indeterminate이고, success 판정은 `baseline_match` 등 Check 3종 평가가 들어와야 한다(PR3-c 뒤 작업).
 
 ## PR 분할
 
