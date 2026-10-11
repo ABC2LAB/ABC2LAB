@@ -2,21 +2,30 @@
 
 import hashlib
 import json
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class EvaluationFixtureSettings:
+    dataset_id: str = "case_v2"
+    matching_profile: str = "default-v1"
 
 
 def public_bytes(value: dict) -> bytes:
     return json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8")
 
 
-def make_artifacts(run_id: str, target_url: str, case: str = "completed") -> dict[str, dict]:
+def make_artifacts(run_id: str, target_url: str, case: str = "completed", *,
+                   evaluation_settings: EvaluationFixtureSettings | None = None) -> dict[str, dict]:
+    evaluation_settings = evaluation_settings or EvaluationFixtureSettings()
     result = {}
     producers = {"crawl_result": "collector", "semantic_analysis": "semantic_analyzer",
                  "graph_query_result": "knowledge_graph", "vulnerability_candidates": "access_analyzer",
                  "test_scenarios": "scenario_generator", "safety_decisions": "safety_policy",
-                 "verification_results": "verifier", "diagnosis_report": "reporter"}
+                 "verification_results": "verifier", "diagnosis_report": "reporter", "evaluation_results": "reporter"}
 
     def publish(name: str, data: dict, references: tuple[str, ...] = ()) -> None:
-        status = "failed" if name == "crawl_result" and case == "failed" else "partial" if name == "semantic_analysis" and case == "partial" else "completed"
+        status = "failed" if name == "crawl_result" and case == "failed" else "partial" if name in {"semantic_analysis", "evaluation_results"} and case == "partial" else "completed"
         result[name] = {"schema_version": "0.2.0", "artifact_type": name, "artifact_id": name + "_" + run_id,
                         "run_id": run_id, "iteration": 0, "producer": producers[name], "mode": "development",
                         "created_at": "2026-10-12T00:00:00Z", "status": status,
@@ -92,4 +101,25 @@ def make_artifacts(run_id: str, target_url: str, case: str = "completed") -> dic
     publish("diagnosis_report", {"target_url": target_url, "summary": {"candidate_count": 3, "confirmed_count": 1, "not_confirmed_count": 0,
                                                                       "suspected_count": 0, "indeterminate_count": 1, "policy_blocked_count": 0, "approval_pending_count": 1},
                                  "findings": findings, "limitations": ["Approval pending and indeterminate scenarios remain."]}, ("vulnerability_candidates", "test_scenarios", "safety_decisions", "verification_results"))
+    publish("evaluation_results", {
+        "ground_truth_ref": {"dataset_id": evaluation_settings.dataset_id, "dataset_version": "fixture-v3",
+                             "path": f"datasets/{evaluation_settings.dataset_id}/ground_truth.json", "sha256": "c" * 64},
+        "source_graph_revision": 2, "matching_profile": evaluation_settings.matching_profile,
+        "metrics": [{"metric_id": "page_recall", "value": 0.75, "numerator": 3, "denominator": 4},
+                    {"metric_id": "endpoint_recall", "value": None, "numerator": 0, "denominator": 0},
+                    {"metric_id": "candidate_precision", "value": 2 / 3, "numerator": 2, "denominator": 3},
+                    {"metric_id": "confirmed_precision", "value": 1.0, "numerator": 1, "denominator": 1},
+                    {"metric_id": "confirmed_recall", "value": 1 / 3, "numerator": 1, "denominator": 3}],
+        "candidate_counts": {"tp": 2, "fp": 1, "fn": 1}, "confirmed_counts": {"tp": 1, "fp": 0, "fn": 2},
+        "unverified_counts": {"policy_blocked": 0, "approval_pending": 1, "indeterminate": 1},
+        "models": {"semantic_analyzer": {"model_id": "fixture-semantic", "model_version": "fixture-v5",
+                                         "prompt_version": "prompt-v2", "temperature": 0.0, "seed": None},
+                   "scenario_generator": {"model_id": "fixture-scenario", "model_version": "fixture-v7",
+                                          "prompt_version": "prompt-v4", "temperature": None, "seed": 37}},
+        "run_metrics": {"duration_ms": 9500, "llm_calls": 4, "input_tokens": 1000,
+                        "output_tokens": None, "peak_memory_mb": None},
+        "notes": ["Approval pending and indeterminate are not confirmed TP.",
+                  "Fixture only <img src=x onerror='window.evaluationXss=1'>"],
+    }, ("crawl_result", "semantic_analysis", "graph_query_result", "vulnerability_candidates",
+        "test_scenarios", "safety_decisions", "verification_results"))
     return result

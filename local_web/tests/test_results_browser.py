@@ -17,7 +17,7 @@ def test_artifact_results_browser(
     input_settings: InputSettings, runner_settings: RunnerSettings, tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch, case: str,
 ) -> None:
-    from playwright.sync_api import expect, sync_playwright
+    from playwright.sync_api import Request, expect, sync_playwright
 
     release = tmp_path / "results-release"
     monkeypatch.setenv("LOCAL_WEB_TEST_RUNNER_RELEASE", str(release))
@@ -33,7 +33,12 @@ def test_artifact_results_browser(
             page = context.new_page()
             errors, responses = [], []
             page.on("pageerror", lambda error: errors.append(str(error)))
-            page.on("response", lambda response: responses.append(response.text()) if "/api/" in response.url else None)
+            def capture_response(request: Request) -> None:
+                response = request.response()
+                if response is not None and "/api/" in response.url:
+                    responses.append(response.text())
+
+            page.on("requestfinished", capture_response)
             page.goto(f"http://127.0.0.1:{server.server_port}/")
             expect(page.locator("#target-url")).to_be_enabled()
             page.locator("#target-url").fill("http://fixture-web:9345/start")
@@ -77,6 +82,22 @@ def test_artifact_results_browser(
                 expect(page.locator("#approval-view")).to_contain_text("candidate-delta")
                 expect(page.locator("#approval-view")).not_to_contain_text("scenario-alpha")
                 assert page.locator("#approval button").count() == 0
+            page.locator('nav a[href="#evaluation"]').click()
+            expect(page.locator("#evaluation")).to_be_visible()
+            if case == "failed":
+                expect(page.locator("#evaluation-state")).to_contain_text("미발행")
+                assert page.locator("#evaluation-view table").count() == 0
+            else:
+                expect(page.locator("#evaluation-state")).to_contain_text("partial" if case == "partial" else "completed")
+                expect(page.locator("#evaluation-view")).to_contain_text("fixture-v3")
+                metric = page.get_by_role("table", name="Reporter 성능 지표").locator("tbody tr")
+                expect(metric.filter(has_text="page_recall")).to_contain_text("0.75 (75.00%)")
+                expect(metric.filter(has_text="endpoint_recall")).to_contain_text("미측정 / 계산 불가")
+                expect(page.get_by_role("table", name="후보·검증 확정 TP/FP/FN").locator("tbody tr")).to_have_count(2)
+                expect(page.locator("#evaluation-view")).to_contain_text("fixture-semantic")
+                expect(page.locator("#evaluation-view")).to_contain_text("<img src=x")
+                assert page.locator("#evaluation-view img").count() == 0
+                assert page.evaluate("typeof window.evaluationXss") == "undefined"
             release.touch()
             expect(page.locator("#run-status")).to_contain_text("Runner " + case, timeout=7000)
             page.locator('nav a[href="#results"]').click()
@@ -84,7 +105,20 @@ def test_artifact_results_browser(
             expect(page.locator("#results-status")).to_contain_text("· " + case)
             page.reload()
             expect(page.locator("#results-status")).to_contain_text("· " + case)
-            for menu in ("results", "approval"):
+            if case != "failed":
+                page.locator('nav a[href="#evaluation"]').click()
+                expect(page.locator("#evaluation")).to_be_visible()
+                expect(page.locator("#evaluation-state")).to_contain_text("partial" if case == "partial" else "completed")
+                page.locator("#refresh-evaluation").click()
+                expect(page.locator("#evaluation-view")).to_contain_text("page_recall")
+                page.route("**/api/run-results", lambda route: route.abort())
+                page.locator("#refresh-evaluation").click()
+                expect(page.locator("#evaluation-state")).to_contain_text("결과 조회 실패")
+                assert page.locator("#evaluation-view table").count() == 0
+                page.unroute("**/api/run-results")
+                page.locator("#refresh-evaluation").click()
+                expect(page.locator("#evaluation-view")).to_contain_text("page_recall")
+            for menu in ("results", "approval", "evaluation"):
                 page.set_viewport_size({"width": 390, "height": 844})
                 page.locator(f'nav a[href="#{menu}"]').click()
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
@@ -96,6 +130,9 @@ def test_artifact_results_browser(
             other_page.goto(f"http://127.0.0.1:{server.server_port}/#results")
             expect(other_page.locator("#results-status")).to_contain_text("소유 진단 없음")
             assert other_page.locator("#graph-view svg").count() == 0
+            other_page.locator('nav a[href="#evaluation"]').click()
+            expect(other_page.locator("#evaluation-state")).to_contain_text("진단 시작 전")
+            assert other_page.locator("#evaluation-view table").count() == 0
             other.close()
             context.close()
             browser.close()

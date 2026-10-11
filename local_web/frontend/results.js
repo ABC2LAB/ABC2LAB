@@ -12,6 +12,7 @@
     candidate_count: "후보", confirmed_count: "확인", not_confirmed_count: "미재현",
     suspected_count: "의심", indeterminate_count: "판단불가", policy_blocked_count: "정책 차단",
     approval_pending_count: "승인 대기",
+    policy_blocked: "정책 차단", approval_pending: "승인 대기", indeterminate: "판단불가",
   };
   const issueLabels = {
     ARTIFACT_INVALID: "표시 계약·JSON 형식 오류", ARTIFACT_UNAVAILABLE: "파일 조회 또는 JSON 확인 불가",
@@ -222,6 +223,41 @@
     target.append(limitations);
   }
 
+  function renderEvaluation(artifact) {
+    document.getElementById("evaluation-state").textContent = stateText(artifact);
+    const target = document.getElementById("evaluation-view");
+    target.replaceChildren();
+    if (!artifact?.view) return;
+    const view = artifact.view;
+    target.append(element("h4", "평가 조건"));
+    table(target, "평가 기준", [["데이터셋", "dataset_id"], ["버전", "dataset_version"],
+      ["정답 SHA-256(원문 비열람)", "sha256"], ["KG revision", () => view.source_graph_revision],
+      ["매칭 프로필", () => view.matching_profile]], [view.dataset]);
+    const ratioText = (row) => row.value === null ? "미측정 / 계산 불가" : String(row.value) + " (" + (row.value * 100).toFixed(2) + "%)";
+    target.append(element("h4", "성능 지표"));
+    table(target, "Reporter 성능 지표", [["지표 ID", "metric_id"], ["비율(Reporter 원본 값)", ratioText],
+      ["분자", "numerator"], ["분모", "denominator"]], view.metrics);
+    target.append(element("p", "null은 미측정 또는 계산 불가이며 0점이 아니다. 비율은 Reporter 값 그대로 표시하고 분자/분모에서 다시 계산하지 않는다.", "description"));
+    table(target, "후보·검증 확정 TP/FP/FN", [["구분", "stage"], ["TP", "tp"], ["FP", "fp"], ["FN", "fn"]],
+      [{ stage: "후보 생성", ...view.candidate_counts }, { stage: "검증 확정", ...view.confirmed_counts }]);
+    target.append(element("h4", "미검증 집계"));
+    counts(target, view.unverified_counts);
+    target.append(element("p", "정책 차단·승인 대기·판단불가는 확정 TP나 취약점 없음으로 합치지 않는다. 각 집계는 Reporter 산출물 기준이다.", "description"));
+    const measured = (value) => value === null ? "미측정" : String(value);
+    table(target, "사용 모델·생성 조건", [["모듈", "module"], ["모델", "model_id"], ["모델 버전", "model_version"],
+      ["프롬프트 버전", "prompt_version"], ["temperature", (row) => measured(row.temperature)],
+      ["seed", (row) => measured(row.seed)]], Object.entries(view.models).map(([module, model]) => ({ module, ...model })));
+    const runtimeNames = { duration_ms: "실행 시간(ms)", llm_calls: "LLM 호출 수", input_tokens: "입력 토큰",
+      output_tokens: "출력 토큰", peak_memory_mb: "최대 메모리(MB)" };
+    table(target, "실행 측정값", [["항목", "label"], ["값", (row) => measured(row.value)]],
+      Object.entries(view.run_metrics).map(([name, value]) => ({ label: runtimeNames[name], value })));
+    target.append(element("h4", "평가 조건·한계"));
+    const notes = element("ul", undefined, "status-list");
+    view.notes.forEach((note) => notes.append(element("li", note)));
+    if (!view.notes.length) notes.append(element("li", "기록된 추가 설명 없음 · 전체 검증 완료를 의미하지 않는다."));
+    target.append(notes);
+  }
+
   function render(payload) {
     const byType = new Map(payload.artifacts.map((artifact) => [artifact.artifact_type, artifact]));
     for (const [prefix, name] of [["crawl", "crawl_result"], ["semantic", "semantic_analysis"]]) {
@@ -238,6 +274,7 @@
     renderProcess(byType);
     renderApproval(byType);
     renderReport(byType.get("diagnosis_report"));
+    renderEvaluation(byType.get("evaluation_results"));
   }
 
   function setRun(run) {
@@ -265,11 +302,12 @@
     } catch {
       if (sequence !== requestSequence) return;
       render({ artifacts: [] });
-      for (const id of ["results-status", "approval-state"]) document.getElementById(id).textContent = "결과 조회 실패 · 0건 또는 진단 성공으로 처리하지 않는다.";
+      for (const id of ["results-status", "approval-state", "evaluation-state"]) document.getElementById(id).textContent = "결과 조회 실패 · 0건 또는 진단 성공으로 처리하지 않는다.";
     }
   }
 
   window.abc2labResults = { setRun, refresh };
   document.getElementById("refresh-results").addEventListener("click", refresh);
-  if (["results", "approval"].includes(location.hash.slice(1))) refresh();
+  document.getElementById("refresh-evaluation").addEventListener("click", refresh);
+  if (["results", "approval", "evaluation"].includes(location.hash.slice(1))) refresh();
 })();

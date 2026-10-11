@@ -45,7 +45,7 @@ def test_fixture_public_schema_admission(artifact_root: Path) -> None:
 
 def test_public_views_are_whitelisted_and_connected_by_ids(artifact_root: Path) -> None:
     values = read_results(artifact_root)
-    assert len(values) == 8 and all(row["state"] == "completed" for row in values)
+    assert len(values) == 9 and all(row["state"] == "completed" for row in values)
     by_type = {row["artifact_type"]: row["view"] for row in values}
     assert by_type["crawl_result"]["counts"]["pages"] == 1
     assert by_type["semantic_analysis"]["counts"]["nodes"] == 8

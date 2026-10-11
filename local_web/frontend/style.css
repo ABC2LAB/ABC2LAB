@@ -56,7 +56,7 @@ h4 { font-size: 15px; margin: 26px 0 10px; }
 caption { text-align: left; padding: 12px; background: #edf2fa; font-weight: 650; }
 th, td { text-align: left; padding: 12px; border-bottom: 1px solid #dbe3ec; vertical-align: top; min-width: 130px; max-width: 380px; overflow-wrap: anywhere; white-space: pre-wrap; }
 th { background: #f3f6fa; }
-#results-status, #approval-state { overflow-wrap: anywhere; }
+#results-status, #approval-state, #evaluation-state, #evaluation-view { overflow-wrap: anywhere; }
 .graph-canvas svg { display: block; min-width: 700px; width: 100%; }
 .graph-heading { fill: #274764; font-size: 14px; font-weight: 650; }
 .graph-edge { fill: none; stroke: #9cadc0; stroke-width: 1.5; opacity: .8; }

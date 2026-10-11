@@ -57,7 +57,7 @@ function showSection(fragment) {
       link.removeAttribute("aria-current");
     }
   });
-  if (["results", "approval"].includes(id)) window.abc2labResults?.refresh();
+  if (["results", "approval", "evaluation"].includes(id)) window.abc2labResults?.refresh();
 }
 
 async function checkWebStatus() {
@@ -257,7 +257,7 @@ async function refreshRun() {
     const result = await response.json();
     if (sequence !== runRequestSequence) return;
     showRun(result);
-    if (["results", "approval"].includes(location.hash.slice(1))) await window.abc2labResults?.refresh();
+    if (["results", "approval", "evaluation"].includes(location.hash.slice(1))) await window.abc2labResults?.refresh();
     const wasBusy = isRunBusy;
     isRunBusy = result.is_busy === true;
     if (isRunBusy) {

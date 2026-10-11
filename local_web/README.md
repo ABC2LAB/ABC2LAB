@@ -1,6 +1,6 @@
 # ABC2LAB `local_web` 아키텍처와 통합 검증 MVP
 
-> 상태: MVP 4단계 Runner 연결 구현 · 실제 전체 진단과 결과 상세·KG·평가 화면은 후속 검증/구현
+> 상태: MVP 1~6단계 구현 · 산출물 결과·KG·개발 평가 화면 연결 · 7단계 실제 Docker 전체 진단 검증은 미완료
 >
 > 핵심 원칙: **경계는 강하게, 구현은 느슨하게 유지한다.**
 
@@ -91,9 +91,9 @@ Knowledge Graph 확인
 
 이 흐름은 최종 제품 경험의 방향이다. 이번 MVP는 ABC2LAB도 Docker에서 실행하고
 로컬 브라우저로 사용한다. MVP의 ABC2LAB·Neo4j·Ollama 분리 배치는 19.7절에
-기록한다. 테스트 대상 네트워크 연결은 Collector 담당자의 공개 설정 변경을
-확인한 뒤 확정한다. 최종 제품의 process 구성과
-승인·재개 기능이 구현됐다는 의미는 아니다.
+기록한다. 테스트 대상은 19.10절의 external 네트워크로 연결하고, Collector의
+설정 origin 허용 변경(PR #69)을 반영한다. 실제 대상 접속은 7단계에서 검증한다.
+최종 제품의 process 구성과 승인·재개 기능이 구현됐다는 의미는 아니다.
 
 ## 3. `local_web`의 정의
 
@@ -793,8 +793,9 @@ Ground Truth 내용은 `reporter.evaluate`만 읽으며 Web에서 매칭이나 �
 
 ### 19.3 현재 확인된 공개 설정과 실행 조건
 
-기준 커밋 `2e4a689`에서 문서·공개 호출부·설정 예시를 확인했다.
-실제 컨테이너 접속과 전체 진단은 이번 문서 단계에서 실행하지 않았다.
+초기 문서 단계의 기준 커밋은 `2e4a689`다. 2026-10-12에는 PR #69 병합
+커밋 `11291f2`와 현재 feature 기준 `45b7e30`에서 Collector의 설정 origin
+허용 변경을 확인했다. 실제 컨테이너 대상 접속과 전체 진단은 아직 검증하지 않았다.
 
 | 연결 | 현재 공개 설정·조건 |
 | --- | --- |
@@ -812,14 +813,21 @@ Web 입력을 공개 설정으로 전달하는 작업과 모듈 내부 상태를
 생성하지 않는다. 비밀값 전달·보관·폐기 구현은 7절·15절의 보안 경계 안에서
 별도로 합의한다.
 
-**Docker 연결의 미완료 조건:** 현재 Collector는 localhost·127.0.0.1·::1만
-허용한다. Docker 대상 접속을 위한 모듈 변경은 담당자가 진행 중이라고 사용자가
-알렸으며, 위 기준 커밋에는 반영되지 않았다. 해당 변경의 공개 설정과 실제 접속
-방식 확인 전에는 서비스명·host 주소·허용 범위를 추측하거나 우회하지 않는다.
+**Collector Docker 접속 조건 — 2026-10-12 갱신:** PR #69에서 loopback 전용
+제한을 제거했다. `target_url`의 origin과 운영자가 명시한 `extra_allowed_origins`를
+scheme·호스트·포트로 정확히 비교한다. 기존 TOML·설정 환경변수·출력 `0.2.0`은
+유지되어 Web 입력 adapter와 호환된다. Web이 허용 범위를 자동 확대하지 않는다.
+서비스명·네트워크 alias와 컨테이너 내부 포트로 입력하며, 이전 이미지는 새
+Collector를 포함하도록 다시 빌드해야 한다. DNS·실제 접속 성공은 7단계 검증 대상이다.
+
+Collector의 같은 호스트·다른 포트/스킴 리다이렉트 hop은 차단하지 못하고
+`REDIRECT_OUT_OF_SCOPE`·`partial`로 기록하는 한계가 있다. Web은 이 부분 결과를
+정상 전체 완료로 바꾸지 않는다. 세부 오류 코드의 안전한 표시 보완과 실제 요청
+범위 확인은 7단계 점검 대상으로 남긴다. 이 한계를 Web에서 모듈 변경으로 우회하지 않는다.
 MVP 내부 Neo4j·Ollama 배치는 19.7절로 구체화한다. Collector 설정·데이터셋의
 읽기 전용 마운트와 입력 준비는 19.9절에 기록한다. 테스트 대상 네트워크,
 다른 모듈 설정·실행 결과 마운트와 Runner 비밀값 주입은 19.10절로 구체화했다.
-실제 Docker 대상 접속과 전체 진단은 담당자 변경·운영 설정이 준비된 뒤 검증한다.
+실제 Docker 대상 접속과 전체 진단은 운영 설정이 준비된 뒤 검증한다.
 
 ### 19.4 결과와 제한 사항의 표현
 
@@ -862,8 +870,8 @@ MVP 내부 Neo4j·Ollama 배치는 19.7절로 구체화한다. Collector 설정�
 | 7 | 실제 테스트 웹 통합 검증 | 정상 및 로그인·설정·중간 실패 확인, 결과와 한계를 이력에 기록 |
 
 2단계 Web·Docker 골격, 3단계 입력 준비, 4단계 Runner 연결, 5단계 공개 산출물
-결과 화면을 구현·대역으로 검증했다. 6~7단계는 미완료다. 검증 결과와 한계는
-19.8~19.11절에 기록한다.
+결과 화면, 6단계 Reporter 평가 화면을 구현했다. 7단계 실제 전체 진단 검증은
+미완료다. 독립 검증 결과와 한계는 19.8~19.12절에 기록한다.
 Docker 접속 조건과 모듈별 실제 모델·정책 설정이 준비되지 않으면 실제 전체
 실행을 완료로 기록하지 않는다.
 
@@ -1159,9 +1167,10 @@ node --check local_web/frontend/app.js
 사용하며 운영 이미지에는 넣지 않는다. 실제 실행에서 대역·fake/replay로 대체하는
 경로는 없다. Docker 테스트도 기존 DB·모델 volume·대상 테스트 웹을 변경하지 않는다.
 
-현재 Collector의 loopback 제한은 그대로다. Docker 서비스명 접속 변경의 담당자
-반영, 실제 대상 네트워크·계정·모듈별 모델·Safety 원본·저장소 권한이 준비되면
-실제 전체 진단을 검증해야 한다. 이번 단계의 완료는 Web 실행 연결·경계 검증이며
+4단계 완료 당시에는 Collector의 loopback 제한이 남아 있었다. 이후 PR #69에서
+설정 origin 허용으로 변경됐다(19.3절). 실제 대상 네트워크·계정·모듈별 모델·Safety
+원본·저장소 권한이 준비되면 실제 전체 진단을 검증해야 한다. 4단계의 완료는
+Web 실행 연결·경계 검증이며
 실제 대상 로그인·LLM 추론·Neo4j 질의·Ground Truth 평가의 성공을 의미하지 않는다.
 
 **다음 5단계:** 공개 산출물의 수집 요약·KG snapshot·후보·정책·검증·Reporter
@@ -1184,8 +1193,9 @@ Graph library·새 framework·의존성을 추가하지 않았다. 이 단계의
 | 승인 대기 | `safety_decisions` | require_approval만 별도 메뉴에 표시. 시나리오·후보 ID와 사유. 승인·정책 수정·재개 기능 없음 |
 | 결과 리포트 | `diagnosis_report` | Reporter가 confirmed로 분류한 항목만 목록 표시. 관련 ID·설명·마스킹된 근거 참조·진단 한계 |
 
-메뉴는 새 진단·진단 진행·분석 결과·승인 대기·성능 평가의 5개다. 성능 평가 메뉴는
-6단계 연결 전 안내 화면이다. 후보를 확정 취약점으로 바꾸거나 verifier의 success를
+메뉴는 새 진단·진단 진행·분석 결과·승인 대기·성능 평가의 5개다. 5단계 완료 당시
+성능 평가는 안내 화면이었으며 6단계에서 연결했다(19.12절). 후보를 확정 취약점으로
+바꾸거나 verifier의 success를
 직접 confirmed로 승격하지 않는다. 미실행·판단불가·승인 대기를 취약점 없음으로
 합치지 않는다. Reporter의 집계와 실제 항목 분류가 불일치하면 조회 오류로 표시하고,
 Web이 판정·집계를 덮어써 보정하지 않는다.
@@ -1198,7 +1208,7 @@ snapshot 조회 실패·누락·복수 snapshot은 빈 그래프나 임의 첫 �
 
 #### 공개 파일 조회 경계
 
-- `local_web/artifacts.py`에서 위 **8종** 공개 JSON만 고정 경로로 읽어 최소 화면
+- 5단계에는 `local_web/artifacts.py`에서 위 **8종** 공개 JSON만 고정 경로로 읽어 최소 화면
   모델로 변환한다. `graph_query`·`evaluation_results`는 4단계의 파일 존재 확인만
   유지한다. Ground Truth 내용·private·로그·근거 본문·HTML 리포트 파일을 읽지 않는다.
 - MVP 내부 `GET/HEAD /api/run-results`는 HttpOnly run cookie로 **자기 최근 실행**만
@@ -1261,11 +1271,82 @@ node --check local_web/frontend/results.js
 자동 제거하며 기존 테스트 웹·Neo4j·Ollama·DB/모델 volume을 변경하지 않았다.
 모듈·루트 Runner·기존 Schema·루트 의존성·루트 Compose·docs/spec는 수정하지 않았다.
 
-**다음 6단계:** Reporter의 evaluation_results를 연결해 지표·분자/분모·미검증
+**5단계 완료 시점의 다음 작업(6단계, 아래 구현 이력 참조):** Reporter의 evaluation_results를 연결해 지표·분자/분모·미검증
 집계·미측정/null·평가 한계를 표시한다. Web은 GT 원문을 읽거나 성능을 재계산하지 않는다.
 그다음 7단계에서 외부 연결 조건·실모델·정책·대상 계정이 준비된 상태로 실제
 Docker 테스트 웹 전체 진단을 검증한다. 이번 단계에서는 실제 모듈·LLM·Neo4j·
 Ground Truth 평가 성능을 완료로 기록하지 않는다.
+
+### 19.12 6단계 Reporter 개발 평가 화면 — 2026-10-12
+
+#### 연결·표현 경계
+
+기존 Runner가 development 모드에서 호출하는 `reporter.evaluate`의 공개 출력
+`evaluation_results.json`(`schema_version=0.2.0`)을 성능 평가 메뉴에 연결했다.
+Runner 호출·평가 계산·모듈 Schema는 수정하지 않았다. 기존 표·모바일 스타일을
+재사용했으며 외부 사이트 등록·배포·새 의존성은 없다.
+
+| 표시 영역 | 공개 출력 필드 | 처리 원칙 |
+| --- | --- | --- |
+| 평가 조건 | ground_truth_ref의 dataset_id·dataset_version·sha256, source_graph_revision·matching_profile | 메타데이터만 표시. 정답 경로·원문은 반환하거나 열지 않음 |
+| 성능 지표 | metrics의 metric_id·value·numerator·denominator | 순서·값 보존. ID·배열 길이를 하드코딩하지 않음. value와 표시용 백분율을 함께 제공 |
+| 후보/확정 집계 | candidate_counts·confirmed_counts | TP·FP·FN을 별도 행으로 표시. 두 단계를 합치지 않음 |
+| 미검증 | unverified_counts | 정책 차단·승인 대기·판단불가를 별도 표시 |
+| 모델·생성 조건 | models | 실제 공개 모델/프롬프트 버전·temperature·seed 표시. Web에서 모델 선택·LLM 호출 없음 |
+| 실행 측정값 | run_metrics | 시간(ms)·LLM 호출·토큰·최대 메모리(MB). null은 미측정 |
+| 평가 한계 | notes | textContent로 표현. HTML·명령으로 실행하지 않음 |
+
+Web은 지표를 분자/분모로 재계산하지 않는다. 비율 null은 **미측정/계산 불가**,
+원시 0은 실제 기록된 0으로 구분한다. 미발행·failed·조회 오류는 점수 0으로
+대체하지 않으며 partial에는 미처리 범위가 있다는 설명을 유지한다. 값이 없는
+모델·지표 목록도 이미 제공된 빈 목록과 미발행 상태를 구분한다.
+
+#### 조회·검증
+
+- 5단계의 소유 run 전용 `/api/run-results`를 재사용한다. 조회 목록은 공개 결과
+  9종으로 늘어나며 사용자 지정 경로·다른 run·private·로그·근거 본문은 읽지 않는다.
+- 버전·run·회차·작성자·envelope 상태, 입력 참조·해시와 종료 통지 해시 검증을
+  그대로 적용한다. 평가 source_graph_revision이 발행된 KG revision과 다르면 거절한다.
+- 표시 필드의 타입·필수 키·비율 범위·중복 지표 ID·음수/boolean 집계·정답 참조의
+  안전한 상대 경로·SHA-256을 검사한다. 정답 해시와 실제 원문 일치는 Reporter 책임이다.
+- 평가 메뉴 진입·실행 중 polling·다시 확인·새로고침으로 발행 결과를 조회한다.
+  이전 요청의 늦은 응답과 다른 브라우저 결과를 표시하지 않는다. 조회 실패 시 이전
+  평가 내용을 지우며 정상 빈 결과로 표시하지 않는다.
+- Web 테스트의 공개 평가 fixture는 생산자 출력 Schema로 확인한다. fixture와 CLI
+  대역은 테스트에만 사용하며 실제 운영 실행의 fallback이나 성능 측정값이 아니다.
+
+#### 검증 결과·다음 단계
+
+```bash
+.venv/bin/python -m pytest local_web/tests tests/pipeline -q --tb=short
+LOCAL_WEB_BROWSER_TESTS=1 .venv/bin/python -m pytest local_web/tests tests/pipeline -q --tb=short
+node --check local_web/frontend/app.js
+node --check local_web/frontend/results.js
+```
+
+| 검증 | 실제 결과 | 한계 |
+| --- | --- | --- |
+| Web·기존 Runner 회귀 | **332 passed · 8 skipped** (Web 274 + Runner 58) | Chromium·마운트 전용 검증은 기본 실행에서 제외 |
+| 최종 Chromium 포함 회귀 | **339 passed · 1 skipped**, 67.98초 (Web 281 + Runner 58) | 기존 브라우저 7건 포함. 읽기 전용 Docker 마운트 1건은 미실행 |
+| 추가 평가 테스트 | **48 passed** | Reporter 공개 출력 fixture 기반. 실제 지표를 계산·측정한 결과 아님 |
+| 평가 화면 | completed/partial/미발행, 비율·분자/분모·null·후보/확정 TP/FP/FN·모델·측정값·한계, 새로고침·다시 확인·조회 실패 후 삭제/복구·다른 브라우저 분리 | 실제 Web 서버·Chromium·CLI 대역만 사용 |
+| 입력·보안 경계 | producer 출력 Schema 수용, 버전/run/회차·해시/참조·KG revision·잘못된 집계/모델·중복 지표·위험 경로 거절, GT/private/로그 비열람·HTML 비실행·비밀값 비노출·390px 가로 넘침 없음·JS 오류 0건 | 생산자 진단·평가 로직의 정확성 검증을 대체하지 않음 |
+| 정적 검사 | JavaScript syntax·Python compile·git diff --check 성공 | 실제 이미지 재빌드·전체 Compose 진단은 미실행 |
+
+샌드박스의 소켓 차단으로 기본 서버 테스트가 처음에는 setup 오류를 냈으며, 로컬
+HTTP 소켓 실행을 허용받아 회귀를 재실행했다. 최종 결과는 위 성공 실행 기준이다.
+검증 서버·소유 자식 프로세스는 테스트 종료 시 정리했다. 실제 테스트 웹·DB·모델
+volume·사용자 설정을 변경하지 않았다. `local_web/` 밖의 모듈·Runner·Schema·
+의존성·루트 Compose·docs/spec는 수정하지 않았다.
+
+실제 Docker 대상·LLM·Neo4j·정답 성능 측정과 독립 fixture 기반 표시 검증은
+구분한다. 이 단계의 fixture 점수는 프로젝트 성능 수치가 아니다.
+
+**다음 7단계:** PR #69 반영 이미지 재빌드 → 대상 external 네트워크/DNS·내부
+포트·로그인·계정·모델·Safety origin·데이터셋·결과 권한 준비 → 실제 브라우저
+진단 → KG·취약점 리포트·평가 확인. 정상 흐름뿐 아니라 로그인/설정/중간 실패와
+리다이렉트 partial도 확인하고 실제 결과·한계를 기록한다. 모듈 변경이 필요하면
+해당 담당자에게 요청하며 Web에서 판단·정책·허용 origin을 임의로 수정하지 않는다.
 
 ## 20. 변경 이력
 
@@ -1276,3 +1357,4 @@ Ground Truth 평가 성능을 완료로 기록하지 않는다.
 | 2026-10-12 | MVP 3단계 읽기 전용 Collector 설정·데이터셋과 URL·복수 계정 입력 준비, 브라우저별 비밀값 임시 보관·폐기 구현 | Web·Runner 158 passed·2 skipped, 해당 Docker 환경 2 passed. 원본 설정 보존·GT 비열람·CSRF·만료·비밀값 비노출 확인. 실제 진단·평가·Runner 실행은 4단계 이후. 모듈·Schema·루트 설정·의존성 변경 없음 |
 | 2026-10-12 | MVP 4단계 기존 Runner 자식 실행·소유 실행 상태·공개 파일 존재·종료 단계 요약, external 대상 네트워크·호스트 결과 폴더·읽기 전용 모듈 설정 연결 | Web·Runner 228 passed·5 skipped, Docker Web 175 passed. CPU/GPU Compose·빌드·Chromium·단일 실행·세션 분리·실패/종료/비밀값 경계 확인. 실제 Docker 대상 진단·LLM/Neo4j·GT 평가는 미검증. 모듈·Runner·Schema·루트 설정·의존성 변경 없음 |
 | 2026-10-12 | MVP 5단계 공개 산출물 기반 수집/의미 요약·기본 SVG KG와 표·ID 연결 진단 과정·승인 대기 메뉴·confirmed 전용 리포트, 소유 실행의 최소 표시 검증 구현 | Web·Runner 284 passed·8 skipped, 읽기 전용 Docker Web 234 passed. fixture Schema·Chromium·부분/실패/미발행·해시/참조·파일 경계·HTML 비실행·390px 화면 확인. 실제 전체 진단·평가 지표 연결은 후속 단계. 모듈·Runner·Schema·루트 설정·의존성·docs/spec 변경 없음 |
+| 2026-10-12 | MVP 6단계 Reporter 공개 평가 결과·지표/분자/분모·후보/확정 TP/FP/FN·미검증/null·모델/측정값/한계 표시, 기존 메뉴 조회·새로고침 연결. PR #69의 Collector 설정 origin 허용과 리다이렉트 한계를 현재 연결 조건에 반영 | Web·Runner 332 passed·8 skipped, 최종 Chromium 포함 339 passed·1 skipped. 추가 평가 48건, GT 비열람·원본 지표 보존·참조/revision·조회 실패/복구·모바일·비밀값 경계 확인. 실제 Docker 전체 진단은 7단계. local_web 밖 코드·Schema·의존성·docs/spec 변경 없음 |

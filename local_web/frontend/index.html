@@ -96,7 +96,13 @@
     </section>
     <section id="evaluation" aria-labelledby="evaluation-title" hidden>
       <h2 id="evaluation-title">개발 성능 평가</h2>
-      <div class="card empty"><h3>평가 결과 조회 미연결</h3><p>Reporter의 지표·분자/분모·미검증 집계·평가 한계를 표시할 예정이다.</p><p>Web은 Ground Truth 원문을 읽거나 평가를 재계산하지 않는다.</p></div>
+      <p class="notice">개발 모드의 Reporter 평가 결과다. Web은 Ground Truth 원문을 읽거나 지표를 재계산하지 않는다. 후보 발견과 검증 확정 성능은 별도 표시한다.</p>
+      <button id="refresh-evaluation" type="button" class="secondary">평가 결과 다시 확인</button>
+      <article class="card result-panel">
+        <h3>Ground Truth 기반 평가 결과</h3>
+        <p id="evaluation-state" class="description" role="status"></p>
+        <div id="evaluation-view"></div>
+      </article>
     </section>
   </main>
 </body>

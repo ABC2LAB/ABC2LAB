@@ -482,6 +482,11 @@ def test_public_results_owned_run_live_and_after_exit(
         assert all(row["state"] in {"completed", "partial"} for row in by_type.values())
         assert by_type["semantic_analysis"]["state"] == ("partial" if case == "partial" else "completed")
         assert len(by_type["diagnosis_report"]["view"]["confirmed_findings"]) == 1
+        evaluation = by_type["evaluation_results"]
+        assert evaluation["state"] == ("partial" if case == "partial" else "completed")
+        assert evaluation["view"]["dataset"]["dataset_id"] == input_payload["dataset_id"]
+        assert evaluation["view"]["metrics"][1]["value"] is None
+        assert evaluation["view"]["unverified_counts"]["approval_pending"] == 1
         record = runner_server.runs._records[own["Cookie"].split("=")[1]]
         (record.run_root / "artifacts/iteration-000/collector/crawl_result.json").write_bytes(b"ALTERED")
         _, _, changed = request(runner_server, "/api/run-results", own)

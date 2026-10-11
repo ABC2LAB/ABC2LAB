@@ -46,13 +46,14 @@ def main() -> int:
     case = os.environ.get("LOCAL_WEB_TEST_RUNNER_CASE", "completed")
     fixtures = {}
     if os.environ.get("LOCAL_WEB_TEST_PUBLIC_ARTIFACTS") == "1":
-        from public_artifacts import make_artifacts, public_bytes
-        fixtures = make_artifacts(args.run_id, args.target_url, case)
+        from public_artifacts import EvaluationFixtureSettings, make_artifacts, public_bytes
+        fixtures = make_artifacts(args.run_id, args.target_url, case,
+                                  evaluation_settings=EvaluationFixtureSettings(args.dataset_id, args.matching_profile))
     if case == "ignore_term":
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
     steps = []
     for index, (name, suffix) in enumerate(STEPS):
-        status = "failed" if index == 0 and case == "failed" else "skipped" if case == "failed" else "partial" if index == 1 and case == "partial" else "completed"
+        status = "failed" if index == 0 and case == "failed" else "skipped" if case == "failed" else "partial" if name in {"semantic_analyzer.analyze", "reporter.evaluate"} and case == "partial" else "completed"
         path = "artifacts/iteration-000/" + suffix if suffix and status != "skipped" else None
         if path:
             destination = run_root / path

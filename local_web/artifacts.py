@@ -30,6 +30,7 @@ PUBLIC_FILES = {
     "safety_decisions": "safety_policy/safety_decisions.json",
     "verification_results": "verifier/verification_results.json",
     "diagnosis_report": "reporter/diagnosis_report.json",
+    "evaluation_results": "reporter/evaluation_results.json",
 }
 ENVELOPE_FIELDS = {"schema_version", "artifact_type", "artifact_id", "run_id", "iteration",
                    "producer", "mode", "created_at", "status", "input_refs", "errors",
@@ -426,10 +427,77 @@ def report_view(data: object) -> dict[str, object]:
             "limitations": [text_value(item) for item in items(value["limitations"])]}
 
 
+def evaluation_metrics(value: object) -> list[dict[str, object]]:
+    result = []
+    for row in records(value, "metric_id"):
+        object_fields(row, "metric_id value numerator denominator")
+        numerator, denominator = integer(row["numerator"]), integer(row["denominator"])
+        ratio = row["value"]
+        if ratio is not None and (type(ratio) not in {int, float} or not 0 <= ratio <= 1 or denominator == 0):
+            raise ArtifactError()
+        # 분자/분모로 비율을 재계산하지 않고 Reporter의 값과 미측정 상태를 보존한다.
+        result.append({"metric_id": identifier(row["metric_id"]), "value": ratio,
+                       "numerator": numerator, "denominator": denominator})
+    return result
+
+
+def evaluation_models(value: object) -> dict[str, dict[str, object]]:
+    if not isinstance(value, dict):
+        raise ArtifactError()
+    items(list(value))
+    result = {}
+    for name, row in value.items():
+        object_fields(row, "model_id model_version prompt_version temperature seed")
+        temperature, seed = row["temperature"], row["seed"]
+        if temperature is not None and (type(temperature) not in {int, float}
+                                        or (type(temperature) is float and not math.isfinite(temperature))):
+            raise ArtifactError()
+        if seed is not None and type(seed) is not int:
+            raise ArtifactError()
+        result[identifier(name)] = {key: identifier(row[key]) for key in ("model_id", "model_version", "prompt_version")}
+        result[name].update({"temperature": temperature, "seed": seed})
+    return result
+
+
+def evaluation_runtime(value: object) -> dict[str, object]:
+    keys = "duration_ms llm_calls input_tokens output_tokens peak_memory_mb"
+    row = object_fields(value, keys)
+    result = {name: None if row[name] is None else integer(row[name]) for name in keys.split()[:-1]}
+    memory = row["peak_memory_mb"]
+    if memory is not None and (type(memory) not in {int, float} or memory < 0
+                               or (type(memory) is float and not math.isfinite(memory))):
+        raise ArtifactError()
+    result["peak_memory_mb"] = memory
+    return result
+
+
+def evaluation_view(data: object) -> dict[str, object]:
+    value = object_fields(data, "ground_truth_ref source_graph_revision matching_profile metrics candidate_counts confirmed_counts unverified_counts models run_metrics notes")
+    reference = object_fields(value["ground_truth_ref"], "dataset_id dataset_version path sha256")
+    dataset_id = identifier(reference["dataset_id"])
+    if (re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", dataset_id) is None
+            or reference_path(reference["path"], "datasets/") != f"datasets/{dataset_id}/ground_truth.json"):
+        raise ArtifactError("ARTIFACT_REFERENCE_MISMATCH")
+    result = {"dataset": {"dataset_id": dataset_id, "dataset_version": identifier(reference["dataset_version"]),
+                          "sha256": digest_value(reference["sha256"])},
+              "source_graph_revision": integer(value["source_graph_revision"]),
+              "matching_profile": identifier(value["matching_profile"]),
+              "metrics": evaluation_metrics(value["metrics"]),
+              "models": evaluation_models(value["models"]), "run_metrics": evaluation_runtime(value["run_metrics"]),
+              "notes": [text_value(note) for note in items(value["notes"])]}
+    for name, keys in (("candidate_counts", "tp fp fn"), ("confirmed_counts", "tp fp fn"),
+                       ("unverified_counts", "policy_blocked approval_pending indeterminate")):
+        counts = object_fields(value[name], keys)
+        result[name] = {key: integer(counts[key]) for key in keys.split()}
+    # 정답 참조의 메타데이터만 표시한다. 정답 원문·참조 경로를 열거나 응답에 넣지 않는다.
+    return result
+
+
 VIEW_BUILDERS = {"crawl_result": crawl_view, "semantic_analysis": semantic_view,
                  "graph_query_result": snapshot_view, "vulnerability_candidates": candidates_view,
                  "test_scenarios": scenarios_view, "safety_decisions": decisions_view,
-                 "verification_results": verification_view, "diagnosis_report": report_view}
+                 "verification_results": verification_view, "diagnosis_report": report_view,
+                 "evaluation_results": evaluation_view}
 
 
 def check_references(loaded: LoadedArtifact, available: dict[str, LoadedArtifact]) -> None:
@@ -445,6 +513,11 @@ def check_references(loaded: LoadedArtifact, available: dict[str, LoadedArtifact
     if (loaded.payload["artifact_type"] in {"safety_decisions", "verification_results"}
             and isinstance(data, dict) and scenario is not None
             and data.get("scenarios_sha256") != scenario.sha256):
+        raise ArtifactError("ARTIFACT_REFERENCE_MISMATCH")
+    graph = available.get("graph_query_result")
+    if (loaded.payload["artifact_type"] == "evaluation_results" and isinstance(data, dict)
+            and graph is not None and isinstance(graph.payload["data"], dict)
+            and data.get("source_graph_revision") != graph.payload["data"].get("graph_revision")):
         raise ArtifactError("ARTIFACT_REFERENCE_MISMATCH")
 
 
