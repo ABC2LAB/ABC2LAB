@@ -180,7 +180,7 @@ def _collect(run_context: RunContext, started: float) -> tuple[WorkResult, tuple
         outcome = service.collect(config)
     except service.BrowserLaunchError as error:
         return _make_failed(started, ErrorCode.BROWSER_LAUNCH_FAILED, str(error), is_retryable=True), known_secrets
-    account_errors = export.list_account_errors(outcome)
+    account_errors = [*export.list_account_errors(outcome), *export.list_redirect_errors(outcome)]
     if outcome.clock_regressions:
         # 절대 규칙 7: 시계 역행이 섞인 결과는 쓰지 않고 다시 돌린다. 데이터는 공개하지 않는다.
         message = f"대상 서버 시계 역행 {outcome.clock_regressions}회 감지: 결과를 쓰지 말고 다시 돌려야 함"

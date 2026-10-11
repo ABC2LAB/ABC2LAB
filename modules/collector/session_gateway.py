@@ -18,6 +18,7 @@ from playwright.sync_api import Browser, Playwright, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
 from modules.collector.core.auth import LoginError, open_account_context
+from modules.collector.core.browser_scope import build_launch_args
 from modules.collector.core.capture import AUTHORIZATION_HEADERS, COOKIE_HEADER, SET_COOKIE_HEADER, SENSITIVE_KEY_PARTS
 from modules.collector.core.config import (
     AccountSettings,
@@ -260,7 +261,7 @@ def open_session_executor(config: CrawlerConfig) -> Iterator[BrowserSessionExecu
 
     with ExitStack() as stack:
         playwright = _start_playwright(stack)
-        browser = _launch_browser(playwright)
+        browser = _launch_browser(playwright, config)
         executor = BrowserSessionExecutor(config, lambda account_id: _make_backend(browser, config, accounts_by_id, account_id))
         try:
             yield executor
@@ -286,9 +287,11 @@ def _start_playwright(stack: ExitStack) -> Playwright:
         raise SessionTransportError(f"Playwright를 시작하지 못함: {_first_line(error)}") from None
 
 
-def _launch_browser(playwright: Playwright) -> Browser:
+def _launch_browser(playwright: Playwright, config: CrawlerConfig) -> Browser:
+    # 로그인(lease)은 브라우저 context라 리다이렉트 hop도 이 규칙을 탄다. send는 드라이버 쪽 요청이라 규칙을 안 타지만
+    # max_redirects=0과 send 재검사로 막는다.
     try:
-        return playwright.chromium.launch()
+        return playwright.chromium.launch(args=build_launch_args(config))
     except PlaywrightError as error:
         raise SessionTransportError(f"브라우저를 띄우지 못함: {_first_line(error)}") from None
 

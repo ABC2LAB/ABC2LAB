@@ -111,9 +111,9 @@ PR #61의 적용 불가 JSON 체크·5xx 결과는 indeterminate로 보존하며
   복합 식별값은 순서와 무관하게 비교하되 식별값의 원문 대소문자·공백을 보존한다.
 - 같은 계획의 정확한 파일 해시·후보/시나리오/판정/검증 ID·근거·revision을 검증한다.
   미실행·누락·판단불가를 정상 빈 결과나 취약점 없음으로 바꾸지 않는다.
-- 실행 계약 0.1.0·미지원 버전은 묵시 변환하지 않는다. 공통 계약의 11개 파일 0.2
-  안내와 본 문서의 Ground Truth 0.1 표는 불일치하므로 정답 Schema·fixture는
-  유지하고 버전 변경은 생산자·소비자·관리자 합의 대상으로 남긴다.
+- 실행 계약 0.1.0·미지원 버전은 묵시 변환하지 않는다. Ground Truth는 공통 계약대로
+  `0.1.0`을 유지한다(공통 envelope를 쓰지 않는 개발 평가 입력). 버전을 바꾸려면
+  생산자·소비자·관리자 합의가 먼저다.
 
 ## 구현할 일
 
@@ -291,7 +291,7 @@ PR #61의 적용 불가 JSON 체크·5xx 결과는 indeterminate로 보존하며
 | --- | --- | --- | --- |
 | `dataset_id` | `string` | 필수 | 정답 데이터셋 ID. |
 | `dataset_version` | `string` | 필수 | 정답 데이터셋 버전. |
-| `path` | `string` | 필수 | 프로젝트 루트 기준 datasets//ground_truth.json 상대 경로. |
+| `path` | `string` | 필수 | 프로젝트 루트 기준 `datasets/<dataset_id>/ground_truth.json` 상대 경로. |
 | `sha256` | `string` | 필수 | 정답 파일 바이트 SHA-256. |
 
 ### Metric
@@ -327,6 +327,7 @@ PR #61의 적용 불가 JSON 체크·5xx 결과는 indeterminate로 보존하며
 | --- | --- | --- |
 | 2026-10-10 | 현재 구현·연결 상태, 실행 입력 7종·출력 2종의 0.2.0, 자원 ID·계정 source·KG 평가 경계와 HTML 구현 범위를 반영 | `695b3c8`, PR #52·#53 반영. 기존 결과 분류·평가·출력 필드 유지, Ground Truth 0.1 유지 |
 | 2026-10-11 | Runner의 report·development evaluate 연결과 Verifier 판단불가 처리 반영 범위를 기록하고 현재 상태·완료 기준을 갱신 | `30cb867`, PR #59·#61·#62. Reporter 418 passed, Runner 대역 58 passed. 결과 분류·평가 계산·출력 0.2.0·Ground Truth 0.1.0·문서 판 번호 유지 |
+| 2026-10-12 | GroundTruthRef path 설명의 `<dataset_id>` 누락 복구, Ground Truth 버전 "불일치" 문장을 02 공통 계약(0.1.0 유지)에 맞춤 | 문서만. 계약·코드·Schema 변경 없음. 이동찬 요청으로 최민준 수정 |
 
 기존 책임 경계·미검증 후보 보존·평가 분모 규칙과 정답 필드 표는 유지하며 상세
 과거 구현 이력은 모듈 README에 보존한다. 2026-10-10 합동 회귀

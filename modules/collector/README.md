@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | operation | `collect` |
-| 출력 | `crawl_result.json` (schema_version `0.1.0`) + 근거 파일(응답·DOM) |
+| 출력 | `crawl_result.json` (schema_version `0.2.0`) + 근거 파일(응답·DOM) |
 | 직접 소비자 | semantic_analyzer·scenario_generator(이경준) · verifier(최민준) · reporter(이동찬, 개발 평가) |
 | 담당 | 최민준 |
 | 명세 | `docs/spec/m1-collector.md`, `docs/spec/02-common-contract.md` |
@@ -12,6 +12,7 @@
 - `entrypoint.py`가 아래 계약대로 `crawl_result.json`을 공개한다.
 - 근거 파일도 같이 쓴다. JSON 응답은 응답 근거(shape + 식별자), 링크·폼·버튼이 있는 페이지는 DOM 근거.
 - 같은 역할에 계정을 여럿 둘 수 있다. 계정마다 브라우저 context를 따로 열어 쿠키가 섞이지 않고, 각자 자기 화면만 탐색한다.
+- 요청 대상은 설정한 origin뿐이다. 브라우저는 다른 호스트로 가는 리다이렉트 hop까지 막는다(아래 "요청 범위"·"브라우저 요청 범위").
 - 이 문서와 Schema는 소비자 합의용 기준본이다.
 
 **구조**
@@ -21,6 +22,7 @@
 | `service.py` | 역할별 탐색과 시계 역행 집계 |
 | `core/` | 기존 탐색 core: 설정·로그인·탐색·캡처·마스킹 |
 | `core/identifiers.py` | 응답 JSON에서 식별자 추출(capture 안에서 호출, 본문 원문은 capture 밖으로 안 나감) |
+| `core/browser_scope.py` | 브라우저 launch 인자(이름 해석 규칙·직접 연결)와 리다이렉트 hop 탐지 |
 | `utils/export.py` | 내부 결과를 계약 형식으로 바꾼다 |
 | `utils/envelope.py` | 공통 envelope·ErrorItem |
 | `utils/evidence.py` | 응답·DOM 근거 파일 작성 |
@@ -81,6 +83,7 @@
 | `CONFIG_INVALID` | 설정 파일 없음·TOML 형식 오류·키 누락·정의 안 된 키·별칭=로그인 ID 등 | failed | false |
 | `BROWSER_LAUNCH_FAILED` | 브라우저를 띄우지 못함 | failed | true |
 | `SERVER_CLOCK_REGRESSION` | 대상 서버 시계 역행 | failed | true |
+| `REDIRECT_OUT_OF_SCOPE` | 같은 호스트의 다른 포트·스킴으로 간 리다이렉트 hop(막지 못하고 탐지). `item_ref`는 계정 ID, 계정당 1건, 메시지는 origin(`scheme://host:port`)만 | partial | false |
 | `OPERATION_UNSUPPORTED` / `INPUT_UNEXPECTED` | `collect`가 아님 / 입력 경로가 있음 | failed | false |
 | `OUTPUT_CONTRACT_INVALID` | 자기 출력 검증 실패. 메시지는 검증 문제 위치 | failed | false |
 | `EVIDENCE_WRITE_FAILED` | 근거 파일을 쓰지 못함. 같은 run에 같은 이름이 있으면 새 run_id로 다시 돌린다 | failed | false |
@@ -105,6 +108,16 @@
 - 역할마다 계정이 하나 이상 있어야 한다. 별칭은 겹치면 안 된다. TOML에 정의되지 않은 키(오타 포함)는 거절한다.
 - 한 계정의 로그인 ID·비밀번호가 비었으면 그 계정만 실패(`ACCOUNT_CRAWL_FAILED`, partial)하고 나머지 계정은 계속 탐색한다.
 
+**요청 범위**
+- 요청 대상은 `target_url`의 origin + `extra_allowed_origins`뿐이다. scheme·호스트·포트가 정확히 같아야 한다(기본 포트 생략은 같은 것으로 본다). 설정하지 않은 origin은 막는다.
+- 로드 때 형식을 검증한다. 어기면 `CONFIG_INVALID`이고 메시지는 키 이름·이유만 담는다.
+  - userinfo(`user@host`) 금지
+  - 호스트는 영문·숫자·`-`·`_`·`.` 이름이거나 IP 리터럴. 쉼표·공백·`*` 등은 거절(이름 해석 규칙 문자열에 들어가서)
+  - 숫자 호스트(마지막 라벨이 숫자이거나 `0x`로 시작)는 표준 IPv4 표기만. `127.1`·`2130706433`·`0x7f.0.0.1`·`010.0.0.1`은 브라우저가 다른 IPv4로 읽어 정확 일치 비교와 어긋나므로 거절
+  - IPv6 리터럴의 존 ID(`%eth0`) 금지
+  - `extra_allowed_origins`는 origin만(`scheme://host[:port]`, 끝 `/` 허용). 경로·쿼리·fragment가 있으면 거절
+- 실행 시작 때 허용 origin 목록을 info 로그로 한 번 남긴다(origin만).
+
 **옛 `CRAWLER_*` 단일 계정 .env에서 옮기기** (옛 형식은 더 읽지 않는다)
 
 | 옛 키 | 새 위치 |
@@ -117,9 +130,9 @@
 
 계정 원문·비밀번호는 어떤 출력에도 넣지 않는다.
 
-## 명세(v0.1) 대비 변경
+## 명세 대비 변경 이력
 
-명세 v0.1과 다르게 출력하는 것. 노션·docs/spec은 바로 고치지 않고 모듈 연결 때 한꺼번에 합친다.
+명세 v0.1과 다르게 출력하기로 합의한 것. 아래 항목은 명세 v0.2(`docs/spec/m1-collector.md`)에 반영됐다.
 
 | 날짜 | 파일 | 필드 | 변경 내용 | 합의한 사람 |
 |---|---|---|---|---|
@@ -215,7 +228,7 @@ ID는 불투명 문자열로 다룬다. 소비자는 형식을 파싱하지 말�
 
 ```json
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "kind": "response",
   "evidence_id": "evidence:response:request:4",
   "request_id": "request:4",
@@ -264,7 +277,7 @@ ID는 불투명 문자열로 다룬다. 소비자는 형식을 파싱하지 말�
 
 ```json
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "kind": "dom",
   "evidence_id": "evidence:dom:page:2",
   "page_id": "page:2",
@@ -323,6 +336,22 @@ issues = validate_crawl_result_file(artifact_path, run_root, known_secrets=[...]
 - 비밀값: 쿠키·인증 헤더·민감 파라미터를 가렸는지, 직렬화 바이트에 알려진 비밀값(계정 비밀번호 등)이 없는지.
 
 메시지에는 값 대신 위치·키 이름만 넣는다.
+
+## 브라우저 요청 범위
+
+절대 규칙 1번(설정한 origin만)을 브라우저에서 세 겹으로 지킨다. 규칙은 `core/browser_scope.py`가 설정에서 만들고 설정 키로 받지 않는다.
+
+| 겹 | 방법 | 막는 것 |
+|---|---|---|
+| 첫 hop origin 가드 | `context.route`에서 모든 요청의 origin을 정확 검사, 밖이면 abort | 링크·리소스·폼·fetch의 첫 요청. Playwright route는 리다이렉트면 첫 URL에만 걸린다 |
+| 이름 해석 규칙 | launch 인자 `--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE <허용 호스트>…"` | 허용 호스트가 아닌 모든 이름·IP 리터럴(리다이렉트 hop 포함). IPv6는 대괄호 없이 적어야 EXCLUDE가 맞는다 |
+| 리다이렉트 hop 탐지 | request 이벤트에서 `redirected_from`이 있고 origin이 허용 밖인 요청을 본다 | 막지는 못한다. 같은 호스트의 다른 포트·스킴 hop은 경고 로그 + `REDIRECT_OUT_OF_SCOPE`(partial)로 남긴다. 다른 호스트 hop은 이름 해석 규칙이 막으므로 경고만 남긴다 |
+
+- **직접 연결**: launch 인자 `--proxy-server=direct://`. Chromium은 환경변수 프록시를 쓰고, 프록시를 거치면 대상 이름 해석을 프록시가 해서 resolver 규칙이 안 먹는다. Playwright 헤드리스에서는 `--no-proxy-server`로 꺼지지 않아 `direct://`를 쓴다.
+- collector는 프록시 없이 대상에 직접 연결한다(환경변수 프록시 무시). 한계: 폐쇄망 배포에서 사내 프록시를 거쳐야만 대상에 닿는 환경이면 동작하지 않는다.
+- 같은 호스트의 다른 포트·스킴으로 가는 리다이렉트 hop은 호스트 단위 규칙이라 막지 못하고 탐지만 한다. 정확히 막으려면 포트까지 거르는 필터링 프록시가 필요하다.
+- 드라이버 쪽 요청(세션 창구 send = `APIRequestContext`)은 브라우저 규칙을 타지 않는다. `max_redirects=0`(3xx를 그대로 돌려줌) + 전송 직전 `is_request_allowed` 재검사로 막는다. Playwright `proxy` 옵션을 주지 않아 환경변수 프록시도 타지 않는다.
+- 크롤 브라우저와 세션 창구 브라우저가 같은 launch 인자를 쓴다.
 
 ## 세션 공개 창구 (collector ↔ verifier)
 
@@ -402,6 +431,10 @@ with ExitStack() as stack:
 .venv/bin/python -m pytest modules/collector/tests/test_entrypoint.py   # 실행 창구(가짜 로컬 사이트)
 .venv/bin/python -m pytest modules/collector/tests/test_session_gateway.py  # 세션 창구(FakeBackend)
 .venv/bin/python -m pytest modules/collector/tests/test_open_session_executor.py  # 세션 창구 열기(설정 위치·오류, 브라우저 없음)
+.venv/bin/python -m pytest modules/collector/tests/test_redirect_scope.py   # 리다이렉트 hop 차단(바깥 서버 수신 0건)·같은 호스트 다른 포트 탐지
+.venv/bin/python -m pytest modules/collector/tests/test_browser_scope.py    # 이름 해석 규칙·이름/IPv6 대상 수집·환경변수 프록시 무시
 ```
 
-테스트는 전부 127.0.0.1의 빈 포트에 띄운 가짜 사이트(`tests/sites.py`)·`FakeBackend`로 돈다. 실제 테스트 앱에는 요청하지 않는다(세션 창구 실물 검증은 실제 실행 1회로 한다).
+테스트는 loopback(127.0.0.1·127.0.0.2·::1)의 빈 포트에 띄운 가짜 사이트(`tests/sites.py`)·`FakeBackend`로 돈다. 실제 테스트 앱에는 요청하지 않는다(세션 창구 실물 검증은 실제 실행 1회로 한다).
+- 이름 대상은 `*.localhost`를 쓴다. 운영 규칙은 EXCLUDE된 이름의 MAP을 무시하므로 테스트용 MAP을 끼울 수 없고, Chromium 내장 loopback 해석으로 이름 경로를 대신한다. 실제 DNS 해석(Compose 서비스명 등)은 OS 몫이다.
+- 프록시 테스트 2건은 Chromium이 loopback 대상을 프록시에서 늘 빼서, 이 머신의 비-loopback IP에 사이트를 잠깐 띄운다. 비-loopback IP가 없는 환경에서는 skip된다. IPv6 대상 테스트는 `::1`에 바인드할 수 없으면 skip된다.
