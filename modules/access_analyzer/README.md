@@ -94,6 +94,20 @@ CLI:
   - 알 수 없는 operation(어떤 산출물을 쓸지 모름) → `OPERATION_UNSUPPORTED`.
   - 잘못된 `run_id`·`run_root`, output_dir가 `run_root/artifacts/iteration-NNN/access_analyzer`가 아님, `..`·symlink로 run 밖을 가리킴, 폴더 생성 불가.
 - analyze의 입력 경로는 run_root 안이어야 한다. 밖을 가리키면 `INPUT_PATH_INVALID`로 failed 파일을 공개한다(출력 경로는 신뢰 가능).
+- **질의 계획 대응(analyze)**: 같은 실행 값(graph_id·expected_graph_revision)으로 질의 계획을 다시 만들어, 결과의 `(query_id, query_key)` 쌍 집합이 계획과 정확히 같은지 본다. 입력 `input_refs`에는 access_analyzer가 쓴 `graph_query` 참조가 정확히 하나 있어야 한다(ArtifactRef에 producer 필드가 없어 경로의 `access_analyzer/` 폴더로 본다. 그 파일을 열어 해시를 비교하지는 않는다). 계획한 질의 결과 누락·계획에 없는 query_id·짝 바뀜(query_id는 맞는데 query_key가 다름)·같은 query_key 중복·참조 없음은 전부 `QUERY_PLAN_MISMATCH`로 failed(후보 없음). 계획한 질의가 다 있고 그중 일부가 `status=failed`면 지금처럼 partial(`QUERY_RESULT_PARTIAL`)이다.
+
+**analyze 판정 오류 코드**(파일에 기록, 메시지에는 query_id·query_key만 넣고 rows 내용은 넣지 않는다)
+
+| 코드 | 언제 | 파일 | retryable |
+|---|---|---|---|
+| `INPUT_CONTRACT_INVALID` | 입력이 graph_query_result 입력 Schema·의미 검증을 통과하지 못함 | failed | false |
+| `INPUT_RESULT_FAILED` | 입력 graph_query_result가 failed | failed | true |
+| `RUN_ID_MISMATCH` / `GRAPH_ID_MISMATCH` | 입력의 run_id·graph_id가 실행 값과 다름 | failed | false |
+| `GRAPH_REVISION_STALE` | 입력 revision이 계획 revision과 다름 | failed | true |
+| `QUERY_PLAN_MISMATCH` | 결과 질의 쌍이 계획과 다르거나 graph_query 참조가 하나가 아님(위) | failed | false |
+| `QUERY_RESULT_PARTIAL` | 계획한 질의 중 일부가 failed. 입력 오류의 `item_ref`·retryable을 이어받음 | partial | 입력 따라 |
+| `CANDIDATE_INCOMPLETE` | 소유자 접근 요청을 못 찾아 후보를 발행하지 않음 | partial | true |
+| `CANDIDATES_TRUNCATED` | 후보 상한(`max_candidates`)을 넘어 잘림 | partial | false |
 - 완료 파일은 한 번만 공개한다. 같은 경로에 이미 있으면 덮어쓰지 않고 거절한다(`ARTIFACT_EXISTS`).
 - 종료코드: 0 completed / 1 partial / 2 failed(파일 있음) / 3 파일 없음.
 
