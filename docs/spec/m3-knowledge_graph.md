@@ -12,10 +12,11 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-10
+## 현재 구현·연결 상태 — 2026-10-11
 
-기준 커밋 `695b3c8`의 구현·공개 계약을 반영했다. PR #52·#53 병합 후 상태이며,
-이번 저장소 문서 갱신이 노션 원본의 export 갱신을 의미하지는 않는다.
+기준 커밋 `30cb867`의 구현과 PR #59~#62의 단일 회차 Runner 연결·실제 실행 오류
+수정 내용을 반영했다. 문서 판 번호는 팀 전체 전환 전까지 v0.1을 유지하며,
+이번 변경은 노션 원본이나 export 기준일을 직접 갱신하지 않는다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
@@ -23,12 +24,16 @@
 | 모델·질의 | Resource Type/Instance, 원본 계정·역할 ID, RequestObservation 및 요청 provenance 처리 완료 |
 | 공개 계약 | 입력 `semantic_analysis`·`graph_query`·`verification_results`, 출력 `graph_query_result` 모두 `0.2.0` |
 | 검증 관계 호환 | Verifier의 `source_account_id` 출력 전환 및 KG의 기존 User 조회·변환 구현 완료 |
-| 독립 회귀 | KG `243 passed, 12 skipped`; KG·Safety Policy·Reporter·Verifier 합동 `897 passed, 12 skipped` |
-| 실제 전체 연결 | 미완료. Verifier는 아직 `graph_updates`를 빈 배열로 생성하며, 실제 동일 run의 관계 수신·DB 반영 검증 필요 |
+| 독립 회귀 | 2026-10-11 재확인: KG `243 passed, 12 skipped`; Runner 대역 테스트 `58 passed` |
+| 실제 전체 연결 | 단일 회차 Runner의 ingest→query→apply_verification 호출 연결 완료(PR #59). 실제 Verifier의 graph_updates는 아직 빈 배열이며, 비어 있지 않은 검증 관계의 수신·DB 반영은 별도 후속 항목 |
 
 skip 12건은 이번에 활성화하지 않은 실제 Neo4j 통합 테스트다. 기존 실제 DB 검증과
 상세 구현 이력은 [모듈 README](../../modules/knowledge_graph/README.md)를 따른다.
-계약 호환 확인·소유 fixture 검증을 전체 pipeline 연결 완료로 표시하지 않는다.
+Runner는 ingest의 graph_id·graph_revision·is_ready와 query의 graph_id·graph_revision을
+확인해 다음 단계에 전달한다. 현재 structure_snapshot은 검증 전 query 시점의 결과이며,
+apply_verification 후 snapshot 재조회와 다음 회차 실행은 아직 제공하지 않는다.
+Runner 58건은 모듈 대역을 사용한 호출·중단·세션 창구·요약 검증이며,
+실제 대상의 요청·응답 건수나 비어 있지 않은 검증 관계의 DB 반영 검증을 대체하지 않는다.
 
 ## 독립 동작·수정 책임
 
@@ -102,13 +107,14 @@ skip 12건은 이번에 활성화하지 않은 실제 Neo4j 통합 테스트다.
 
 ## 완료 기준
 
-아래 표시는 모듈 독립 구현·소유 fixture/저장소 대역 및 기존 DB 검증 기준이다.
-같은 run의 실제 생산자 산출물 연결 완료를 뜻하지 않는다.
+아래 표시는 모듈 독립 구현·기존 DB 검증과 단일 회차 Runner 호출 연결을 구분한다.
+실제 Verifier가 아직 생성하지 않는 검증 관계의 반영까지 완료된 것으로 표시하지 않는다.
 
 - [x]  ingest·query·apply_verification을 공개 operation으로 제공한다.
 - [x]  허용 query_key와 parameters로만 읽기 질의를 수행하고 query_id·revision을 대응시킨다.
 - [x]  실제 DB snapshot을 반환하고, verification_id의 중복 반영을 막는다.
-- [ ]  실제 Verifier의 비어 있지 않은 graph_updates로 동일 run 연결을 검증한다.
+- [x]  Runner가 ingest·query 제어 응답을 다음 단계에 전달하고 verification_results를 apply_verification에 연결한다.
+- [ ]  실제 Verifier의 비어 있지 않은 graph_updates로 동일 run의 관계 수신·DB 반영을 검증한다.
 
 ## 구현 주의사항
 
@@ -276,11 +282,18 @@ revision 확인·계정 조회·참조 검증·저장은 하나의 쓰기 트랜
 | 날짜 | 문서 변경 | 기준·영향 |
 | --- | --- | --- |
 | 2026-10-10 | README의 Resource Type/Instance·요청 provenance·계정 source 변환을 명세에 반영하고 현재 구현·연결 상태와 완료 기준을 갱신 | `695b3c8`, PR #52·#53 반영. 기존 구현·0.2.0 계약을 기록하며 새 필드나 버전을 도입하지 않음 |
+| 2026-10-11 | Runner 연결 완료와 검증 관계 생성·검증 후 snapshot·다회차의 미구현 범위를 분리하고 상태 날짜·완료 기준을 갱신 | `30cb867`, PR #59~#62. KG 243 passed·12 skipped, Runner 대역 58 passed. 공개 JSON 0.2.0·문서 판 번호 유지 |
 
 기존 책임 경계·공개 operation·실패 처리 규칙은 유지한다. 상세 과거 구현·DB 검증
-이력은 모듈 README에 보존한다. 합동 회귀는 `897 passed, 12 skipped`이며 실제
-Neo4j 12건과 동일 run 전체 연결은 이번 검증에 포함하지 않았다. 노션 원본 반영·
-export 기준일 갱신은 별도 관리 작업으로 남긴다.
+이력은 모듈 README에 보존한다. 2026-10-10 합동 회귀 `897 passed, 12 skipped`는
+당시 기록이며 실제 Neo4j 12건과 동일 run 전체 연결은 당시 검증 범위가 아니었다.
+2026-10-11에는 KG 243건과 Runner 대역 58건이 통과했으며, 실제 Neo4j 12건은
+활성화하지 않았다. 실제 검증 관계 반영·검증 후 snapshot은 별도 검증 범위로 남긴다.
+
+2026-10-11 갱신은 기존 표 형식과 과거 이력을 유지한 상태 정리다. 공개 계약·코드·
+Schema·의존성을 변경하지 않는다. 명세 PR 병합 후 노션 반영은 관리자가 수행하며,
+문서 판 번호는 팀 전체가 함께 전환할 때만 올린다. 계약·동작 변경이 있는 경우에만
+병합 후 디스코드에 공지한다.
 
 ---
 
