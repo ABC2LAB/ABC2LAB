@@ -159,7 +159,8 @@ drafter 옵션은 `--llm-provider` `--drafts` `--model-id` `--base-url` `--tempe
 1. **입력 adapter** (`input_adapter.py`): 경로(run 루트 안)·해시·엄격한 JSON(중복 키·NaN 거절)·`schema_version`·Schema·`run_id`·상류 상태 확인
 2. **후보 대조** (`candidate_matcher.py`): 실행·기준 계정, 역할, 근거 요청, `session_ref`가 `crawl_result`와 맞는지 확인. ID만 존재하고 관계가 다르면 거절
 3. **초안 생성** (`scenario_drafter.py`): LLM에게 줄 입력을 만든다(헤더·쿠키·응답 본문·근거 경로·비밀 파라미터 값은 제외)
-4. **초안 검증** (`scenario_validator.py`): Schema + 의미 검사. 통과한 초안만 시나리오가 된다
+4. **초안 검증** (`scenario_validator.py`): Schema + 의미 검사. 통과한 초안만 시나리오가 된다.
+   통과한 뒤 JSON이 아닌 응답 단계를 가리키는 `response_json` 조건을 버리고(`ASSERTION_NON_JSON_RESPONSE`), 버린 게 있으면 다시 검증한다
 5. **출력 adapter** (`output_adapter.py`) → **원자적 저장** (`utils/atomic_io.py`): 완료 파일은 덮어쓰지 않는다
 
 후보 하나가 실패해도 나머지는 계속 처리하고, 실패는 `item_ref=candidate_id`로 `errors`에 남긴다.
@@ -176,6 +177,7 @@ drafter 옵션은 `--llm-provider` `--drafts` `--model-id` `--base-url` `--tempe
 | `CANDIDATE_REQUEST_INVALID` | 근거 요청이 없거나 계정·역할·세션이 어긋남 | candidate_id |
 | `DRAFTER_FAILED` | 초안 생성 실패 (`retryable`은 drafter가 알려 준 값) | candidate_id |
 | `DRAFT_INVALID` | 초안이 검증을 통과하지 못함 (위치와 규칙만 적고 값은 적지 않음) | candidate_id |
+| `ASSERTION_NON_JSON_RESPONSE` | JSON이 아닌 응답 단계를 가리키는 `response_json` 조건을 버림. 시나리오는 발행한다(메시지에는 버린 check_id만) | candidate_id |
 | `DRAFTER_NOT_CONFIGURED` | 초안 생성기(LLM)가 설정되지 않음(`provider = "none"`) | null |
 
 ## 초안 검증 규칙
@@ -185,7 +187,10 @@ Schema(필드·타입·enum, 미정의 키 거절) 외에 다음을 코드로 �
 - `steps`와 `assertions`가 비어 있지 않다
 - verifier가 평가하는 세 조건을 모두 쓴다. 명세 m7은 HTTP 200만으로 위반을 확정하지 않는다
   - `preconditions`: steps에 쓰인 **계정마다** `session_valid`(`subject_ref`=account_id, `operator=eq`, `expected=true`). `exists`는 세션이 죽어도(false) 참이라 거절한다
-  - `assertions`: **실행 계정 단계 하나에** `response_status`와 `response_json`이 함께 있다
+  - `assertions`: **실행 계정 단계 하나에** `response_status`와 `response_json`이 함께 있다. 그 단계 원본 응답이 JSON이 아니면 `response_status`만 있으면 된다
+- 단계 응답이 JSON인지는 원본 요청 `response.content_type`에 `json`이 들어 있는지로 정한다(collector 근거 파일·세션 창구와 같은 기준, null이면 JSON 아님).
+  JSON이 아닌 단계의 `response_json`은 verifier가 적용할 수 없어 판단불가가 되므로 검증 통과 뒤 버리고 `ASSERTION_NON_JSON_RESPONSE`로 남긴다.
+  검증은 버리기 전에 하므로, 그런 조건의 selector 문법이 틀리면 버려지기 전에 `DRAFT_INVALID`가 된다
 - `response_status`·`response_json` 조건의 `subject_ref`는 steps에 있는 `step_id`다(응답은 단계에서만 나온다)
 - `resource_state`·`resource_owner`·`baseline_match`는 Schema상 허용하지만 verifier가 아직 평가하지 않아(판단불가) 필수 조건으로 치지 않는다
 - `steps.order`가 0..N-1을 순서대로 유일하게 채운다. `step_id`·`binding_id`·`check_id`가 중복이 아니다
@@ -215,9 +220,12 @@ class ScenarioDrafter(Protocol):
 | `ReplayScenarioDrafter` | `replay_drafter.py` | 개발·테스트. `drafts_path`(설정)·`--drafts`(CLI) 파일의 초안을 그대로 돌려준다. `model_info.model_id`는 `replay_file`로 남아 LLM이 아님을 드러낸다 |
 | `OllamaScenarioDrafter` | `ollama_drafter.py` | 실제 로컬 모델. 표준 라이브러리 `urllib`로 Ollama `/api/generate`를 부른다(추가 패키지 없음, 폐쇄망용) |
 
-- Ollama 프롬프트 버전은 `PROMPT_VERSION`(현재 `ollama-scenario-v3`)이고 `model_info.prompt_version`에 기록된다.
+- Ollama 프롬프트 버전은 `PROMPT_VERSION`(현재 `ollama-scenario-v4`)이고 `model_info.prompt_version`에 기록된다.
+  v4(10/11): parameter 객체 예시를 넣고 입력 parameter가 출력과 같은 모양이라고 적었다.
   프롬프트에는 중첩 레코드(ScenarioStep·RequestPlan·ParameterValue·Binding·Check)의 정확한 필드와 아래 "초안 검증 규칙"의 판정 조건 요구를 적었다
 - LLM에게 주는 입력은 `build_draft_request`가 만든 것뿐이다(헤더·쿠키·응답 본문·근거 경로·민감 파라미터 값 제외)
+  - `source_requests[].parameters`는 출력 ParameterValue와 같은 `{name, location, value, binding_ref: null}` 모양으로 보여 준다.
+    `is_sensitive`는 출력에 없는 키라 빼고, 민감 값은 null이다. 입력 모양이 출력과 다르면 LLM이 입력을 베끼다 필수 키(`binding_ref`)를 빠뜨렸다(10/11 실행 DRAFT_INVALID 2건)
 - 모델 출력은 데이터다. 모양이 맞아도 `scenario_validator`가 전부 다시 검증하고, 통과하지 못하면 `DRAFT_INVALID`로 버린다
 
 ## 명세(v0.1) 대비 변경

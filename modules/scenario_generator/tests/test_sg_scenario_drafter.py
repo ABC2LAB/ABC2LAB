@@ -48,6 +48,49 @@ def test_draft_request_never_contains_secrets_or_evidence(matched_candidates: li
     assert request["source_requests"][0]["parameters"][1]["value"] == "visible-value"
 
 
+OUTPUT_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "output" / "test_scenarios.schema.json"
+
+
+def _output_parameter_keys() -> tuple[set[str], set[str]]:
+    """출력 Schema의 ParameterValue 키(전체, 필수). 테스트에 키를 적지 않고 Schema에서 읽는다."""
+    definition = json.loads(OUTPUT_SCHEMA_PATH.read_text(encoding="utf-8"))["$defs"]["parameterValue"]
+    return set(definition["properties"]), set(definition["required"])
+
+
+def _viewed_parameters(matched_candidates: list[MatchedCandidate]) -> list[dict[str, Any]]:
+    return [
+        parameter
+        for matched in matched_candidates
+        for source in build_draft_request(matched, TARGET_URL)["source_requests"]
+        for parameter in source["parameters"]
+    ]
+
+
+def test_viewed_parameter_has_output_schema_shape(matched_candidates: list[MatchedCandidate]) -> None:
+    # 입력 뷰 모양이 출력과 다르면 LLM이 입력을 베끼다 필수 키를 빠뜨린다(10/11 실행: binding_ref 누락 DRAFT_INVALID).
+    all_keys, required_keys = _output_parameter_keys()
+    viewed = _viewed_parameters(matched_candidates)
+    assert viewed, "fixture에 parameter가 있는 원본 요청이 있어야 이 테스트가 의미 있다"
+    for parameter in viewed:
+        assert set(parameter) == all_keys
+        assert required_keys <= set(parameter)
+        assert parameter["binding_ref"] is None  # 원본 값 그대로라 바인딩 없음
+
+
+def test_viewed_parameter_hides_sensitivity_flag_but_keeps_value_null(matched_candidates: list[MatchedCandidate]) -> None:
+    sensitive_names = {
+        parameter["name"]
+        for matched in matched_candidates
+        for source in matched.source_requests
+        for parameter in source["parameters"]
+        if parameter["is_sensitive"]
+    }
+    assert sensitive_names, "fixture에 민감 parameter가 있어야 한다"
+    viewed = _viewed_parameters(matched_candidates)
+    assert all("is_sensitive" not in parameter for parameter in viewed)
+    assert all(parameter["value"] is None for parameter in viewed if parameter["name"] in sensitive_names)
+
+
 def test_replay_drafter_returns_the_prepared_draft(
     matched_candidates: list[MatchedCandidate], drafts: dict[str, Any]
 ) -> None:

@@ -29,6 +29,10 @@ MAX_REPORTED_PROBLEMS = 5
 STEP_RESPONSE_CHECK_KINDS = frozenset({"response_status", "response_json"})
 # 실행 계정 단계에 함께 있어야 하는 판정 조건. 상태 코드만으로는 위반을 확정할 수 없어(명세 m7) 응답 내용도 본다.
 REQUIRED_ACTOR_ASSERTION_KINDS = frozenset({"response_status", "response_json"})
+# 응답이 JSON이 아닌 단계는 response_json을 적용할 수 없어(verifier 판단불가) 상태 조건만 요구한다.
+NON_JSON_ACTOR_ASSERTION_KINDS = frozenset({"response_status"})
+# 응답이 JSON인지 정하는 content_type 조각. collector 근거 파일·세션 창구와 같은 기준이다.
+JSON_CONTENT_TYPE_MARKER = "json"
 
 
 @dataclass(frozen=True)
@@ -225,15 +229,51 @@ def _check_session_preconditions(scenario: dict[str, Any]) -> list[str]:
     return problems
 
 
-def _check_actor_assertions(scenario: dict[str, Any], actor_account_id: str) -> list[str]:
-    """실행 계정 단계 하나에 response_status와 response_json 판정 조건이 함께 있어야 한다."""
-    actor_step_ids = {step["step_id"] for step in scenario["steps"] if step["account_id"] == actor_account_id}
+def _check_actor_assertions(scenario: dict[str, Any], context: ValidationContext) -> list[str]:
+    """실행 계정 단계 하나에 판정 조건이 있어야 한다: response_status, 그 단계 응답이 JSON이면 response_json도."""
+    actor_account_id = context.matched.actor_account["account_id"]
     kinds_by_step_id: dict[str, set[str]] = {}
     for check in scenario["assertions"]:
         kinds_by_step_id.setdefault(check["subject_ref"], set()).add(check["kind"])
-    if any(REQUIRED_ACTOR_ASSERTION_KINDS <= kinds_by_step_id.get(step_id, set()) for step_id in actor_step_ids):
-        return []
-    return ["실행 계정 단계에 response_status와 response_json 판정 조건이 함께 있어야 한다"]
+    for step in scenario["steps"]:
+        if step["account_id"] != actor_account_id:
+            continue
+        required = NON_JSON_ACTOR_ASSERTION_KINDS if _is_non_json_step(step, context.index) else REQUIRED_ACTOR_ASSERTION_KINDS
+        if required <= kinds_by_step_id.get(step["step_id"], set()):
+            return []
+    return ["실행 계정 단계에 response_status와 response_json 판정 조건이 함께 있어야 한다(JSON이 아닌 응답 단계는 response_status만)"]
+
+
+def is_json_response(request: dict[str, Any]) -> bool:
+    content_type = request["response"].get("content_type") or ""
+    return JSON_CONTENT_TYPE_MARKER in content_type.lower()
+
+
+def _is_non_json_step(step: dict[str, Any], index: CrawlIndex) -> bool:
+    # 원본 요청을 못 찾는 단계는 JSON으로 보고 엄격하게 둔다(없는 원본은 _check_step_request가 따로 거절한다).
+    request = index.requests_by_id.get(step["source_request_id"])
+    return request is not None and not is_json_response(request)
+
+
+def drop_non_json_response_checks(scenario: dict[str, Any], index: CrawlIndex) -> tuple[dict[str, Any], list[str]]:
+    """JSON이 아닌 응답 단계를 가리키는 response_json 조건을 버린 시나리오와 버린 check_id 목록을 돌려준다.
+
+    HTML 응답에 JSON 조건을 붙이면 verifier가 적용하지 못해 판단불가가 된다. 검증을 통과한 시나리오에만 쓴다.
+    """
+    non_json_step_ids = {step["step_id"] for step in scenario["steps"] if _is_non_json_step(step, index)}
+
+    def is_dropped(check: dict[str, Any]) -> bool:
+        return check["kind"] == "response_json" and check["subject_ref"] in non_json_step_ids
+
+    dropped = [check["check_id"] for check in scenario["preconditions"] + scenario["assertions"] if is_dropped(check)]
+    if not dropped:
+        return scenario, []
+    pruned = {
+        **scenario,
+        "preconditions": [check for check in scenario["preconditions"] if not is_dropped(check)],
+        "assertions": [check for check in scenario["assertions"] if not is_dropped(check)],
+    }
+    return pruned, dropped
 
 
 def find_scenario_problems(scenario: Any, context: ValidationContext) -> list[str]:
@@ -247,5 +287,5 @@ def find_scenario_problems(scenario: Any, context: ValidationContext) -> list[st
         + _check_steps(scenario, context)
         + _check_conditions(scenario)
         + _check_session_preconditions(scenario)
-        + _check_actor_assertions(scenario, context.matched.actor_account["account_id"])
+        + _check_actor_assertions(scenario, context)
     )

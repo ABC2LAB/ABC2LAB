@@ -1,4 +1,5 @@
 import copy
+import dataclasses
 from collections.abc import Callable
 from typing import Any
 
@@ -8,6 +9,7 @@ from modules.scenario_generator.candidate_matcher import CrawlIndex, MatchedCand
 from modules.scenario_generator.scenario_validator import (
     MAX_REPORTED_PROBLEMS,
     ValidationContext,
+    drop_non_json_response_checks,
     find_scenario_problems,
     summarize_problems,
 )
@@ -305,3 +307,65 @@ def test_problem_summary_is_truncated() -> None:
     summary = summarize_problems(problems)
     assert "problem 0" in summary and f"problem {MAX_REPORTED_PROBLEMS}" not in summary
     assert summary.endswith("외 3건")
+
+
+NON_JSON_CONTENT_TYPE = "text/html; charset=utf-8"
+
+
+def with_non_json_source(context: ValidationContext, step: dict[str, Any]) -> ValidationContext:
+    """그 단계의 원본 요청 응답만 HTML로 바꾼 대조 문맥. fixture 원본은 건드리지 않는다."""
+    requests = copy.deepcopy(context.index.requests_by_id)
+    requests[step["source_request_id"]]["response"]["content_type"] = NON_JSON_CONTENT_TYPE
+    return dataclasses.replace(context, index=dataclasses.replace(context.index, requests_by_id=requests))
+
+
+def content_checked_step(scenario: dict[str, Any]) -> dict[str, Any]:
+    content_check = next(check for check in scenario["assertions"] if check["kind"] == "response_json")
+    return next(step for step in scenario["steps"] if step["step_id"] == content_check["subject_ref"])
+
+
+def test_non_json_actor_step_passes_with_status_only(
+    chained_case: tuple[ValidationContext, dict[str, Any], dict[str, Any]],
+) -> None:
+    # HTML 응답 단계엔 response_json을 적용할 수 없으니 상태 조건만으로 통과한다(내용 확정은 verifier가 판단불가로 남김).
+    context, scenario, _ = chained_case
+    step = content_checked_step(scenario)
+    assert step["account_id"] == context.matched.actor_account["account_id"]
+    remove_assertions_of_kind("response_json")(scenario, {})
+    assert find_scenario_problems(scenario, with_non_json_source(context, step)) == []
+    # 같은 시나리오라도 그 단계 응답이 JSON이면 여전히 response_json을 요구한다.
+    assert any("response_json" in problem for problem in find_scenario_problems(scenario, context))
+
+
+def test_drop_removes_response_json_only_on_non_json_step(
+    chained_case: tuple[ValidationContext, dict[str, Any], dict[str, Any]],
+) -> None:
+    context, scenario, _ = chained_case
+    html_step = content_checked_step(scenario)
+    json_step = next(step for step in scenario["steps"] if step["step_id"] != html_step["step_id"])
+    kept_check = {**next(c for c in scenario["assertions"] if c["kind"] == "response_json"), "check_id": "kept_on_json_step", "subject_ref": json_step["step_id"]}
+    scenario["assertions"].append(kept_check)
+    original = copy.deepcopy(scenario)
+
+    pruned, dropped = drop_non_json_response_checks(scenario, with_non_json_source(context, html_step).index)
+
+    expected_dropped = [
+        check["check_id"] for check in original["preconditions"] + original["assertions"]
+        if check["kind"] == "response_json" and check["subject_ref"] == html_step["step_id"]
+    ]
+    assert dropped == expected_dropped and dropped
+    remaining = pruned["preconditions"] + pruned["assertions"]
+    assert all(check["check_id"] not in dropped for check in remaining)
+    assert kept_check in pruned["assertions"]
+    assert [c for c in remaining if c["kind"] != "response_json"] == [
+        c for c in original["preconditions"] + original["assertions"] if c["kind"] != "response_json"
+    ]
+    assert scenario == original  # 입력 시나리오는 바꾸지 않는다
+
+
+def test_drop_keeps_json_step_checks(
+    chained_case: tuple[ValidationContext, dict[str, Any], dict[str, Any]],
+) -> None:
+    context, scenario, _ = chained_case
+    pruned, dropped = drop_non_json_response_checks(scenario, context.index)
+    assert dropped == [] and pruned == scenario

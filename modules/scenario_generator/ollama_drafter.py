@@ -16,7 +16,7 @@ from typing import Any
 
 from modules.scenario_generator.scenario_drafter import Draft, DrafterError
 
-PROMPT_VERSION = "ollama-scenario-v3"
+PROMPT_VERSION = "ollama-scenario-v4"
 _GENERATE_PATH = "/api/generate"
 
 # 상위 3키뿐 아니라 중첩 레코드(ScenarioStep·RequestPlan·ParameterValue·Binding·Check)의
@@ -45,7 +45,9 @@ _SYSTEM = (
     "response_status/response_json subject_ref MUST be a step_id from steps.\n"
     "Each PARAMETER in request.parameters has EXACTLY: name(string), location(path|query|body), "
     "value(literal JSON or null), binding_ref(string or null; null when value is literal). "
-    "NEVER include is_sensitive or any other key in a parameter.\n"
+    "NEVER include is_sensitive or any other key in a parameter. "
+    "source_requests[].parameters are shown in this same shape; if you include a parameter, keep ALL four keys, "
+    'e.g. {"name":"page","location":"query","value":"2","binding_ref":null}.\n'
     "CRITICAL: bindings MUST be [] unless a value truly must be extracted from an earlier step's response; "
     "never invent a binding. parameters SHOULD be [] (the url_template already identifies the resource); "
     "only add a parameter when you deliberately change one value. "

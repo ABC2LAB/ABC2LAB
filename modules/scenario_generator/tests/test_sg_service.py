@@ -211,3 +211,47 @@ def test_duplicate_ids_in_crawl_result_raise_input_error(
     with pytest.raises(InputError) as caught:
         generate_scenarios(candidates_artifact, broken, StubDrafter(replaying(drafts)))
     assert caught.value.code is InputErrorCode.DUPLICATE_ID
+
+
+def test_response_json_on_non_json_step_is_dropped_and_reported(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
+) -> None:
+    # 원본 요청 하나의 응답을 HTML로 바꾸면, 그 요청을 쓰는 단계의 response_json만 버리고 시나리오는 발행한다.
+    def content_steps(draft: dict[str, Any]) -> list[tuple[str, str]]:
+        source_by_step = {step["step_id"]: step["source_request_id"] for step in draft["steps"]}
+        return [
+            (check["check_id"], source_by_step[check["subject_ref"]])
+            for check in draft["preconditions"] + draft["assertions"]
+            if check["kind"] == "response_json" and check["subject_ref"] in source_by_step
+        ]
+
+    html_request_id = next(source for draft in drafts.values() for _, source in content_steps(draft))
+    requests = {r["request_id"]: r for r in crawl_artifact.document["data"]["requests"]}
+
+    def to_html(document: dict[str, Any]) -> None:
+        for request in document["data"]["requests"]:
+            if request["request_id"] == html_request_id:
+                request["response"]["content_type"] = "text/html; charset=utf-8"
+
+    outcome = generate_scenarios(candidates_artifact, with_document(crawl_artifact, to_html), StubDrafter(replaying(drafts)))
+
+    expected = [
+        (candidate_id, check_id)
+        for candidate_id in candidate_ids(candidates_artifact)
+        for check_id, source in content_steps(drafts[candidate_id])
+        if source == html_request_id
+    ]
+    assert expected
+    assert [(e["code"], e["item_ref"]) for e in outcome.errors] == [
+        (GenerationErrorCode.ASSERTION_NON_JSON_RESPONSE, candidate_id) for candidate_id, _ in expected
+    ]
+    published = {s["candidate_id"]: s for s in outcome.scenarios}
+    assert [s["candidate_id"] for s in outcome.scenarios] == candidate_ids(candidates_artifact)
+    for (candidate_id, check_id), error in zip(expected, outcome.errors):
+        remaining = published[candidate_id]["preconditions"] + published[candidate_id]["assertions"]
+        assert check_id not in [c["check_id"] for c in remaining]
+        assert check_id in error["message"]
+        # 메시지에는 check_id만: 원본 URL·content_type·parameter 값은 넣지 않는다.
+        source = requests[html_request_id]
+        assert source["url"] not in error["message"] and "text/html" not in error["message"]
+        assert all(str(p["value"]) not in error["message"] for p in source["parameters"] if p["value"])
