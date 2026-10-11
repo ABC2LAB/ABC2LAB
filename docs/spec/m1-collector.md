@@ -12,19 +12,20 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-11
+## 현재 구현·연결 상태 — 2026-10-12
 
-기준 커밋 `30cb867`(PR #61·#62 병합 후)의 구현·공개 계약을 반영했다.
+기준 커밋 `7754fe9`에 요청 범위 변경(설정 origin 기준)을 더한 구현·공개 계약을 반영했다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
 | 독립 구현 | `collect`, 공개 `run()`·CLI, 역할별·역할당 복수 계정 탐색, `crawl_result.json` export adapter, 응답·DOM 근거 파일(EvidenceRef)과 자원 식별자 보존, 원자 저장 구현 완료 |
 | 세션 공개 창구 | `entrypoint.open_session_executor()`(인자 없음, 컨텍스트 매니저)로 연다. 여는 중 오류는 설정이 없거나 틀리면 호출 즉시 `ValueError`, Playwright·브라우저 시작 실패면 with 진입 때 `RuntimeError`(`SessionTransportError`), 설정 파일 권한이면 `OSError`. 세부 규약은 [모듈 README](../../modules/collector/README.md) "세션 공개 창구" |
+| 요청 범위 | 설정 origin(`target_url` + `extra_allowed_origins`)과 정확히 같을 때만 요청한다. 브라우저는 이름 해석 규칙으로 다른 호스트로 가는 요청·리다이렉트 hop까지 막고, 같은 호스트의 다른 포트·스킴 hop은 탐지해 `REDIRECT_OUT_OF_SCOPE`로 남긴다. 프록시 없이 직접 연결한다. 세부는 [모듈 README](../../modules/collector/README.md) "요청 범위"·"브라우저 요청 범위" |
 | 공개 계약 | 출력 `crawl_result.json`과 근거 파일(`response_evidence`·`dom_evidence`) `0.2.0` |
-| 독립 회귀 | collector `430 passed` |
+| 독립 회귀 | collector `469 passed` |
 | 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행(테스트 앱 vulnerable 모드)에서 collect가 completed로 끝나고, 같은 실행에서 세션 창구를 열어 verifier가 allow 시나리오를 이 창구로 전송했다(2026-10-11) |
 
-남은 것: 허용 대상을 설정의 대상 origin 기준으로 맞추기(이동찬 요청, 별도 PR), 엔드포인트 발견율 고도화.
+남은 것: 엔드포인트 발견율 고도화.
 
 ## 독립 동작·수정 책임
 
@@ -100,6 +101,9 @@
 
 ## 구현 주의사항
 
+- 요청 대상은 설정한 origin(`target_url` + `extra_allowed_origins`)과 scheme·호스트·포트가 정확히 같을 때만이다. 설정 값은 로드 때 형식을 검증한다(userinfo·규칙 구분자 문자·비표준 숫자 호스트·extra의 경로 거절).
+- 브라우저는 이름 해석 규칙(`MAP * ~NOTFOUND, EXCLUDE <허용 호스트>`)으로 다른 호스트로 가는 요청·리다이렉트 hop을 막는다. 같은 호스트의 다른 포트·스킴 hop은 막지 못하고 탐지해 `REDIRECT_OUT_OF_SCOPE`(partial)로 남긴다.
+- collector는 프록시 없이 대상에 직접 연결한다(환경변수 프록시 무시, `--proxy-server=direct://`). Chromium은 환경변수 프록시를 쓰고, 프록시를 거치면 대상 이름 해석을 프록시가 해서 resolver 규칙이 안 먹는다. Playwright 헤드리스에서는 `--no-proxy-server`로 꺼지지 않아 `direct://`를 쓴다.
 - 세션·브라우저 객체와 실제 쿠키·토큰은 수집기 내부에 둔다. session_ref는 해당 상태를 찾는 불투명 참조값이다.
 - 재현·검증기는 자기 adapter로 공개 세션 창구를 사용한다. 허용 계정의 실행 컨텍스트는 합의된 값·불투명 핸들·사용 규약이며 내부 브라우저/세션 객체를 직접 공유한다는 뜻이 아니다. 접근 방식·요청/응답·오류·만료·대여/반납·종료 규약은 확정됐다(`modules/collector/README.md` "세션 공개 창구"). 요점: lease 때 재로그인, send가 그 세션으로 대신 전송(쿠키는 collector 안), `is_valid`는 대상 앱 요청 없이 보유·만료만, 만료는 send 응답 신호로 감지, send에서 허용 origin 2차 검사. JSON의 참조 문자열만으로 세션 객체가 복원되지는 않는다.
 - 관찰하지 못한 행동은 actions=[]로, 관찰하지 못한 페이지·행동 연결은 허용된 null로 기록한다. 추측으로 관찰 필드를 채우지 않는다.
@@ -214,6 +218,7 @@
 | 날짜 | 변경 | 근거 |
 | --- | --- | --- |
 | 2026-10-10 | 세션 공개 창구를 여는 공개 함수 `open_session_executor()`와 여는 중 오류 타입(`ValueError`·`RuntimeError`(`SessionTransportError`)·`OSError`)을 정함. 출력 계약 변경 없음 | #55·#60 |
+| 2026-10-12 | 요청 범위를 loopback 고정에서 설정 origin(target_url + extra_allowed_origins)으로 전환, 브라우저 리다이렉트 hop 차단·탐지, 오류 코드 REDIRECT_OUT_OF_SCOPE | 동작 변경. 계약 필드 변경 없음(ErrorItem.code는 자유 문자열). crawl_result가 partial로 올 수 있음 |
 
 ### 0.1.0 → 0.2.0
 

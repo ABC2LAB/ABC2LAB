@@ -2,9 +2,9 @@
 # 위치: CLI --config > COLLECTOR_CONFIG_PATH > modules/collector/configs/collector.toml
 # 계정 로그인 ID·비밀번호는 여기 넣지 않는다. .env의 COLLECTOR_ACCOUNT_<별칭 대문자>_LOGIN_ID / _PASSWORD (modules/collector/.env.example)
 
-# 대상. 로컬(localhost/127.0.0.1/::1) http(s)만 허용된다.
+# 대상. http(s) 시작 URL. 요청 범위는 이 URL의 origin + extra_allowed_origins뿐이다(README "요청 범위").
 target_url = "http://localhost:8001"
-# 대상 외에 허용할 origin. 비우면 대상 origin만.
+# 대상 외에 허용할 origin. scheme://host[:port]만(경로·쿼리 없이). 비우면 대상 origin만.
 extra_allowed_origins = []
 # 탐색 깊이(0 이상의 정수)
 max_depth = 3
