@@ -3,6 +3,7 @@
 import json
 import logging
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from http.client import HTTPConnection
@@ -12,6 +13,7 @@ import pytest
 
 from local_web.server import LocalWebServer, WebSettings
 from local_web.inputs import MAX_INPUT_BYTES, InputSettings
+from local_web.runner import RunnerSettings
 
 
 @pytest.fixture
@@ -305,3 +307,130 @@ def test_duplicate_content_length_rejected(input_server: LocalWebServer) -> None
         assert connection.getresponse().status == 400
     finally:
         connection.close()
+
+
+@pytest.fixture
+def runner_server(input_settings: InputSettings, runner_settings: RunnerSettings) -> Iterator[LocalWebServer]:
+    server = LocalWebServer(WebSettings("127.0.0.1", 0, 8080), input_settings, runner_settings)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=2)
+
+
+def run_headers(server: LocalWebServer, payload: dict[str, object]) -> tuple[dict[str, str], str]:
+    headers, options = input_headers(server)
+    assert options["runner"]["diagnosis_enabled"]
+    status, _, body = request(server, "/api/input-preparations", headers, RequestData("POST", json.dumps(payload).encode()))
+    assert status == 200
+    return headers, json.loads(body)["preparation_id"]
+
+
+def test_http_run_start_status_ownership_and_input_expiry(
+    runner_server: LocalWebServer, input_payload: dict[str, object], caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    headers, preparation_id = run_headers(runner_server, input_payload)
+    status, response_headers, body = request(runner_server, "/api/runs", headers,
+        RequestData("POST", json.dumps({"preparation_id": preparation_id}).encode()))
+    assert status == 202 and "run_id" in json.loads(body)
+    cookie = response_headers["Set-Cookie"]
+    assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
+    own_headers = {"Cookie": cookie.split(";")[0]}
+    # 준비 세션 폐기 후에도 run cookie로 자신의 실행만 확인할 수 있다.
+    runner_server.inputs.clear_session(headers["Cookie"].split("=")[1])
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        status, _, result_body = request(runner_server, "/api/run-status", own_headers)
+        result = json.loads(result_body)
+        if result["state"] != "running":
+            break
+        time.sleep(0.01)
+    assert status == 200 and result["state"] == "completed" and result["exit_code"] == 0
+    assert len(result["summary"]["steps"]) == 12
+    _, _, other = request(runner_server, "/api/run-status")
+    assert json.loads(other) == {"state": "idle", "is_busy": False}
+    assert all(value not in result_body for value in (b"PASSWORD_SENTINEL", b"LOGIN_SENTINEL", b"private/", b"report_path"))
+    assert "PASSWORD_SENTINEL" not in caplog.text and "LOGIN_SENTINEL" not in caplog.text
+
+
+@pytest.mark.parametrize("missing", ["Cookie", "Origin", "X-CSRF-Token"])
+def test_run_start_requires_input_session_origin_and_csrf(
+    runner_server: LocalWebServer, input_payload: dict[str, object], missing: str,
+) -> None:
+    headers, preparation_id = run_headers(runner_server, input_payload)
+    del headers[missing]
+    status, _, _ = request(runner_server, "/api/runs", headers,
+        RequestData("POST", json.dumps({"preparation_id": preparation_id}).encode()))
+    assert status == 403 and runner_server.runs._active is None
+
+
+@pytest.mark.parametrize("payload", [
+    {}, {"preparation_id": "arbitrary"}, {"preparation_id": "f" * 64, "password": "SECRET"},
+    {"preparation_id": None}, [],
+])
+def test_run_start_rejects_unsupported_payload(
+    runner_server: LocalWebServer, input_payload: dict[str, object], payload: object,
+) -> None:
+    headers, _ = run_headers(runner_server, input_payload)
+    status, _, body = request(runner_server, "/api/runs", headers, RequestData("POST", json.dumps(payload).encode()))
+    assert status == 400 and b"SECRET" not in body
+    assert runner_server.runs._active is None
+
+
+def test_run_start_does_not_consume_when_not_ready(
+    input_server: LocalWebServer, input_payload: dict[str, object],
+) -> None:
+    headers, _ = input_headers(input_server)
+    _, _, body = request(input_server, "/api/input-preparations", headers, RequestData("POST", json.dumps(input_payload).encode()))
+    prepared_id = json.loads(body)["preparation_id"]
+    status, _, _ = request(input_server, "/api/runs", headers, RequestData("POST", json.dumps({"preparation_id": prepared_id}).encode()))
+    assert status == 503
+    _, _, options_body = request(input_server, "/api/input-options", {"Cookie": headers["Cookie"]})
+    assert json.loads(options_body)["preparation"]["preparation_id"] == prepared_id
+
+
+@pytest.mark.parametrize("cookie", ["abc2lab_web_run=wrong", "abc2lab_web_run=" + "f" * 64])
+def test_run_status_unknown_owner_does_not_enumerate(runner_server: LocalWebServer, cookie: str) -> None:
+    status, _, body = request(runner_server, "/api/run-status", {"Cookie": cookie})
+    assert status == 404 and json.loads(body) == {"error": "RUN_UNAVAILABLE"}
+
+
+def test_cross_site_run_status_rejected(runner_server: LocalWebServer) -> None:
+    assert request(runner_server, "/api/run-status", {"Sec-Fetch-Site": "cross-site"})[0] == 403
+
+
+def test_run_start_other_browser_cannot_consume_input(
+    runner_server: LocalWebServer, input_payload: dict[str, object],
+) -> None:
+    _, preparation_id = run_headers(runner_server, input_payload)
+    other_headers, _ = input_headers(runner_server)
+    status, _, _ = request(runner_server, "/api/runs", other_headers,
+        RequestData("POST", json.dumps({"preparation_id": preparation_id}).encode()))
+    assert status == 400 and runner_server.runs._active is None
+
+
+def test_http_busy_preserves_other_preparation_and_hides_active_details(
+    runner_server: LocalWebServer, input_payload: dict[str, object],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release = tmp_path / "release"
+    monkeypatch.setenv("LOCAL_WEB_TEST_RUNNER_RELEASE", str(release))
+    first, first_id = run_headers(runner_server, input_payload)
+    second, second_id = run_headers(runner_server, input_payload)
+    status, _, own = request(runner_server, "/api/runs", first,
+        RequestData("POST", json.dumps({"preparation_id": first_id}).encode()))
+    assert status == 202
+    status, _, body = request(runner_server, "/api/runs", second,
+        RequestData("POST", json.dumps({"preparation_id": second_id}).encode()))
+    assert status == 409 and json.loads(body) == {"error": "RUNNER_BUSY"}
+    _, _, options = request(runner_server, "/api/input-options", {"Cookie": second["Cookie"]})
+    assert json.loads(options)["preparation"]["preparation_id"] == second_id
+    _, _, other = request(runner_server, "/api/run-status", {"Cookie": second["Cookie"]})
+    assert json.loads(other) == {"state": "idle", "is_busy": True}
+    assert json.loads(own)["run_id"].encode() not in other
+    release.touch()

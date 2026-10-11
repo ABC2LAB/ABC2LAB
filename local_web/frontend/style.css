@@ -39,6 +39,11 @@ button:disabled { background: #d5dfed; color: #52657d; }
 .account-fields > div { min-width: 0; }
 .account-fields input { min-width: 0; }
 .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.progress-grid { margin-top: 16px; }
+.status-list { list-style: none; padding: 0; margin: 0; }
+.status-list li { padding: 10px 0; border-bottom: 1px solid #edf2fa; font-size: 14px; overflow-wrap: anywhere; }
+.status-list li:last-child { border-bottom: 0; }
+#run-meta { overflow-wrap: anywhere; }
 :disabled { cursor: not-allowed; }
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #e1a92b; outline-offset: 3px; }
 [hidden] { display: none !important; }

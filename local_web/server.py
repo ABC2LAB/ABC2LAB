@@ -1,10 +1,11 @@
-"""정적 화면·입력 준비를 제공하는 개발용 서버. 진단 실행은 아직 미연결."""
+"""입력·기존 Runner CLI·표현을 연결하는 로컬 개발용 서버."""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
+import signal
 from collections.abc import Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -16,13 +17,15 @@ from local_web.inputs import (
     MAX_ACCOUNTS, MAX_INPUT_BYTES, TOKEN_PATTERN, InputError, InputSettings, InputStore,
     list_dataset_ids, load_template, template_accounts,
 )
+from local_web.runner import RunnerError, RunnerSettings, RunnerStore
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_PORT = 8080
 REQUEST_TIMEOUT_SECONDS = 10
 SESSION_COOKIE = "abc2lab_web_session"
-INPUT_POST_ROUTES = {"/api/input-preparations", "/api/input-preparations/clear"}
+RUN_COOKIE = "abc2lab_web_run"
+INPUT_POST_ROUTES = {"/api/input-preparations", "/api/input-preparations/clear", "/api/runs"}
 FRONTEND_ROOT = Path(__file__).resolve().parent / "frontend"
 STATIC_ROUTES = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -70,8 +73,10 @@ def parse_port(value: str) -> int:
 class LocalWebServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, settings: WebSettings, input_settings: InputSettings | None = None) -> None:
+    def __init__(self, settings: WebSettings, input_settings: InputSettings | None = None,
+                 runner_settings: RunnerSettings | None = None) -> None:
         self.inputs = InputStore(input_settings or InputSettings())
+        self.runs = RunnerStore(runner_settings or RunnerSettings())
         super().__init__((settings.bind_host, settings.port), RequestHandler)
         # 컨테이너 내부 healthcheck 포트와 브라우저 공개 포트를 모두 검사한다.
         ports = {self.server_port, settings.public_port}
@@ -82,6 +87,7 @@ class LocalWebServer(ThreadingHTTPServer):
             self.allowed_authorities.update({"localhost", "127.0.0.1"})
 
     def server_close(self) -> None:
+        self.runs.close()
         self.inputs.close()
         super().server_close()
 
@@ -124,6 +130,13 @@ class RequestHandler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self) -> None:
+        if self.path == "/api/run-status":
+            try:
+                payload = self.server.runs.status(self.cookie_token(RUN_COOKIE))
+                self.respond_json(HTTPStatus.OK, payload)
+            except RunnerError:
+                self.respond_json(HTTPStatus.NOT_FOUND, {"error": "RUN_UNAVAILABLE"})
+            return
         if self.path == "/api/input-options":
             self.show_input_options()
             return
@@ -153,6 +166,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def session_id(self) -> str | None:
+        token = self.cookie_token(SESSION_COOKIE)
+        return token if token and TOKEN_PATTERN.fullmatch(token) else None
+
+    def cookie_token(self, name: str) -> str | None:
         cookies = self.headers.get_all("Cookie", [])
         if len(cookies) != 1:
             return None
@@ -160,8 +177,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             parsed = SimpleCookie(cookies[0])
         except CookieError:
             return None
-        cookie = parsed.get(SESSION_COOKIE)
-        return cookie.value if cookie and TOKEN_PATTERN.fullmatch(cookie.value) else None
+        cookie = parsed.get(name)
+        # 잘못된 cookie를 '없음'으로 바꾸어 소유권 오류를 숨기지 않는다.
+        return cookie.value if cookie else None
 
     def show_input_options(self) -> None:
         try:
@@ -180,12 +198,14 @@ class RequestHandler(BaseHTTPRequestHandler):
                 issues.append("DATASETS_EMPTY")
         except InputError as error:
             issues.append(error.code)
+        readiness = self.server.runs.readiness()
         payload = {
             "input_enabled": not issues, "dataset_ids": dataset_ids, "accounts": accounts,
             "issues": issues, "csrf_token": session.csrf_token,
             "limits": {"max_accounts": MAX_ACCOUNTS},
             "preparation": self.server.inputs.preparation_summary(session),
-            "diagnosis_enabled": False,
+            "diagnosis_enabled": readiness["diagnosis_enabled"] and not issues,
+            "runner": readiness,
         }
         self.respond_json(HTTPStatus.OK, payload, {
             "Set-Cookie": f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/",
@@ -205,6 +225,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
         try:
             payload = self.read_input_json()
+            if self.path == "/api/runs":
+                self.start_run(session_id, tokens[0], payload)
+                return
             if self.path.endswith("/clear"):
                 if payload != {}:
                     raise InputError("INPUT_INVALID")
@@ -212,6 +235,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 result = {"status": "cleared", "diagnosis_enabled": False}
             else:
                 result = self.server.inputs.prepare(session_id, tokens[0], payload)
+                readiness = self.server.runs.readiness()
+                result["diagnosis_enabled"] = readiness["diagnosis_enabled"] and not readiness["is_busy"]
         except InputError as error:
             logger.info("input_rejected code=%s", error.code)
             status = HTTPStatus.BAD_REQUEST
@@ -228,6 +253,23 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.SERVICE_UNAVAILABLE)
             return
         self.respond_json(HTTPStatus.OK, result)
+
+    def start_run(self, session_id: str, csrf_token: str, payload: object) -> None:
+        if (not isinstance(payload, dict) or set(payload) != {"preparation_id"}
+                or not isinstance(payload["preparation_id"], str)
+                or not TOKEN_PATTERN.fullmatch(payload["preparation_id"])):
+            raise InputError("INPUT_INVALID")
+        try:
+            record = self.server.runs.start(self.server.inputs,
+                (session_id, csrf_token, payload["preparation_id"]), self.cookie_token(RUN_COOKIE))
+        except RunnerError as error:
+            logger.info("runner_rejected code=%s", error.code)
+            status = HTTPStatus.CONFLICT if error.code == "RUNNER_BUSY" else HTTPStatus.SERVICE_UNAVAILABLE
+            self.respond_json(status, {"error": error.code})
+            return
+        self.respond_json(HTTPStatus.ACCEPTED, self.server.runs.status(record.owner_token), {
+            "Set-Cookie": f"{RUN_COOKIE}={record.owner_token}; HttpOnly; SameSite=Strict; Path=/",
+        })
 
     def read_input_json(self) -> object:
         lengths = self.headers.get_all("Content-Length", [])
@@ -301,18 +343,26 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
         settings = WebSettings.from_environment(os.environ)
-        server = LocalWebServer(settings, InputSettings.from_environment(os.environ))
+        server = LocalWebServer(settings, InputSettings.from_environment(os.environ),
+                                RunnerSettings.from_environment(os.environ))
     except (ValueError, OSError):
         logger.error("web_startup_failed")
         return 1
     logger.info("local_web_started")
+    # Docker의 SIGTERM도 finally를 통과해 소유 자식과 임시 입력을 정리한다.
+    previous_handler = signal.signal(signal.SIGTERM, stop_web)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         logger.info("local_web_stopped")
     finally:
         server.server_close()
+        signal.signal(signal.SIGTERM, previous_handler)
     return 0
+
+
+def stop_web(signum: int, frame: object) -> None:
+    raise KeyboardInterrupt
 
 
 if __name__ == "__main__":

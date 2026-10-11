@@ -9,6 +9,7 @@ import pytest
 
 from local_web.inputs import InputSettings, list_dataset_ids, prepare_input
 from local_web.server import LocalWebServer, WebSettings
+from local_web.runner import RunnerSettings
 
 
 @pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
@@ -103,3 +104,70 @@ def test_read_only_configured_inputs(monkeypatch: pytest.MonkeyPatch) -> None:
         assert os.getuid() == 10001
     finally:
         prepared.close()
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("case, state", [("completed", "completed"), ("partial", "partial"), ("failed", "failed")])
+def test_browser_runner_flow(
+    input_settings: InputSettings, runner_settings: RunnerSettings, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, case: str, state: str,
+) -> None:
+    from playwright.sync_api import expect, sync_playwright
+
+    release = tmp_path / "release"
+    monkeypatch.setenv("LOCAL_WEB_TEST_RUNNER_RELEASE", str(release))
+    monkeypatch.setenv("LOCAL_WEB_TEST_RUNNER_CASE", case)
+    server = LocalWebServer(WebSettings("127.0.0.1", 0, 8080), input_settings, runner_settings)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1280, "height": 800})
+            page = context.new_page()
+            errors, responses = [], []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.on("response", lambda response: responses.append(response.text()) if "/api/" in response.url else None)
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            expect(page.locator("#target-url")).to_be_enabled()
+            page.locator("#target-url").fill("http://separate-test-web:9222/start")
+            page.locator("#dataset").select_option("case_v2")
+            for index in range(2):
+                row = page.locator(".account-row").nth(index)
+                row.locator('[data-field="login_id"]').fill(f"LOGIN_SENTINEL_{index}")
+                row.locator('[data-field="password"]').fill(f"PASSWORD_SENTINEL_{index}")
+            page.locator("#prepare-input").click()
+            expect(page.locator("#start-diagnosis")).to_be_enabled()
+            page.locator("#start-diagnosis").click()
+            expect(page.locator("#progress")).to_be_visible()
+            expect(page.locator("#run-status")).to_contain_text("Runner 실행 중")
+            expect(page.locator("#artifact-status li")).to_have_count(10)
+            page.reload()
+            expect(page.locator("#run-status")).to_contain_text("Runner 실행 중")
+            assert page.evaluate("document.cookie") == ""
+            assert page.evaluate("Object.keys(localStorage).length + Object.keys(sessionStorage).length") == 0
+            # 입력 세션 만료는 이미 시작한 진단과 소유 run cookie를 만료시키지 않는다.
+            server.inputs.close()
+            page.locator("#refresh-run").click()
+            expect(page.locator("#run-status")).to_contain_text("Runner 실행 중")
+            release.touch()
+            expect(page.locator("#run-status")).to_contain_text("Runner " + state, timeout=7000)
+            expect(page.locator("#step-status li")).to_have_count(12)
+            if case == "failed":
+                expect(page.locator("#step-status")).to_contain_text("skipped")
+                assert page.locator("#artifact-status li").filter(has_text="파일 존재").count() == 1
+            else:
+                assert page.locator("#artifact-status li").filter(has_text="파일 존재").count() == 10
+            if case == "partial":
+                expect(page.locator("#step-status")).to_contain_text("partial · 오류 1건")
+            assert all("LOGIN_SENTINEL" not in response and "PASSWORD_SENTINEL" not in response for response in responses)
+            page.set_viewport_size({"width": 390, "height": 844})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            assert errors == []
+            assert context.request.get(f"http://127.0.0.1:{server.server_port}/runs/private/").status == 404
+            context.close()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=2)

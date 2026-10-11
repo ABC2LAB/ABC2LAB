@@ -7,11 +7,16 @@ const inputs = document.getElementById("diagnostic-inputs");
 const accounts = document.getElementById("accounts");
 const inputStatus = document.getElementById("input-status");
 const clearButton = document.getElementById("clear-input");
+const startButton = document.getElementById("start-diagnosis");
 let maxAccounts = 0;
 let csrfToken = null;
 let inputEnabled = false;
 let expirationTimer = null;
 let accountSequence = 0;
+let preparationId = null;
+let canRun = false;
+let isRunBusy = false;
+let runTimer = null;
 
 const inputMessages = {
   TEMPLATE_UNAVAILABLE: "Collector TOML 연결이 필요하다.",
@@ -26,6 +31,17 @@ const inputMessages = {
   INPUT_SESSION_INVALID: "입력 세션이 만료됐다. 화면을 새로고침해야 한다.",
   INPUT_TOO_LARGE: "입력 크기 제한을 초과했다.",
   INPUT_PREPARATION_FAILED: "임시 설정 준비에 실패했다.",
+  PREPARATION_UNAVAILABLE: "준비 입력이 없거나 이미 소비됐다. 준비 상태를 다시 확인해야 한다.",
+  RUNNER_NOT_READY: "Runner·실모델 설정·정책·산출물 저장소 연결을 확인해야 한다.",
+  RUNNER_UNAVAILABLE: "기존 pipeline.py 연결을 확인해야 한다.",
+  RUN_STORAGE_UNAVAILABLE: "산출물 저장 폴더와 쓰기 권한을 확인해야 한다.",
+  SEMANTIC_CONFIG_INVALID: "Semantic Analyzer의 Ollama provider·실제 모델 설정이 필요하다.",
+  SCENARIO_CONFIG_INVALID: "Scenario Generator의 Ollama provider·실제 모델 설정이 필요하다.",
+  POLICY_CONFIG_UNAVAILABLE: "읽기 전용 Safety Policy 원본 연결이 필요하다.",
+  MATCHING_PROFILE_INVALID: "Reporter matching profile 설정을 확인해야 한다.",
+  RUNNER_BUSY: "다른 진단이 실행 중이다. 이번 입력은 시작하지 않았다.",
+  RUN_RECORD_LIMIT: "Web 실행 기록 한도에 도달했다. 서버를 종료한 뒤 다시 실행해야 한다.",
+  RUNNER_START_FAILED: "Runner 프로세스 시작에 실패했다. 입력을 다시 준비해야 한다.",
 };
 
 class InputRequestError extends Error {}
@@ -107,8 +123,10 @@ function clearCredentialFields() {
 function showPreparation(preparation) {
   clearTimeout(expirationTimer);
   const isPrepared = preparation.status === "prepared";
-  inputs.disabled = isPrepared || !inputEnabled;
+  preparationId = isPrepared ? preparation.preparation_id : null;
+  inputs.disabled = isPrepared || !inputEnabled || isRunBusy;
   clearButton.disabled = !isPrepared;
+  startButton.disabled = !isPrepared || !canRun || isRunBusy || !csrfToken;
   if (!isPrepared) return;
   const seconds = Math.max(0, preparation.expires_in_seconds);
   inputStatus.textContent = "입력 준비 완료 · 계정 " + preparation.account_count + "개 · 진단 미실행 · 최대 " + Math.ceil(seconds / 60) + "분간 보관";
@@ -116,6 +134,8 @@ function showPreparation(preparation) {
     csrfToken = null;
     inputs.disabled = true;
     clearButton.disabled = true;
+    startButton.disabled = true;
+    preparationId = null;
     inputStatus.textContent = "입력 세션이 만료됐다. 새로고침 후 비밀값을 다시 입력해야 한다.";
   }, seconds * 1000 + 100);
 }
@@ -129,12 +149,15 @@ async function loadInputOptions() {
     maxAccounts = result.limits.max_accounts;
     csrfToken = result.csrf_token;
     inputEnabled = result.input_enabled === true;
+    canRun = result.diagnosis_enabled === true;
+    isRunBusy = result.runner.is_busy === true;
     const dataset = document.getElementById("dataset");
     dataset.replaceChildren(new Option("데이터셋 선택", ""));
     result.dataset_ids.forEach((id) => { dataset.append(new Option(id, id)); });
-    result.accounts.forEach((account) => addAccount(account));
+    if (accounts.children.length === 0) result.accounts.forEach((account) => addAccount(account));
     inputs.disabled = !inputEnabled;
-    inputStatus.textContent = inputEnabled ? "입력 가능 · 진단 실행은 아직 미연결" : result.issues.map((code) => inputMessages[code] || "입력 설정을 확인해야 한다.").join(" ");
+    const issues = result.issues.concat(result.runner.issues);
+    inputStatus.textContent = issues.length ? issues.map((code) => inputMessages[code] || "입력 설정을 확인해야 한다.").join(" ") : "입력 가능 · 실제 모델 준비·대상 접속은 진단 시 확인한다.";
     showPreparation(result.preparation);
   } catch {
     inputs.disabled = true;
@@ -183,6 +206,8 @@ clearButton.addEventListener("click", async () => {
     clearTimeout(expirationTimer);
     clearCredentialFields();
     inputs.disabled = !inputEnabled;
+    preparationId = null;
+    startButton.disabled = true;
     inputStatus.textContent = "입력 준비 취소 · 비밀값 참조와 임시 설정 폐기 완료";
   } catch {
     clearButton.disabled = false;
@@ -190,9 +215,91 @@ clearButton.addEventListener("click", async () => {
   }
 });
 
+function fillList(id, values) {
+  const target = document.getElementById(id);
+  target.replaceChildren();
+  values.forEach((value) => {
+    const item = document.createElement("li");
+    item.textContent = value;
+    target.append(item);
+  });
+}
+
+function showRun(result) {
+  const labels = {
+    idle: "진단 시작 전", running: "Runner 실행 중 · 현재 단계·진행률 미제공",
+    completed: "Runner completed · 취약점 없음 또는 모든 시나리오 실행을 의미하지 않는다.",
+    partial: "Runner partial · 일부 처리 또는 세션 연결에 제한이 있다.",
+    failed: "Runner failed · 실패 또는 미실행 단계를 확인해야 한다.",
+    stopped: "Web 종료로 Runner 중단",
+  };
+  document.getElementById("run-status").textContent = labels[result.state] || "실행 상태 확인 불가";
+  if (result.state === "idle") return;
+  const issueMessages = {
+    RUNNER_RESULT_UNAVAILABLE: "종료 요약을 확인할 수 없다. 정상 완료로 처리하지 않는다.",
+    INPUT_CLEANUP_FAILED: "임시 입력 정리에 실패했다. 운영자가 확인해야 한다.",
+    WEB_SHUTDOWN: "서버 종료로 중단됐다.",
+  };
+  document.getElementById("run-meta").textContent = result.run_id + " · iteration 0 · 경과 " + result.elapsed_seconds + "초 · 종료 코드 " + (result.exit_code === null ? "미확정" : result.exit_code) + (result.issue ? " · " + (issueMessages[result.issue] || "실행 확인 필요") : "");
+  fillList("artifact-status", result.artifacts.map((item) => item.artifact_type + " · " + (item.is_present ? "파일 존재" : "미발행")));
+  fillList("step-status", result.summary ? result.summary.steps.map((item) => item.step + " · " + item.status + " · 오류 " + item.error_count + "건") : [result.state === "running" ? "Runner 종료 후 확인 가능" : "유효한 종료 요약 없음"]);
+}
+
+async function refreshRun() {
+  clearTimeout(runTimer);
+  try {
+    const response = await fetch("/api/run-status", { cache: "no-store", mode: "same-origin" });
+    if (!response.ok) throw new Error("Run unavailable");
+    const result = await response.json();
+    showRun(result);
+    const wasBusy = isRunBusy;
+    isRunBusy = result.is_busy === true;
+    if (isRunBusy) {
+      inputs.disabled = true;
+      startButton.disabled = true;
+      runTimer = setTimeout(refreshRun, 2000);
+      if (result.state === "idle") {
+        document.getElementById("run-status").textContent = "다른 브라우저의 진단이 실행 중이다. 해당 실행의 상세 정보는 표시하지 않는다.";
+      }
+    } else if (wasBusy) {
+      await loadInputOptions();
+    }
+  } catch {
+    document.getElementById("run-status").textContent = "실행 상태 조회 실패 · 실패/성공으로 판정하지 않는다. 다시 확인해야 한다.";
+  }
+}
+
+startButton.addEventListener("click", async () => {
+  if (!preparationId || !csrfToken) return;
+  startButton.disabled = true;
+  clearButton.disabled = true;
+  const id = preparationId;
+  inputStatus.textContent = "Runner 시작 요청 중";
+  try {
+    const result = await postInput("/api/runs", { preparation_id: id });
+    clearTimeout(expirationTimer);
+    preparationId = null;
+    isRunBusy = true;
+    inputs.disabled = true;
+    inputStatus.textContent = "준비 입력 전달 완료 · 인증값은 자식 프로세스에만 전달했다.";
+    showRun(result);
+    location.hash = "progress";
+    await refreshRun();
+  } catch (error) {
+    await loadInputOptions();
+    inputStatus.textContent = error instanceof InputRequestError ? error.message : "실행 응답 확인 실패. 진행 화면에서 상태를 확인해야 한다. 자동 재요청하지 않는다.";
+    await refreshRun();
+  }
+});
+
+document.getElementById("refresh-run").addEventListener("click", refreshRun);
+
 document.getElementById("add-account").addEventListener("click", () => addAccount());
-window.addEventListener("pagehide", clearCredentialFields);
+window.addEventListener("pagehide", () => {
+  clearCredentialFields();
+  clearTimeout(runTimer);
+});
 window.addEventListener("hashchange", () => showSection(location.hash.slice(1)));
 showSection(location.hash.slice(1));
 checkWebStatus();
-loadInputOptions();
+loadInputOptions().then(refreshRun);

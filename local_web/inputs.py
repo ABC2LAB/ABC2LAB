@@ -330,7 +330,6 @@ class InputStore:
                 "preparation_id": prepared.preparation_id if prepared else None,
                 "account_count": len(prepared.accounts) if prepared else 0,
                 "expires_in_seconds": max(0, int(session.expires_at - time.monotonic())),
-                "diagnosis_enabled": False,
             }
 
     def clear_preparation(self, session_id: str, csrf_token: str) -> None:
@@ -341,7 +340,7 @@ class InputStore:
                 session.prepared = None
 
     def consume(self, session_id: str, csrf_token: str, preparation_id: str) -> PreparedInput:
-        """4단계 연결용. 호출자가 사용 종료 후 close해야 한다. 여기서는 실행하지 않는다."""
+        """Runner 연결용 한 번 소비. 호출자가 사용 종료 후 close해야 하며 여기서는 실행하지 않는다."""
         with self._lock:
             session = self.authenticate(session_id, csrf_token)
             if session.prepared is None or session.prepared.preparation_id != preparation_id:

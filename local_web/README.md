@@ -1,6 +1,6 @@
 # ABC2LAB `local_web` 아키텍처와 통합 검증 MVP
 
-> 상태: MVP 2단계 골격 · 진단 입력/실행/결과 연결은 아직 미구현
+> 상태: MVP 4단계 Runner 연결 구현 · 실제 전체 진단과 결과 상세·KG·평가 화면은 후속 검증/구현
 >
 > 핵심 원칙: **경계는 강하게, 구현은 느슨하게 유지한다.**
 
@@ -775,8 +775,8 @@ URL·로그인 방식·계정·역할·데이터셋을 특정 테스트 웹의 �
     → Ground Truth 평가 지표 확인
 ```
 
-화면은 다음 목적만 구현한다. 현재 새 진단의 입력 준비까지 연결했으며,
-진단 진행·분석 결과·성능 평가는 미연결 골격이다. 세부 결과 컴포넌트와
+화면은 다음 목적만 구현한다. 현재 새 진단의 입력 준비·기존 Runner 시작과
+진행 상태를 연결했다. 분석 결과·성능 평가는 미연결 골격이다. 세부 결과 컴포넌트와
 Graph library는 미정이다.
 
 | 화면 목적 | 공개 정보 |
@@ -818,7 +818,8 @@ Web 입력을 공개 설정으로 전달하는 작업과 모듈 내부 상태를
 방식 확인 전에는 서비스명·host 주소·허용 범위를 추측하거나 우회하지 않는다.
 MVP 내부 Neo4j·Ollama 배치는 19.7절로 구체화한다. Collector 설정·데이터셋의
 읽기 전용 마운트와 입력 준비는 19.9절에 기록한다. 테스트 대상 네트워크,
-다른 모듈 설정·실행 결과 마운트와 실제 Runner 비밀값 주입은 4단계 이후 확인한다.
+다른 모듈 설정·실행 결과 마운트와 Runner 비밀값 주입은 19.10절로 구체화했다.
+실제 Docker 대상 접속과 전체 진단은 담당자 변경·운영 설정이 준비된 뒤 검증한다.
 
 ### 19.4 결과와 제한 사항의 표현
 
@@ -844,8 +845,8 @@ MVP 내부 Neo4j·Ollama 배치는 19.7절로 구체화한다. Collector 설정�
 
 최종 제품의 framework·process 구성은 확정하지 않는다. MVP Web 골격·내부
 서비스·공개 포트는 19.7절로 구체화하고 입력 준비·secret 임시 보관은 19.9절에
-기록한다. 진단 실행용 Web API·DTO·실시간 갱신·Graph 형식·대상 네트워크와
-후속 모듈 설정·실제 Runner secret 주입은 후속 단계에서 확인한다.
+기록한다. MVP 실행용 API·polling·대상 네트워크·모듈 설정·Runner secret 전달은
+19.10절에 한정한 구현이다. 최종 Web 계약·Graph 형식·제품 process 구성은 미정이다.
 공개 계약을 벗어나는 요구는 해당 담당자와 협의한다.
 
 ### 19.6 구현 단계와 완료 기준
@@ -860,8 +861,8 @@ MVP 내부 Neo4j·Ollama 배치는 19.7절로 구체화한다. Collector 설정�
 | 6 | Reporter 평가 화면 | 평가 지표·분자/분모·미검증·미측정 상태 표시 |
 | 7 | 실제 테스트 웹 통합 검증 | 정상 및 로그인·설정·중간 실패 확인, 결과와 한계를 이력에 기록 |
 
-2단계 Web·Docker 골격과 3단계 입력 준비 검증을 완료했다. 4~7단계 기능은
-아직 구현·검증되지 않았다. 실제 검증 결과와 한계는 19.8~19.9절에 기록한다.
+2단계 Web·Docker 골격, 3단계 입력 준비, 4단계 Runner 연결을 구현·대역으로
+검증했다. 5~7단계는 미완료다. 검증 결과와 한계는 19.8~19.10절에 기록한다.
 Docker 접속 조건과 모듈별 실제 모델·정책 설정이 준비되지 않으면 실제 전체
 실행을 완료로 기록하지 않는다.
 
@@ -892,13 +893,14 @@ Dockerfile별 ignore는 코드·Schema·공개 기본 설정·잠금 파일·Web
 빌드에 포함하며 실제 `.env`·실행 결과·개인 기록·Ground Truth는 포함하지 않는다.
 모듈 기본 설정을 이미지에 포함했다는 사실은 실제 모델 설정이 준비됐다는 뜻이 아니다.
 2단계에서 미정이었던 Collector 설정·데이터셋 마운트는 19.9절로 구체화했다.
-다른 모듈 설정·실행 결과 마운트는 4단계에서 별도 확인한다.
+다른 모듈 설정·실행 결과 마운트는 19.10절에 추가했다.
 
 #### 실행
 
 저장소 루트에서 실행한다. `.env.example`을 참고해 커밋하지 않는
-`local_web/.env`를 직접 준비하고 Neo4j 비밀번호, Collector TOML과 datasets의
-호스트 절대 경로를 설정한다(19.9절). 실제 비밀번호는 커맨드 인자·공유 로그에
+`local_web/.env`를 직접 준비하고 Neo4j 비밀번호, Collector TOML·datasets·
+모듈 설정·결과 폴더의 호스트 절대 경로와 대상 네트워크를 설정한다(19.9~19.10절).
+실제 비밀번호는 커맨드 인자·공유 로그에
 출력하지 않는다. 테스트 계정 비밀값은 이 파일이 아니라 Web 입력으로 받는다.
 
 ```bash
@@ -925,9 +927,11 @@ Web 골격 확인에는 사용할 수 있다. 이것을 전체 진단 준비 완
   이 경로·필드는 MVP의 임시 구현이지 모듈 또는 최종 Web 계약이 아니다.
 - 임의 파일 경로·디렉터리 목록·설정·private·artifact·GT 원문은 제공하지 않는다.
   Host·Origin·정적 경로를 검사하고 요청 원문을 로그·오류에 반영하지 않는다.
-- 2단계에서는 입력·실행 버튼을 비활성화했다. 3단계는 입력 준비만 활성화하며
-  실행 버튼은 여전히 비활성화한다. 가상 KG·취약점·집계·진행률을 만들지 않는다.
-- 승인 후 재개·계정 저장·Runner 호출·산출물 조회·LLM 호출은 이 단계에 없다.
+- 2단계에서는 입력·실행 버튼을 비활성화했고 3단계는 입력 준비만 활성화했다.
+  4단계는 준비 입력과 Runner 연결 설정을 확인한 뒤 시작 버튼을 활성화한다.
+  가상 KG·취약점·집계·진행률을 만들지 않는다.
+- 승인 후 재개·계정 영구 저장·Web의 LLM 직접 호출은 제공하지 않는다.
+  Runner 시작·산출물 존재 조회는 19.10절에 추가했고 본문 표시는 후속 단계다.
 - Python `http.server` 기반 서버는 개발 프로토타입용이다([공식 문서](https://docs.python.org/3.12/library/http.server.html)). 최종 제품 배포 서버나
   인증·세션·CSRF·요청 크기/동시성 제한의 완성 구현으로 간주하지 않는다.
 - 독립 테스트는 `local_web/tests`를 명시해 실행한다. 기존 루트 pytest 설정은 변경하지 않는다.
@@ -1039,9 +1043,128 @@ node --check local_web/frontend/app.js
 - 테스트 컨테이너는 종료 후 제거했다. 기존 DB·모델 volume·테스트 웹은 변경하지 않았다.
 - 실제 계정 로그인·LLM 추론·진단·Ground Truth 평가는 미실행이다.
 
-**다음 4단계:** 기존 Runner 실행과 상태 표시. Collector의 Docker 대상 접속
+**3단계 완료 당시 다음 작업:** 4단계 기존 Runner 실행과 상태 표시. Collector의 Docker 대상 접속
 설정, 대상 네트워크, 실제 모듈별 모델·Safety 설정, 실행 결과 저장소를 먼저
 확인한 뒤 준비 입력을 자식 프로세스로 전달한다. 모듈·Runner·Schema는 변경하지 않는다.
+
+### 19.10 4단계 Runner 연결 — 2026-10-12
+
+**현재 구현:** `runner.py`는 기존 `pipeline.py` CLI를 별도 자식 프로세스로
+실행한다. 공개 CLI 인자·종료 요약·발행 경로만 연결하며 모듈 내부를 import하지
+않는다. 호출 순서·Safety 판정·검증·Graph 갱신·Reporter 평가를 재구현하지 않는다.
+MVP의 임시 API·표현 모델이며 최종 Web-facing 계약이나 버전을 고정하지 않는다.
+
+#### 확정한 배치·사전 설정
+
+| 호스트 설정 | 컨테이너 연결 | 역할 |
+| --- | --- | --- |
+| `LOCAL_WEB_TARGET_NETWORK` | 기존 external Docker network | ABC2LAB만 대상 네트워크에 추가 참여. Neo4j·Ollama는 내부 기본 네트워크만 사용 |
+| `LOCAL_WEB_RUNS_DIR` | `/app/runs` · 쓰기 가능 | 운영자가 미리 만든 호스트 결과 폴더. 완료 파일과 모듈 private를 보존 |
+| `LOCAL_WEB_SEMANTIC_CONFIG_PATH` | `/config/semantic_analyzer.toml` · 읽기 전용 | `SEMANTIC_ANALYZER_CONFIG_PATH`로 모듈에 전달 |
+| `LOCAL_WEB_SCENARIO_CONFIG_PATH` | `/config/scenario_generator.toml` · 읽기 전용 | `SCENARIO_GENERATOR_CONFIG_PATH`로 모듈에 전달 |
+| `LOCAL_WEB_POLICY_CONFIG_PATH` | `/config/policy.json` · 읽기 전용 | `SAFETY_POLICY_CONFIG_PATH`로 모듈에 전달. 정책 내용·private 배치는 Safety Policy 소유 |
+| `LOCAL_WEB_MATCHING_PROFILE` | CLI `--matching-profile` | 현재 Reporter 공개 profile `default-v1` 기본. Web은 매칭을 수행하지 않음 |
+
+Collector 설정·datasets까지 포함해 읽기 전용 bind 5개와 결과 bind 1개다.
+모든 bind는 `create_host_path=false`이므로 누락된 파일/폴더를 자동 생성하지 않는다.
+대상 네트워크는 이미 실행한 테스트 웹에서 사용 중인 **실제 이름**을 지정한다.
+Web이 네트워크를 만들거나 대상 컨테이너를 변경하지 않는다. 루트 Compose도
+변경하지 않으며 대상 URL·origin을 다른 주소로 자동 치환하거나 허용 범위를 넓히지 않는다.
+
+결과 폴더는 UID 10001이 쓸 수 있고 그룹·다른 사용자 쓰기가 금지된 디렉터리여야
+한다(권장 mode `0700`). 설정 파일은 해당 UID가 읽을 수 있어야 한다. 운영자가
+소유권·권한을 준비하며 Web이 기존 디렉터리를 chmod/chown하거나 결과를 삭제하지
+않는다. Runner 자식은 umask `0077`로 시작한다. 호스트 결과에는 모듈의 private도
+포함되므로 폴더 전체를 웹서버·공유 저장소에 공개하지 않는다.
+
+기존 대상 네트워크의 다른 `neo4j`와 혼동하지 않도록 내부 DB는 전용 network alias
+`local-web-neo4j`로 접속한다. 두 LLM TOML은 `[llm]`의 `provider="ollama"`, 실제
+`model_id`, 내부 주소 `base_url="http://ollama:11434"`로 준비한다. Web은 공개 설정의
+최소 provider·모델 지정과 파일/저장소 접근만 확인한다. 전체 설정·모델의 존재·
+서비스 readiness·추론 성공·정책 유효성은 해당 모듈이 실행할 때 확인한다.
+fake·none·replay 또는 빈 모델 설정으로 실제 모델 진단이 된 것처럼 시작하지 않는다.
+모델 다운로드·대상 DB 초기화·허용 정책 생성은 자동 수행하지 않는다.
+
+#### 실행·소유권·비밀값 수명
+
+```text
+입력 준비 (최대 15분)
+    → Origin·입력 cookie·CSRF·preparation_id 확인
+    → 동시에 1건 / 설정·저장소 확인
+    → 준비 입력 한 번 소비
+    → 기존 Runner CLI (development, iteration 0)
+    → Collector 임시 TOML + 계정 환경변수
+    → 프로세스·공개 파일 존재 조회
+    → 종료 요약 검증·표현
+    → 임시 설정 폐기 (완료·실패·서버 종료)
+```
+
+Runner는 현재 공통 Python으로 `shell=False` 실행하며 고정 CLI에 URL·dataset_id·
+profile·새 난수 run_id·신뢰된 경로만 전달한다. 비밀번호·로그인 ID는 인자가 아닌
+자식 환경에만 넣는다. 기존 계정 환경변수와 `.env` fallback은 제거하고 부모의
+계정 참조·전달용 환경 dict는 자식 생성 직후 폐기한다. Collector 임시 TOML은
+세션 재사용 창구가 끝날 때까지 유지하고 모든 종료 경로에서 정리한다.
+Python/브라우저 문자열의 물리적 zeroization을 보장한다는 뜻은 아니다.
+
+입력 cookie의 15분 수명과 별도의 HttpOnly·SameSite=Strict run cookie로 실행
+소유권을 분리했다. 입력 만료·준비 취소·브라우저 새로고침으로 실행을 중단하지
+않으며 같은 브라우저는 자기 최근 실행만 조회한다. 다른 브라우저에는 실행 중
+여부만 제공하고 run_id·결과·경로·계정은 공개하지 않는다. URL이나 브라우저 저장소에
+소유 token을 넣지 않는다. Web 인메모리 소유 기록은 최대 16개이며 같은 브라우저의
+다음 실행은 최근 기록을 교체한다. 이 한도는 Web 자원 제한이지 모듈 계약이 아니다.
+
+Web 종료·SIGTERM은 자신이 생성한 process group을 종료하고 필요 시 제한 시간 후
+강제 종료한다. 진단 취소/재개 메뉴를 추가했다는 뜻은 아니다. 호스트 산출물은
+보존하지만 Web 재시작 후 실행 상태·소유권 자동 복구와 과거 실행 목록은 미구현이다.
+실행 중에는 컨테이너를 재시작하지 않는다.
+
+#### 진행 화면·공개 계약 보호
+
+- MVP 내부 경로: `POST /api/runs`는 준비 입력을 소비해 시작하고,
+  `GET/HEAD /api/run-status`는 run cookie 소유 실행 상태만 반환한다.
+  실행 요청은 기존 Origin·CSRF·JSON 타입/크기 검사를 그대로 적용한다.
+- 실행 중에는 프로세스 상태·경과 시간·고정 공개 산출물 10종의 **파일 존재**만
+  조회한다. JSON 본문·GT·private·근거·로그는 읽지 않는다. Symlink 경로를 거절한다.
+  파일 존재는 원자적 발행 위치 확인이며 유효한 Schema/성공 판정이라는 뜻은 아니다.
+- 실행 중 상태는 2초 간격 polling으로 갱신한다. 현재 단계나 진단 진행률을 추정하지
+  않는다. 종료 후에만 현재 Runner의 12단계 이름·상태·오류 건수를 표시한다.
+- stdout은 최대 1 MiB로 제한해 읽고 나머지도 배출해 pipe 교착을 막는다. run_id·
+  mode·iteration·경로·단계·상태·종료 코드의 대응을 검증한다. 로그가 섞이거나
+  요약이 없고/잘못됐으면 `failed`·요약 확인 불가로 표시하며 정상 완료로 대체하지 않는다.
+- 원문 stderr는 전달·저장하지 않는다. 요약의 임의 문자열인 detail·error_codes·
+  control·내부 report 경로도 API/화면으로 옮기지 않는다. 단계 오류 건수와 고정 Web
+  오류 코드만 제공한다. 모듈 자체 로그의 생성·마스킹은 계속 해당 모듈 책임이다.
+- `completed`는 Runner의 공개 완료 상태이지 취약점 없음·모든 시나리오 실행을
+  뜻하지 않는다. partial·failed·skipped를 구분하며 판단불가를 0건으로 숨기지 않는다.
+
+#### 검증·외부 미완료 조건
+
+```bash
+.venv/bin/python -m pytest local_web/tests tests/pipeline -q --tb=short
+node --check local_web/frontend/app.js
+```
+
+| 검증 | 실제 결과 | 한계 |
+| --- | --- | --- |
+| Web·기존 Runner 회귀 | **228 passed · 5 skipped** (Web 170 + 기존 Runner 58) | 기존 Runner 및 새 CLI 대역 기반. 실제 전체 진단이 아님 |
+| 읽기 전용 Docker | Web 전체 **175 passed**, UID 10001·root filesystem 읽기 전용 | skipped 5개를 포함해 실행. 실제 Collector 원본·datasets 마운트 검사는 파일 존재·설정만 사용 |
+| Chromium | 입력 준비·시작·실행 상태·산출물 존재·completed/partial/failed·12단계 요약, 새로고침·입력 만료 후 조회, 비밀값 비노출, 390px 가로 넘침 없음·JS 오류 0건 | 테스트 CLI 대역만 사용. 사용자 브라우저 검수·실제 모델 진단은 별도 |
+| 프로세스·경계 | 한 번 소비·동시 1건·다른 브라우저 정보 분리·잘못된/누락/초과 요약·시작 실패·종료 신호 무시·임시 설정 정리·run/artifact 권한 확인 | 모듈 business logic·실제 세션/취약점 판정 검증을 대체하지 않음 |
+| Compose | CPU/GPU 설정 검사 성공. 읽기 전용 5개·결과 쓰기 1개·host path 자동 생성 금지·ABC2LAB만 external target 참여·localhost 포트 확인 | 새 운영용 bind와 실제 대상 네트워크 연결·GPU 추론은 미실행 |
+| 빌드·정적 검사 | `abc2lab-local-web:stage4` 빌드·JavaScript syntax·`git diff --check` 성공 | 전체 Compose 진단 실행 성공을 의미하지 않음 |
+
+검증용 컨테이너는 종료 후 제거했고 기존 DB·모델 volume은 보존했다.
+프로세스 대역은 Web 테스트 fixture에서만
+사용하며 운영 이미지에는 넣지 않는다. 실제 실행에서 대역·fake/replay로 대체하는
+경로는 없다. Docker 테스트도 기존 DB·모델 volume·대상 테스트 웹을 변경하지 않는다.
+
+현재 Collector의 loopback 제한은 그대로다. Docker 서비스명 접속 변경의 담당자
+반영, 실제 대상 네트워크·계정·모듈별 모델·Safety 원본·저장소 권한이 준비되면
+실제 전체 진단을 검증해야 한다. 이번 단계의 완료는 Web 실행 연결·경계 검증이며
+실제 대상 로그인·LLM 추론·Neo4j 질의·Ground Truth 평가의 성공을 의미하지 않는다.
+
+**다음 5단계:** 공개 산출물의 수집 요약·KG snapshot·후보·정책·검증·Reporter
+결과를 화면으로 표현한다. 판단·Schema·산출물 자체는 변경하지 않는다.
 
 ## 20. 변경 이력
 
@@ -1050,3 +1173,4 @@ node --check local_web/frontend/app.js
 | 2026-10-11 | 기존 책임 경계를 유지하고 Docker·사전 설정·실모델·지표 중심 통합 검증 MVP와 7단계 계획 추가 | README만 변경. Web/Docker 코드는 미구현. 모듈·Runner·Schema·의존성·기존 산출물 계약 변경 없음 |
 | 2026-10-12 | MVP 2단계 Web 화면·Docker 분리 배치·CPU 기본 Ollama·선택 GPU 설정과 공개 경계 구현·검증 | 94 passed, Docker 빌드·3개 서비스 healthy·호스트 접속·메뉴 4개·모바일 폭 확인. 입력·Runner·산출물 연결·모델 추론·전체 진단은 후속 단계. 모듈·Runner·Schema·루트 의존성 변경 없음 |
 | 2026-10-12 | MVP 3단계 읽기 전용 Collector 설정·데이터셋과 URL·복수 계정 입력 준비, 브라우저별 비밀값 임시 보관·폐기 구현 | Web·Runner 158 passed·2 skipped, 해당 Docker 환경 2 passed. 원본 설정 보존·GT 비열람·CSRF·만료·비밀값 비노출 확인. 실제 진단·평가·Runner 실행은 4단계 이후. 모듈·Schema·루트 설정·의존성 변경 없음 |
+| 2026-10-12 | MVP 4단계 기존 Runner 자식 실행·소유 실행 상태·공개 파일 존재·종료 단계 요약, external 대상 네트워크·호스트 결과 폴더·읽기 전용 모듈 설정 연결 | Web·Runner 228 passed·5 skipped, Docker Web 175 passed. CPU/GPU Compose·빌드·Chromium·단일 실행·세션 분리·실패/종료/비밀값 경계 확인. 실제 Docker 대상 진단·LLM/Neo4j·GT 평가는 미검증. 모듈·Runner·Schema·루트 설정·의존성 변경 없음 |

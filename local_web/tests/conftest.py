@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from local_web.inputs import InputSettings
+from local_web.runner import RunnerSettings
 
 COLLECTOR_TEMPLATE = '''target_url = "http://previous.example:9100"
 extra_allowed_origins = ["http://operator-approved.example:9200"]
@@ -49,3 +50,19 @@ def input_payload() -> dict[str, object]:
             {"alias": "member_b", "role": "member", "login_id": "LOGIN_SENTINEL_B", "password": "PASSWORD_SENTINEL_B"},
         ],
     }
+
+
+@pytest.fixture
+def runner_settings(tmp_path: Path) -> RunnerSettings:
+    configs = []
+    for name in ("semantic", "scenario"):
+        path = tmp_path / (name + ".toml")
+        path.write_text('[llm]\nprovider = "ollama"\nmodel_id = "TEST_ONLY_MODEL"\nbase_url = "http://ollama:11434"\n', encoding="utf-8")
+        configs.append(path)
+    policy = tmp_path / "policy.json"
+    # Web은 정책 내용을 해석하지 않는다. 실제 검증은 Safety Policy가 담당한다.
+    policy.write_text("POLICY_CONTENT_MUST_NOT_BE_PARSED", encoding="utf-8")
+    runs = tmp_path / "results"
+    runs.mkdir(mode=0o700)
+    return RunnerSettings(runs_dir=runs, semantic_config_path=configs[0], scenario_config_path=configs[1],
+                          policy_config_path=policy, project_root=Path(__file__).parent / "fixtures" / "runner")
