@@ -7,11 +7,14 @@ query_key(resource_ownership·role_resource_access·workflow_dependencies·struc
 structure_snapshot은 명세상 평가·감사용(reporter)이라 analyze 규칙 입력으로 쓰지 않지만, 질의 작성 주체는
 access_analyzer다(명세 m4). 그래서 계획에는 포함해 KG가 reporter용 snapshot을 함께 내도록 한다.
 
-analyze: graph_query_result를 받아 revision·상태를 판정하고 rules로 vulnerability_candidates의 data를 만든다.
-질의 실패·partial·오래된 revision을 "후보 0개"와 구분하는 것이 먼저다(명세 m4 완료 기준). model_info는 LLM을 쓰지 않아 null.
+analyze: graph_query_result를 받아 revision·상태와 질의 계획 대응을 판정하고 rules로 vulnerability_candidates의 data를
+만든다. 질의 실패·partial·오래된 revision·계획과 다른 결과를 "후보 0개"와 구분하는 것이 먼저다(명세 m4 완료 기준).
+model_info는 LLM을 쓰지 않아 null.
 """
 
+from collections import Counter
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Any
 
 from modules.access_analyzer import rules
@@ -29,6 +32,11 @@ QUERY_ID_OWNERSHIP = "q_resource_ownership"
 QUERY_ID_ACCESS = "q_role_resource_access"
 QUERY_ID_FLOW = "q_workflow_dependencies"
 QUERY_ID_SNAPSHOT = "q_structure_snapshot"
+
+# 입력 결과가 가리켜야 하는 질의 계획: 우리가 쓴 graph_query.json. ArtifactRef에 producer 필드가 없어 경로의
+# producer 폴더(runs/<run_id>/artifacts/iteration-<NNN>/<producer>/, 명세 03)로 본다.
+GRAPH_QUERY_ARTIFACT_TYPE = "graph_query"
+PRODUCER_DIRECTORY = "access_analyzer"
 
 
 def build_graph_query_data(graph_id: str, expected_graph_revision: int | None) -> dict[str, Any]:
@@ -80,7 +88,7 @@ def build_candidates_result(
 ) -> AnalyzeOutcome:
     """graph_query_result로 vulnerability_candidates의 status·errors·data를 정한다.
 
-    규칙(Rule A)으로 후보를 만든다. 실패·partial·stale을 정상 빈 결과와 구분하는 것이 먼저다.
+    규칙(Rule A)으로 후보를 만든다. 실패·partial·stale·계획과 다른 결과를 정상 빈 결과와 구분하는 것이 먼저다.
     입력은 이미 Schema·의미 검증을 통과했다고 본다(entrypoint가 먼저 검증).
     """
     rule_config = config or load_rule_config()
@@ -113,6 +121,12 @@ def build_candidates_result(
         )
         return AnalyzeOutcome(Status.FAILED, [error], None)
 
+    # 받은 결과가 우리 계획의 질의와 정확히 대응해야 한다(명세 m4). 빠지거나 바뀐 질의로 후보를 만들지 않는다.
+    # 계획한 질의가 다 있고 그중 일부가 failed인 경우는 아래 partial로 남긴다.
+    plan_errors = find_query_plan_mismatches(input_artifact, graph_id, expected_graph_revision)
+    if plan_errors:
+        return AnalyzeOutcome(Status.FAILED, plan_errors, None)
+
     # 완료된 분석 쿼리 결과에 규칙을 적용한다. LLM은 쓰지 않아 model_info=null.
     candidates, rule_errors = rules.apply_rules(data, rule_config)
     candidates_data = {
@@ -137,3 +151,48 @@ def build_candidates_result(
     errors = partial_errors + rule_errors
     status = Status.PARTIAL if errors else Status.COMPLETED
     return AnalyzeOutcome(status, errors, candidates_data)
+
+
+def find_query_plan_mismatches(
+    input_artifact: dict[str, Any], graph_id: str, expected_graph_revision: int | None
+) -> list[dict[str, Any]]:
+    """입력이 우리 graph_query 하나에서 왔고 결과 (query_id, query_key) 쌍이 계획과 정확히 같은지. 어긋남마다 오류 하나."""
+    planned_queries = build_graph_query_data(graph_id, expected_graph_revision)["queries"]
+    planned_pairs = [(query["query_id"], query["query_key"]) for query in planned_queries]
+    result_pairs = [(result["query_id"], result["query_key"]) for result in input_artifact["data"]["results"]]
+    return [*_check_graph_query_ref(input_artifact["input_refs"]), *_compare_query_pairs(planned_pairs, result_pairs)]
+
+
+def _check_graph_query_ref(input_refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    refs = [ref for ref in input_refs if ref["artifact_type"] == GRAPH_QUERY_ARTIFACT_TYPE]
+    if len(refs) == 1 and PurePosixPath(refs[0]["path"]).parent.name == PRODUCER_DIRECTORY:
+        return []
+    return [_plan_error(f"입력 input_refs에 access_analyzer가 쓴 graph_query 참조가 정확히 하나여야 함 (graph_query 참조 {len(refs)}개)")]
+
+
+def _compare_query_pairs(
+    planned_pairs: list[tuple[str, str]], result_pairs: list[tuple[str, str]]
+) -> list[dict[str, Any]]:
+    """메시지에는 query_id·query_key만 넣는다(rows 내용은 넣지 않는다)."""
+    planned_key_by_id = dict(planned_pairs)
+    received = set(result_pairs)
+    errors = [
+        _plan_error(f"계획한 질의 결과가 없음: {query_id}({query_key})", query_id)
+        for query_id, query_key in planned_pairs
+        if (query_id, query_key) not in received
+    ]
+    for query_id, query_key in dict.fromkeys(result_pairs):
+        planned_key = planned_key_by_id.get(query_id)
+        if planned_key is None:
+            errors.append(_plan_error(f"계획에 없는 질의 결과: {query_id}({query_key})", query_id))
+        elif planned_key != query_key:
+            errors.append(_plan_error(f"질의 키가 계획과 다름: {query_id}는 {planned_key} 계획인데 {query_key} 결과", query_id))
+    for query_key, count in Counter(key for _, key in result_pairs).items():
+        if count > 1:
+            errors.append(_plan_error(f"같은 query_key 결과가 {count}개: {query_key}"))
+    return errors
+
+
+def _plan_error(message: str, item_ref: str | None = None) -> dict[str, Any]:
+    # 계획과 다른 결과는 KG·계획 계약이 어긋난 것이라 같은 입력으로 다시 돌려도 같다.
+    return make_error_item(ErrorCode.QUERY_PLAN_MISMATCH, message, item_ref=item_ref, is_retryable=False)

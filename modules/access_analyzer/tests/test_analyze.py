@@ -22,8 +22,6 @@ QUERY_PLAN_MISMATCH = "QUERY_PLAN_MISMATCH"
 # 결과 rows에만 있는 값. 오류 메시지에 rows 내용이 섞이면 안 된다.
 ROW_ONLY_VALUES = ("acc_alice", "resource:order_001", "role_user")
 OTHER_PRODUCER_GRAPH_QUERY_PATH = "artifacts/iteration-000/knowledge_graph/graph_query.json"
-# 이 PR fix 커밋에서 대조를 넣으면 통과한다. 그 커밋에서 마커를 지운다.
-NOT_YET_MATCHED = pytest.mark.xfail(strict=True, reason="결과 query_id·query_key 대조 미구현 — 이 PR fix 커밋에서 해결")
 
 
 def _place_input(run_root: Path, fixture_name: str) -> Path:
@@ -221,7 +219,6 @@ def _assert_plan_mismatch(run_root: Path, result: dict[str, Any], *fragments: st
     assert ep._exit_code(result) == ep.EXIT_FAILED_WITH_FILE
 
 
-@NOT_YET_MATCHED
 def test_missing_planned_result_fails(tmp_path: Path) -> None:
     # 소유 관계 결과가 빠지면 지금은 후보 0개 completed로 끝난다. 분석하지 못한 것을 "후보 없음"으로 숨기면 안 된다.
     run_root = tmp_path / "run_demo_001"
@@ -233,7 +230,6 @@ def test_missing_planned_result_fails(tmp_path: Path) -> None:
     _assert_plan_mismatch(run_root, result, "계획한 질의 결과가 없음: q_resource_ownership(resource_ownership)")
 
 
-@NOT_YET_MATCHED
 def test_unplanned_query_id_fails(tmp_path: Path) -> None:
     run_root = tmp_path / "run_demo_001"
     document = _completed_document()
@@ -249,7 +245,6 @@ def test_unplanned_query_id_fails(tmp_path: Path) -> None:
     )
 
 
-@NOT_YET_MATCHED
 def test_swapped_query_pair_fails(tmp_path: Path) -> None:
     # query_id는 계획에 있지만 짝지은 query_key가 다르다. 규칙이 query_key로만 찾으면 그대로 후보를 만든다.
     run_root = tmp_path / "run_demo_001"
@@ -269,7 +264,6 @@ def test_swapped_query_pair_fails(tmp_path: Path) -> None:
     )
 
 
-@NOT_YET_MATCHED
 def test_duplicate_query_key_fails(tmp_path: Path) -> None:
     # query_id는 달라 입력 의미 검증(query_id 중복)을 통과하지만 같은 query_key가 두 번 온다.
     run_root = tmp_path / "run_demo_001"
@@ -283,7 +277,6 @@ def test_duplicate_query_key_fails(tmp_path: Path) -> None:
     _assert_plan_mismatch(run_root, result, "같은 query_key 결과가 2개: resource_ownership")
 
 
-@NOT_YET_MATCHED
 @pytest.mark.parametrize(
     "change_refs",
     [
