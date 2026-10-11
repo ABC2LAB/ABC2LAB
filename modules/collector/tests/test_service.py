@@ -3,6 +3,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import cast
 from urllib.parse import urlsplit
 
 import pytest
@@ -48,6 +49,10 @@ SETTLE_MS = 300
 SESSION_REF_PATTERN = re.compile(r"session:[0-9a-f]{16}")
 CLOCK_WARNING_TEXT = "시계 역행"
 ALIASES = [GUEST_ROLE, USER_A_ALIAS, USER_B_ALIAS, ADMIN_ALIAS]
+ALLOWED_ORIGINS_LOG_PREFIX = "허용 origin"
+# 시작 로그에 origin만 남는지 보는 테스트 값. 경로·쿼리는 로그에 없어야 한다.
+LOG_TARGET_URL = "http://testapp-svc:8000/start?tab=1"
+LOG_EXTRA_ORIGIN = "https://app.corp.internal/"
 
 
 @dataclass(frozen=True)
@@ -232,13 +237,31 @@ def test_server_clock_regression_counted_and_warned(
 
 
 def test_browser_launch_error_wrapped() -> None:
-    def fail_launch() -> None:
+    def fail_launch(**launch_options: object) -> None:
         raise PlaywrightError("Executable doesn't exist at /tmp/chrome\n자세한 설치 안내 여러 줄")
 
     playwright = SimpleNamespace(chromium=SimpleNamespace(launch=fail_launch))
 
     with pytest.raises(BrowserLaunchError) as raised:
-        service._launch_browser(playwright)
+        service._launch_browser(playwright, load_config({"target_url": LOG_TARGET_URL}))
 
     assert "Executable doesn't exist" in str(raised.value)
     assert "설치 안내" not in str(raised.value)
+
+
+def test_allowed_origins_logged_once_at_start(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger=service.__name__)
+    config = load_config({"target_url": LOG_TARGET_URL, "extra_allowed_origins": [LOG_EXTRA_ORIGIN]})
+
+    def skip_account(browser: Browser, cfg: CrawlerConfig, account: AccountSettings) -> AccountCrawl:
+        return AccountCrawl(account.account_id, account.alias, account.role, (), (), None, None)
+
+    monkeypatch.setattr(service, "crawl_account", skip_account)
+
+    crawl_accounts(cast(Browser, object()), config)
+
+    messages = [record.getMessage() for record in caplog.records]
+    lines = [message for message in messages if message.startswith(ALLOWED_ORIGINS_LOG_PREFIX)]
+    assert lines == ["허용 origin: http://testapp-svc:8000, https://app.corp.internal:443"]

@@ -80,6 +80,20 @@ def list_account_errors(outcome: CollectOutcome) -> list[dict[str, Any]]:
     ]
 
 
+def list_redirect_errors(outcome: CollectOutcome) -> list[dict[str, Any]]:
+    """같은 호스트의 다른 포트·스킴으로 간 리다이렉트 hop이 있던 계정마다 ErrorItem 하나. 대상 앱 동작이라 retryable=false."""
+    return [
+        make_error_item(
+            ErrorCode.REDIRECT_OUT_OF_SCOPE,
+            f"허용 밖 리다이렉트 hop(같은 호스트라 막지 못함): {', '.join(account_crawl.unblocked_redirect_origins)}",
+            item_ref=account_crawl.account_id,
+            is_retryable=False,
+        )
+        for account_crawl in outcome.account_crawls
+        if account_crawl.unblocked_redirect_origins
+    ]
+
+
 def _list_roles(outcome: CollectOutcome) -> list[str]:
     """계정에 나온 역할을 처음 나온 순서대로 한 번씩."""
     return list(dict.fromkeys(account_crawl.role for account_crawl in outcome.account_crawls))

@@ -1,5 +1,6 @@
-"""여러 테스트가 같이 쓰는 대역. 가짜 서버(127.0.0.1의 빈 포트에만 뜬다)와 세션 창구 전송 대역."""
+"""여러 테스트가 같이 쓰는 대역. 가짜 서버(loopback 주소의 빈 포트에만 뜬다, 기본 127.0.0.1)와 세션 창구 전송 대역."""
 
+import socket
 import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -52,13 +53,20 @@ def make_counting_handler(requested_paths: list[str]) -> type[BaseHTTPRequestHan
     return CountingHandler
 
 
+class _IPv6HTTPServer(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
 @contextmanager
-def run_server(handler_class: type[BaseHTTPRequestHandler]) -> Iterator[str]:
-    server = ThreadingHTTPServer((LOCALHOST, 0), handler_class)
+def run_server(handler_class: type[BaseHTTPRequestHandler], host: str = LOCALHOST) -> Iterator[str]:
+    """host의 빈 포트에 띄우고 http://host:port를 돌려준다. IPv6 리터럴(':' 포함)이면 URL에 대괄호를 씌운다."""
+    is_ipv6 = ":" in host
+    server = (_IPv6HTTPServer if is_ipv6 else ThreadingHTTPServer)((host, 0), handler_class)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    url_host = f"[{host}]" if is_ipv6 else host
     try:
-        yield f"http://{LOCALHOST}:{server.server_address[1]}"
+        yield f"http://{url_host}:{server.server_address[1]}"
     finally:
         server.shutdown()
         server.server_close()

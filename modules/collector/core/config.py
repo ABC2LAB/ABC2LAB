@@ -7,6 +7,7 @@
 익명 탐색(guest)은 설정하지 않아도 늘 첫 번째 계정으로 들어간다.
 """
 
+import ipaddress
 import logging
 import os
 import re
@@ -68,8 +69,13 @@ DEFAULT_STATE_CHANGING_KEYWORDS = (
 # 역할·별칭은 ID와 환경변수 키 일부가 되므로 소문자로 시작하는 소문자·숫자·_만 허용한다.
 NAME_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
 ALLOWED_SCHEMES = {"http": 80, "https": 443}
-# 절대 규칙 1번: 요청 대상은 로컬 대상 앱뿐이다. 설정 실수로 외부를 두드리지 않게 로드 단계에서 막는다.
-LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+# 절대 규칙 1번: 요청 대상은 설정에 적은 origin(target_url + extra_allowed_origins)뿐이고, 이 두 값이 신뢰 경계다.
+# 호스트는 이름(영문·숫자·-·_·.)이나 IP 리터럴만 받는다. 호스트를 다른 규칙·목록 문자열에 넣을 때
+# 쉼표·공백·* 같은 구분자가 끼지 않게 하려는 것이다. 밑줄은 그런 문제가 없고 Compose 서비스명에 쓰여서 받는다.
+HOST_NAME_PATTERN = re.compile(r"[a-z0-9_-]+(?:\.[a-z0-9_-]+)*")
+# 마지막 라벨이 숫자거나 0x로 시작하면 브라우저(WHATWG URL)가 IPv4로 바꿔 읽는다(127.1 → 127.0.0.1).
+HEX_NUMBER_PREFIX = "0x"
+ORIGIN_ONLY_PATHS = frozenset({"", "/"})
 
 
 class ConfigError(ValueError):
@@ -166,9 +172,9 @@ def load_config(settings: Mapping[str, Any], secrets: Mapping[str, str] | None =
     _check_required(settings, login_settings, has_accounts=bool(accounts))
 
     start_url = settings[TARGET_URL_KEY].strip()
-    allowed_origins = {_parse_allowed_origin(start_url, TARGET_URL_KEY)}
+    allowed_origins = {_parse_allowed_origin(start_url, TARGET_URL_KEY, is_origin_only=False)}
     for extra_url in _parse_string_list(settings.get(EXTRA_ALLOWED_ORIGINS_KEY, []), EXTRA_ALLOWED_ORIGINS_KEY):
-        allowed_origins.add(_parse_allowed_origin(extra_url, EXTRA_ALLOWED_ORIGINS_KEY))
+        allowed_origins.add(_parse_allowed_origin(extra_url, EXTRA_ALLOWED_ORIGINS_KEY, is_origin_only=True))
     return CrawlerConfig(
         start_url=start_url,
         allowed_origins=frozenset(allowed_origins),
@@ -189,7 +195,13 @@ def secret_key_names(alias: str) -> tuple[str, str]:
 
 def is_request_allowed(config: CrawlerConfig, url: str) -> bool:
     """절대 규칙 1번 판단: url의 origin이 허용 목록과 정확히 같을 때만 True."""
-    return _parse_origin(url) in config.allowed_origins
+    return parse_origin(url) in config.allowed_origins
+
+
+def describe_origin(origin: Origin) -> str:
+    """로그용 scheme://host:port. IPv6 리터럴은 대괄호로 감싼다."""
+    host = f"[{origin.host}]" if ":" in origin.host else origin.host
+    return f"{origin.scheme}://{host}:{origin.port}"
 
 
 def _check_keys(table: Mapping[str, Any], allowed_keys: frozenset[str], prefix: str) -> None:
@@ -292,8 +304,13 @@ def _parse_login(login_settings: Mapping[str, Any]) -> LoginSettings:
     )
 
 
-def _parse_origin(url: str) -> Origin | None:
-    parts = urlsplit(url)
+def parse_origin(url: str) -> Origin | None:
+    """url의 origin. http(s)가 아니거나 호스트·포트를 읽을 수 없으면 None."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        # 대괄호 안이 IP가 아닌 호스트 등은 urlsplit이 ValueError를 낸다. 판단할 수 없으면 허용하지 않는다.
+        return None
     scheme = parts.scheme.lower()
     if scheme not in ALLOWED_SCHEMES or not parts.hostname:
         return None
@@ -304,13 +321,43 @@ def _parse_origin(url: str) -> Origin | None:
     return Origin(scheme, parts.hostname.lower(), port or ALLOWED_SCHEMES[scheme])
 
 
-def _parse_allowed_origin(url: str, key: str) -> Origin:
-    origin = _parse_origin(url)
+def _parse_allowed_origin(url: str, key: str, is_origin_only: bool) -> Origin:
+    """허용 origin 하나를 검증한다. 오류 메시지에는 키 이름과 이유만 넣는다(값에 계정·내부 주소가 섞일 수 있다)."""
+    origin = parse_origin(url)
     if origin is None:
-        raise ConfigError(f"{key}: http(s)://호스트[:포트] 형식이어야 함 ({url!r})")
-    if origin.host not in LOOPBACK_HOSTS:
-        raise ConfigError(f"{key}: 로컬 호스트({', '.join(sorted(LOOPBACK_HOSTS))})만 허용 ({url!r})")
+        raise ConfigError(f"{key}: http(s)://호스트[:포트] 형식이어야 함")
+    parts = urlsplit(url)
+    if "@" in parts.netloc:
+        raise ConfigError(f"{key}: 사용자 정보(user@)는 넣을 수 없음")
+    if not _is_valid_host(origin.host):
+        raise ConfigError(f"{key}: 호스트는 이름(영문·숫자·-·_·.) 또는 표준 표기 IP 리터럴이어야 함")
+    if is_origin_only and (parts.path not in ORIGIN_ONLY_PATHS or parts.query or parts.fragment):
+        raise ConfigError(f"{key}: 경로·쿼리·fragment 없이 scheme://호스트[:포트]만 적어야 함")
     return origin
+
+
+def _is_valid_host(host: str) -> bool:
+    if ":" in host:
+        # urlsplit이 대괄호를 벗긴 IPv6 리터럴. 존 ID(%eth0)는 받지 않는다.
+        try:
+            return ipaddress.IPv6Address(host).scope_id is None
+        except ValueError:
+            return False
+    if HOST_NAME_PATTERN.fullmatch(host) is None:
+        return False
+    last_label = host.rsplit(".", 1)[-1]
+    if last_label.isdigit() or last_label.startswith(HEX_NUMBER_PREFIX):
+        # 브라우저가 다른 IPv4로 바꿔 읽으면 정확 일치 비교와 어긋나 설정한 대상이 소리 없이 막힌다.
+        # 그래서 표준 표기(점 4개, 앞자리 0 없음)와 글자까지 같은 IPv4만 받는다.
+        return _is_canonical_ipv4(host)
+    return True
+
+
+def _is_canonical_ipv4(host: str) -> bool:
+    try:
+        return str(ipaddress.IPv4Address(host)) == host
+    except ValueError:
+        return False
 
 
 def _parse_max_depth(value: object) -> int:

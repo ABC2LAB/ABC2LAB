@@ -13,6 +13,7 @@ from playwright.sync_api import Browser, BrowserContext, Locator, Page, Route
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from modules.collector.core.browser_scope import RedirectHopMonitor
 from modules.collector.core.config import (
     AccountSettings,
     CrawlerConfig,
@@ -53,8 +54,16 @@ LoginHandler = Callable[[BrowserContext, CrawlerConfig, AccountSettings], None]
 DEFAULT_LOGIN_METHOD = LoginMethod.FORM_COOKIE
 
 
-def open_account_context(browser: Browser, config: CrawlerConfig, account: AccountSettings) -> BrowserContext:
-    """account로 로그인된 새 context를 돌려준다. guest면 로그인 없이 빈 context. 닫는 건 호출한 쪽이 한다."""
+def open_account_context(
+    browser: Browser,
+    config: CrawlerConfig,
+    account: AccountSettings,
+    redirect_monitor: RedirectHopMonitor | None = None,
+) -> BrowserContext:
+    """account로 로그인된 새 context를 돌려준다. guest면 로그인 없이 빈 context. 닫는 건 호출한 쪽이 한다.
+
+    redirect_monitor를 주면 허용 밖 리다이렉트 hop을 거기에 모은다. 안 주면 경고 로그만 남긴다.
+    """
     if account not in config.accounts:
         raise LoginError(account.alias, "설정에 없는 계정")
     if not account.is_guest and (account.login_id is None or account.password is None):
@@ -64,6 +73,8 @@ def open_account_context(browser: Browser, config: CrawlerConfig, account: Accou
     # 서비스워커가 받은 요청은 context.route를 거치지 않으므로 막아 둔다.
     context = browser.new_context(service_workers="block")
     _install_request_guard(context, config)
+    # 로그인 중 리다이렉트도 봐야 하므로 로그인 전에 단다.
+    context.on("request", (redirect_monitor or RedirectHopMonitor(config)).observe)
     if account.is_guest:
         return context
     try:

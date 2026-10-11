@@ -397,7 +397,7 @@ def test_account_missing_password_is_partial(site_url: str, tmp_path: Path) -> N
 def test_browser_launch_failure_published_as_failed(
     site_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fail_launch(playwright: object) -> None:
+    def fail_launch(playwright: object, config: object) -> None:
         raise BrowserLaunchError("브라우저를 띄우지 못함: Executable doesn't exist")
 
     monkeypatch.setattr(service, "_launch_browser", fail_launch)
