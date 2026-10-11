@@ -1,6 +1,6 @@
 # ABC2LAB `local_web` 아키텍처와 통합 검증 MVP
 
-> 상태: MVP 설계 단계 · Web/Docker 실행 구성은 아직 미구현
+> 상태: MVP 2단계 골격 · 진단 입력/실행/결과 연결은 아직 미구현
 >
 > 핵심 원칙: **경계는 강하게, 구현은 느슨하게 유지한다.**
 
@@ -50,9 +50,9 @@ artifact, Schema, 실행 방식은 아직 최종 확정되지 않았다. 따라�
 - Runner, process, service, adapter의 구체적인 구성
 - 인증정보와 session context 전달 방식
 - Graph visualization 데이터 포맷
-- Frontend·Backend framework와 상태 저장 방식
+- 최종 제품의 Frontend·Backend framework와 상태 저장 방식
 - SSE, WebSocket, polling 등 진행 상태 전달 방식
-- Local LLM provider, 모델, port, API 형식
+- 최종 제품의 Local LLM provider, 모델, port, API 형식
 
 이 문서의 예시와 후보는 계약이 아니며, 구현 시점에 실제 공개 인터페이스를
 확인한 뒤 변경할 수 있다.
@@ -90,8 +90,9 @@ Knowledge Graph 확인
 ```
 
 이 흐름은 최종 제품 경험의 방향이다. 이번 MVP는 ABC2LAB도 Docker에서 실행하고
-로컬 브라우저로 사용한다. 컨테이너 분리·네트워크·마운트·port 등 구체 배치는
-모듈 담당자의 Docker 접속 변경을 확인한 뒤 확정한다. 최종 제품의 process 구성과
+로컬 브라우저로 사용한다. MVP의 ABC2LAB·Neo4j·Ollama 분리 배치는 19.7절에
+기록한다. 테스트 대상 네트워크 연결은 Collector 담당자의 공개 설정 변경을
+확인한 뒤 확정한다. 최종 제품의 process 구성과
 승인·재개 기능이 구현됐다는 의미는 아니다.
 
 ## 3. `local_web`의 정의
@@ -595,8 +596,9 @@ Web 상태 저장 방식
 ```
 
 정적 HTML·JavaScript, React·Vue, FastAPI·Uvicorn, SQLite, SSE, subprocess 등은
-모두 검토 가능한 초기 후보 예시다. 현재 채택된 기술이나 필수 의존성으로
-간주하지 않는다.
+모두 검토 가능한 초기 후보 예시다. 최종 제품의 필수 의존성으로 간주하지
+않는다. 이번 MVP에 한정해 선택한 표준 라이브러리 서버·정적 화면·Ollama는
+19.7절에 구분한다.
 
 ### 14.2 디렉터리 구조 초안
 
@@ -747,7 +749,8 @@ Web 기능의 구현 완료를 뜻하지 않는다.
 
 | 항목 | MVP 합의 |
 | --- | --- |
-| 실행 환경 | ABC2LAB도 Docker에서 실행. 테스트 웹은 별도 실행된 대상 |
+| 실행 환경 | ABC2LAB·Neo4j·Ollama는 Compose로 함께 실행하되 별도 컨테이너. 테스트 웹은 별도 실행된 대상 |
+| MVP 기술 | Python 표준 라이브러리 Web 서버와 정적 HTML·CSS·JavaScript. Ollama는 CPU 기본, NVIDIA GPU는 선택 설정 |
 | 화면 입력 | 대상 URL, 역할별 복수 테스트 계정, 평가 데이터셋 |
 | 사전 설정 | 로그인 방식·탐색 제한, Neo4j, 모듈별 LLM, Safety Policy, 평가 matching_profile |
 | 추론 방식 | 테스트 전에 각 모듈의 provider·모델을 설정하고 실제 Local LLM 사용. Web에 모델 선택 기능을 넣지 않음 |
@@ -772,7 +775,8 @@ URL·로그인 방식·계정·역할·데이터셋을 특정 테스트 웹의 �
     → Ground Truth 평가 지표 확인
 ```
 
-화면은 다음 목적만 구현한다. 정확한 메뉴·컴포넌트·Graph library는 미정이다.
+화면은 다음 목적만 구현한다. 2단계는 새 진단·진단 진행·분석 결과·성능 평가
+메뉴의 미연결 골격이며, 세부 컴포넌트·Graph library는 미정이다.
 
 | 화면 목적 | 공개 정보 |
 | --- | --- |
@@ -811,8 +815,8 @@ Web 입력을 공개 설정으로 전달하는 작업과 모듈 내부 상태를
 허용한다. Docker 대상 접속을 위한 모듈 변경은 담당자가 진행 중이라고 사용자가
 알렸으며, 위 기준 커밋에는 반영되지 않았다. 해당 변경의 공개 설정과 실제 접속
 방식 확인 전에는 서비스명·host 주소·허용 범위를 추측하거나 우회하지 않는다.
-Neo4j·Local LLM의 컨테이너 접속 주소, 설정 마운트와 네트워크 배치도 추후
-확인·합의한다.
+MVP 내부 Neo4j·Ollama 배치는 19.7절로 구체화한다. 테스트 대상 네트워크와
+모듈 설정·비밀값·데이터셋·실행 결과 마운트는 후속 단계에서 확인·합의한다.
 
 ### 19.4 결과와 제한 사항의 표현
 
@@ -836,9 +840,10 @@ Neo4j·Local LLM의 컨테이너 접속 주소, 설정 마운트와 네트워크
 항목별 상세 비교·취소/재개 제어·고급 dashboard·PDF 생성 기능을 넣지 않는다.
 승인 대기는 상태와 사유만 표시하며 Safety 판정을 수정하지 않는다.
 
-Frontend/Backend framework, Web API·DTO, 실시간 갱신 방식, Graph 표시 형식,
-port·네트워크·마운트, secret 전달·보관·폐기 방식은 아직 확정하지 않는다.
-구현 전 사용자에게 확인하고 공개 계약을 벗어나는 요구는 해당 담당자와 협의한다.
+최종 제품의 framework·process 구성은 확정하지 않는다. MVP Web 골격·내부
+서비스·공개 포트는 19.7절로 구체화하되, 진단용 Web API·DTO·실시간 갱신·Graph
+형식·대상 네트워크·설정 마운트·secret 전달/보관/폐기는 후속 단계에서 확인한다.
+공개 계약을 벗어나는 요구는 해당 담당자와 협의한다.
 
 ### 19.6 구현 단계와 완료 기준
 
@@ -852,12 +857,102 @@ port·네트워크·마운트, secret 전달·보관·폐기 방식은 아직 �
 | 6 | Reporter 평가 화면 | 평가 지표·분자/분모·미검증·미측정 상태 표시 |
 | 7 | 실제 테스트 웹 통합 검증 | 정상 및 로그인·설정·중간 실패 확인, 결과와 한계를 이력에 기록 |
 
-현재는 1단계 설계 범위다. 이후 기능은 아직 구현·검증되지 않았다.
+2단계 Web·Docker 골격 검증을 완료했다. 3~7단계 기능은 아직 구현·검증되지 않았다.
+2단계 실제 검증 결과와 한계는 19.8절에 기록한다.
 Docker 접속 조건과 모듈별 실제 모델·정책 설정이 준비되지 않으면 실제 전체
 실행을 완료로 기록하지 않는다.
+
+### 19.7 2단계 실행 골격 — 2026-10-12
+
+이번 MVP의 선택이며 최종 제품 기술을 고정하지 않는다.
+
+| 책임 | 2단계 구성 | 준비 완료의 의미 |
+| --- | --- | --- |
+| ABC2LAB 컨테이너 | CPython 3.12.13, 기존 잠금 의존성·Chromium·Runner·모듈, 표준 라이브러리 Web 서버 | 화면과 Web 자체 상태 응답만. 진단은 아직 실행하지 않음 |
+| Neo4j 컨테이너 | 기존 팀 버전인 5.26.31-community, 프로젝트 전용 data volume | healthcheck는 Bolt TCP 수신 확인. KG 인증·질의 성공을 보장하지 않음 |
+| Ollama 컨테이너 | 공식 이미지의 검증한 digest, 프로젝트 전용 모델 volume | healthcheck는 서버 응답만. 지정 모델 준비·추론 성공을 보장하지 않음 |
+| GPU 선택 설정 | 별도 NVIDIA GPU Compose override | 기본 CPU 실행에는 적용하지 않음. host driver·Container Toolkit·Docker GPU 연결은 별도 준비 |
+| 테스트 웹 | 별도 컨테이너 | 본 Compose에서 시작하거나 설정하지 않음. Collector 연결 조건은 19.3절 유지 |
+
+Web은 Neo4j·Ollama를 직접 호출하지 않는다. 내부 모듈 연결 주소는 Neo4j
+`bolt://neo4j:7687`, Ollama `http://ollama:11434`이며 모듈 공개 설정으로 전달한다.
+LLM provider·model_id 설정과 모델 준비는 운영자가 테스트 전에 수행한다.
+자동 모델 다운로드·모델 선택·fake/replay 대체는 제공하지 않는다.
+
+Web은 기본 `127.0.0.1:8080`에만 공개하며 `LOCAL_WEB_PORT`로 호스트 포트를
+변경할 수 있다. Neo4j·Ollama의 호스트 포트는 공개하지 않는다. Docker socket,
+host network, privileged 실행을 사용하지 않는다. 기존 루트 Compose와 다른
+프로젝트 및 volume을 사용하므로 기존 DB와 테스트 앱을 재사용·초기화하지 않는다.
+
+ABC2LAB은 비 root 사용자와 읽기 전용 root filesystem으로 실행한다.
+Dockerfile별 ignore는 코드·Schema·공개 기본 설정·잠금 파일·Web 정적 파일만
+빌드에 포함하며 실제 `.env`·실행 결과·개인 기록·Ground Truth는 포함하지 않는다.
+모듈 기본 설정을 이미지에 포함했다는 사실은 실제 모델 설정이 준비됐다는 뜻이 아니다.
+설정·비밀값·데이터셋·실행 결과의 마운트는 3~4단계에서 별도 합의한다.
+
+#### 실행
+
+저장소 루트에서 실행한다. `.env.example`을 참고해 커밋하지 않는
+`local_web/.env`를 직접 준비하고 Neo4j 비밀번호를 설정한다. 실제 비밀번호는
+커맨드 인자·공유 로그에 출력하지 않는다.
+
+```bash
+docker compose --env-file local_web/.env -f local_web/compose.yml up -d --build
+docker compose --env-file local_web/.env -f local_web/compose.yml ps
+```
+
+기본 브라우저 주소는 `http://127.0.0.1:8080`이다. 기본 포트 변경 시 변경한 주소를
+사용한다. GPU를 사용할 때만 기본 파일에 override를 추가한다.
+
+```bash
+docker compose --env-file local_web/.env -f local_web/compose.yml -f local_web/compose.gpu.yml up -d --build
+```
+
+이미지·기존 의존성·브라우저 설치에는 초기 네트워크 준비가 필요하다.
+폐쇄망 최종 배포의 이미지·모델 사전 반입 방식은 이 단계에서 구현하지 않는다.
+모델은 모듈 담당자가 정한 것으로 별도 준비하며, 모델이 없는 Ollama도
+Web 골격 확인에는 사용할 수 있다. 이것을 전체 진단 준비 완료로 표시하지 않는다.
+
+#### 제공·제외·검증 경계
+
+- `/`·`/style.css`·`/app.js`는 명시적으로 허용한 정적 화면만 제공한다.
+- `GET/HEAD /health`는 Web만 확인하며 `scope=web_only`·`diagnosis_enabled=false`를 반환한다.
+  이 경로·필드는 MVP의 임시 구현이지 모듈 또는 최종 Web 계약이 아니다.
+- 임의 파일 경로·디렉터리 목록·설정·private·artifact·GT 원문은 제공하지 않는다.
+  Host·Origin·정적 경로를 검사하고 요청 원문을 로그·오류에 반영하지 않는다.
+- 입력과 실행 버튼은 비활성화한다. 가상 KG·취약점·집계·진행률을 만들지 않는다.
+- 승인 후 재개·계정 저장·Runner 호출·산출물 조회·LLM 호출은 이 단계에 없다.
+- Python `http.server` 기반 서버는 개발 프로토타입용이다([공식 문서](https://docs.python.org/3.12/library/http.server.html)). 최종 제품 배포 서버나
+  인증·세션·CSRF·요청 크기/동시성 제한의 완성 구현으로 간주하지 않는다.
+- 독립 테스트는 `local_web/tests`를 명시해 실행한다. 기존 루트 pytest 설정은 변경하지 않는다.
+  Compose 검증은 CPU 기본과 GPU override 병합을 구분하고, 실제 GPU 추론과
+  전체 진단 실행은 해당 환경·모델·모듈 설정이 준비된 후 별도로 검증한다.
+
+### 19.8 2단계 검증 결과 — 2026-10-12
+
+| 검증 | 실제 결과 | 범위·한계 |
+| --- | --- | --- |
+| Web 독립·기존 Runner 회귀 | `.venv/bin/python -m pytest local_web/tests tests/pipeline -q --tb=short`: **94 passed**(Web 36 + Runner 58) | Runner는 기존 대역 기반 회귀. 실제 전체 진단 실행이 아님 |
+| Compose 설정 | CPU 기본과 GPU override 병합 설정 검사 모두 exit 0 | 실제 GPU 장치 연결·추론은 미검증 |
+| Docker 이미지 | 빌드 성공, CPython 3.12.13·UID 10001·8개 공개 entrypoint import·Chromium 기동 확인 | 실제 모듈 operation은 호출하지 않음. 실제 `.env`·Collector 설정·GT·모듈 테스트·개인 기록 제외 확인 |
+| CPU Compose | ABC2LAB·Neo4j·Ollama 3개 서비스 running·healthy | 각 healthcheck 범위만 확인. 모델 준비·추론·KG 인증/질의 성공을 의미하지 않음 |
+| 호스트 접속 | `127.0.0.1:8080`의 health와 정적 화면 3개 경로 모두 HTTP 200 | 임시 검증 컨테이너에서 확인한 결과. 현재 상시 실행 중이라는 뜻이 아님 |
+| Chromium 화면 | 1280×800에서 메뉴 4개 전환, 390×844에서 가로 넘침 없음, JavaScript 오류 0건 | 컨테이너 Chromium의 기능·레이아웃 검사. 사용자의 실제 브라우저 시각 검수는 별도 |
+
+검증용 Compose 프로젝트는 `abc2lab-local-web-stage2-test`를 사용했다.
+DB 비밀번호는 메모리에서 생성해 자식 프로세스 환경으로만 전달했으며 저장소나
+공유 출력에 남기지 않았다. 기존 테스트 앱·DB는 변경하거나 초기화하지 않았다.
+검증용 Compose 컨테이너와 추가 호스트 접속 검사 컨테이너는 검사 후 제거했다.
+새로 생성한 `abc2lab-local-web-stage2-test_neo4j_data`와
+`abc2lab-local-web-stage2-test_ollama_data` volume은 삭제하지 않고 보존했다.
+
+실제 LLM 모델 다운로드·추론, 테스트 대상 수집·검증, 전체 pipeline 진단,
+Ground Truth 평가와 GPU 실행은 이번 단계에서 수행하지 않았다.
+다음은 3단계 URL·역할별 복수 계정·평가 데이터셋 입력 연결이다.
 
 ## 20. 변경 이력
 
 | 날짜 | 변경 | 구현·계약 영향 |
 | --- | --- | --- |
 | 2026-10-11 | 기존 책임 경계를 유지하고 Docker·사전 설정·실모델·지표 중심 통합 검증 MVP와 7단계 계획 추가 | README만 변경. Web/Docker 코드는 미구현. 모듈·Runner·Schema·의존성·기존 산출물 계약 변경 없음 |
+| 2026-10-12 | MVP 2단계 Web 화면·Docker 분리 배치·CPU 기본 Ollama·선택 GPU 설정과 공개 경계 구현·검증 | 94 passed, Docker 빌드·3개 서비스 healthy·호스트 접속·메뉴 4개·모바일 폭 확인. 입력·Runner·산출물 연결·모델 추론·전체 진단은 후속 단계. 모듈·Runner·Schema·루트 의존성 변경 없음 |

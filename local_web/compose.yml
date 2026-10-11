@@ -1,0 +1,63 @@
+name: abc2lab-local-web
+
+services:
+  abc2lab:
+    build:
+      context: ..
+      dockerfile: local_web/Dockerfile
+    environment:
+      LOCAL_WEB_BIND_HOST: 0.0.0.0
+      LOCAL_WEB_PORT: "8080"
+      LOCAL_WEB_PUBLIC_PORT: ${LOCAL_WEB_PORT:-8080}
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?local_web/.env에 NEO4J_PASSWORD를 설정}
+      NEO4J_DATABASE: neo4j
+    ports:
+      - "127.0.0.1:${LOCAL_WEB_PORT:-8080}:8080"
+    depends_on:
+      neo4j:
+        condition: service_started
+      ollama:
+        condition: service_started
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=512m,mode=1777
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8080/health', timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  neo4j:
+    image: neo4j:5.26.31-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?local_web/.env에 NEO4J_PASSWORD를 설정}
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/7687"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama@sha256:adca95a12c2b386a8f9a995e7fa0600e187e3323b5e5522f5a6c3b1ec73eff99}
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  neo4j_data:
+  ollama_data:

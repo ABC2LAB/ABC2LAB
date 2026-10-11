@@ -1,0 +1,27 @@
+# 루트 build context에서 실행에 필요한 파일만 허용한다.
+**
+!requirements.lock.txt
+!pipeline.py
+!modules/
+!modules/**/
+!modules/**/*.py
+!modules/**/*.schema.json
+!modules/access_analyzer/configs/access_analyzer.toml
+!modules/collector/configs/collector.example.toml
+!modules/knowledge_graph/configs/default.json
+!modules/scenario_generator/configs/scenario_generator.toml
+!modules/semantic_analyzer/configs/default.toml
+!modules/verifier/configs/verifier.toml
+!local_web/
+!local_web/__init__.py
+!local_web/server.py
+!local_web/frontend/
+!local_web/frontend/*.html
+!local_web/frontend/*.css
+!local_web/frontend/*.js
+# 모듈 테스트·개인 기록·runtime 데이터는 이미지에 넣지 않는다.
+modules/*/tests/
+**/__pycache__/
+**/private/
+**/runs/
+**/data/
