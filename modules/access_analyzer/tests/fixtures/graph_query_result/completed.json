@@ -8,7 +8,9 @@
   "mode": "development",
   "created_at": "2026-10-07T00:03:00.000000Z",
   "status": "completed",
-  "input_refs": [],
+  "input_refs": [
+    {"artifact_id": "graph_query-run_demo_001-000-0a1b2c3d", "artifact_type": "graph_query", "iteration": 0, "path": "artifacts/iteration-000/access_analyzer/graph_query.json", "sha256": "1344fbb1f0ae2acfd1afdcba22d98ded9a62a1e19afa60a5fac6ced05eefb795"}
+  ],
   "errors": [],
   "runtime_metrics": null,
   "data": {
