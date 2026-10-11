@@ -12,6 +12,19 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
+## 현재 구현·연결 상태 — 2026-10-11
+
+기준 커밋 `30cb867`(PR #61·#62 병합 후)의 구현·공개 계약을 반영했다.
+
+| 구분 | 현재 상태 |
+| --- | --- |
+| 독립 구현 | `generate`, 공개 `run()`·CLI, 초안 생성기 `none`·`ollama`·`replay`, 초안 검증(판정 조건 필수 규칙·JSON이 아닌 응답 단계 처리), 원자 저장 구현 완료 |
+| 공개 계약 | 출력 `test_scenarios` `0.2.0`(`Scenario.resource_ids` 포함), 입력 `vulnerability_candidates`·`crawl_result` `0.2.0` 미러 |
+| 독립 회귀 | scenario_generator `260 passed` |
+| 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행(로컬 ollama 모델)에서 시나리오를 발행했고 safety_policy·verifier·reporter가 받아 처리했다(2026-10-11) |
+
+남은 것: `resource_state`·`resource_owner`·`baseline_match`의 `subject_ref`·`selector` 규약을 verifier와 합의. 세부는 [모듈 README](../../modules/scenario_generator/README.md).
+
 ## 독립 동작·수정 책임
 
 **이 모듈 담당자의 전체 책임:** 명세에 맞는 입력을 받으면 입력 검증·변환·실제 처리·출력 변환·출력 검증·저장·오류 처리·설정·모듈별 의존성 선언·테스트·동작 확인을 자기 폴더 안에서 끝낸다. 실행·테스트는 팀 공통 Python과 루트 잠금 환경에서 수행한다. 외부 모듈의 내부 코드·공유 도구에 의존하지 않는다.
@@ -61,7 +74,7 @@
 | --- | --- | --- |
 | vulnerability_candidates.json | `access_analyzer` | data.candidates의 candidate_id·actor 계정/역할·resource_ids·source_request_ids·workflow_id·expected_basis와 근거. resource_ids(KG Resource instance node_id)는 Scenario.resource_ids로 그대로 복사한다. |
 | crawl_result.json 및 근거 파일 참조 | `collector / input_refs` | 선택한 source_request_id의 요청·응답, 계정·역할·session_ref와 본문 참조. 명시된 참조로 읽는다. |
-| 실행 인자 / 자기 모델 설정 | `사용자 실행 인자` | 실행 식별 정보, 모델·프롬프트 설정과 신뢰된 대상 범위. 모델 설정은 configs 파일 없이 CLI 옵션으로 받는다(`--llm-provider replay\|ollama`, `--model-id`, `--base-url`, `--temperature`, `--seed`, `--timeout`). 신뢰된 대상 범위는 `crawl_result.target_url`의 origin이다. |
+| 실행 인자 / 자기 모델 설정 | `사용자 실행 인자 / 자기 configs` | 실행 식별 정보, 모델·프롬프트 설정과 신뢰된 대상 범위. 초안 생성기(drafter) 설정은 설정 파일로 받는다(`SCENARIO_GENERATOR_CONFIG_PATH` > `modules/scenario_generator/configs/scenario_generator.toml`). `provider`는 `none`·`ollama`·`replay`이고, 커밋된 기본값 `none`이면 `DRAFTER_NOT_CONFIGURED`로 failed 파일을 쓴다. CLI의 `--config`·drafter 옵션(`--llm-provider replay\|ollama` 등)으로 덮어쓸 수 있다(모듈 README "CLI"). 신뢰된 대상 범위는 `crawl_result.target_url`의 origin이다. |
 
 **입력 파일의 전체 필드:** [vulnerability_candidates.json 필드](m4-access_analyzer.md) · [crawl_result.json 필드](m1-collector.md).
 
@@ -100,7 +113,7 @@
 - `scenario_id`(`"scenario_" + candidate_id`)·`candidate_id`·`expected_basis`·`resource_ids`(후보 `resource_ids`를 순서·값 그대로)는 프로그램이 원본 후보에서 채운다. LLM 초안은 `preconditions`·`steps`·`assertions`만 만든다. 초안에 그 밖의 키가 있으면 값이 원본과 같아도 초안을 버린다. 후보 1개당 시나리오 1개다.
 - **판정 조건 필수 규칙.** HTTP 상태 코드만으로 위반을 확정하지 않는다(m7). 다음을 만족하지 않는 초안은 버린다.
     - `preconditions`: steps에 쓰인 계정마다 `session_valid`(`subject_ref`=account_id, `operator=eq`, `expected=true`). `exists`는 세션이 무효여도 참이 되므로 쓰지 않는다.
-    - `assertions`: 실행 계정 단계 하나에 `response_status`와 `response_json`이 함께 있다.
+    - `assertions`: 실행 계정 단계 하나에 `response_status`와 `response_json`이 함께 있다. 그 단계 원본 응답이 JSON이 아니면(원본 요청 `response.content_type`에 `json`이 없거나 null) `response_status`만 있어도 된다. 검증 통과 뒤 JSON이 아닌 단계의 `response_json`은 버리고 `ASSERTION_NON_JSON_RESPONSE`로 남기며 시나리오는 발행한다.
     - `resource_state`·`resource_owner`·`baseline_match`는 쓸 수 있지만 verifier가 아직 평가하지 않아(판단불가) 필수 조건을 대신하지 못한다. 이 세 종류의 `subject_ref`·`selector` 규약은 verifier와 합의 전이다.
 - LLM 입력에는 헤더·쿠키·응답 본문·근거 파일 경로·민감 파라미터 값을 넣지 않는다. LLM 초안은 데이터로 보고 위 규칙과 Schema로 전부 다시 검증한다.
 
@@ -195,6 +208,8 @@
 | --- | --- | --- |
 | 2026-10-08 | 판정 조건 필수 규칙(`session_valid` 사전조건, 실행 계정 단계의 `response_status`+`response_json`), `assertions` 의미, `Check.subject_ref` 규약, 바인딩 위치, 초안 검증 규칙, 모델 설정을 CLI 옵션으로 받는 것을 명시 | #40(판정 조건 강화), verifier Check 평가 구현(#38) |
 | 2026-10-09 | **0.1.0 → 0.2.0.** 출력 `schema_version`을 0.2.0으로 올리고(전원 동시 전환) `Scenario.resource_ids`를 추가. 입력 `crawl_result`·`vulnerability_candidates`는 각 생산자 계약 0.2.0을 미러(필드 정의는 [m1](m1-collector.md)·[m4](m4-access_analyzer.md)) | verifier가 검증 결과를 KG 자원 노드에 이을 키가 test_scenarios에 없었다(KG 검증 관계 `target_id` = 기존 Resource instance node_id). 소비자 safety_policy·reporter(이동찬)와 합의 |
+| 2026-10-10 | 초안 생성기(drafter) 설정을 기본적으로 설정 파일(`SCENARIO_GENERATOR_CONFIG_PATH` > 커밋된 `configs/scenario_generator.toml`)로 받음. CLI 옵션은 덮어쓰기용으로 남음. 커밋된 기본값 `provider = "none"`이면 `DRAFTER_NOT_CONFIGURED`로 failed. 출력 필드·버전 변경 없음 | #56 |
+| 2026-10-11 | JSON이 아닌 응답 단계는 `response_status`만 있어도 되고, 검증 통과 뒤 그 단계의 `response_json`은 버리고 `ASSERTION_NON_JSON_RESPONSE`로 남김(시나리오는 발행). LLM 입력의 parameter 모양을 출력 `ParameterValue`에 맞춤(내부). 출력 필드·버전 변경 없음 | #62 |
 
 ### 0.2.0 `Scenario.resource_ids` (소비자 입력 사본 미러 기준)
 
