@@ -1,6 +1,6 @@
 # 개발 기준 · 환경 일원화와 GitHub 초기 설정
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md)
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md)
 
 <aside>
 🧭

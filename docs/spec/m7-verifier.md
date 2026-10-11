@@ -1,6 +1,6 @@
 # 재현·검증기 · verifier
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md)
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md)
 
 <aside>
 🧪
@@ -236,4 +236,4 @@ KG 입력(`modules/knowledge_graph/schemas/input/verification_results.schema.jso
 
 ---
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md) ·
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md) ·
