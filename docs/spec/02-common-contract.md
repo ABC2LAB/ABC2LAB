@@ -1,6 +1,6 @@
 # 공통 계약 · 파일 형식과 전달 규칙
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md)
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md)
 
 <aside>
 📐
@@ -231,4 +231,4 @@ ground_truth.json을 제외한 10개 실행 파일에 적용한다. ground_truth
 | `temperature` | `number / null` | 필수 | 모델 생성 온도. 사용하지 않으면 null. |
 | `seed` | `integer / null` | 필수 | 재현용 seed. 지원하지 않으면 null. |
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md)
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md)

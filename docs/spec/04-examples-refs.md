@@ -1,6 +1,6 @@
 # 연결 예시 · 참고 자료
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md)
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md)
 
 <aside>
 📎
@@ -35,4 +35,4 @@
 - OWASP WSTG 인가 테스트: [https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/05-Authorization_Testing/02-Testing_for_Bypassing_Authorization_Schema](https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/05-Authorization_Testing/02-Testing_for_Bypassing_Authorization_Schema)
 - OWASP WSTG 업무 흐름 테스트: [https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/10-Business_Logic_Testing/06-Testing_for_the_Circumvention_of_Work_Flows](https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/10-Business_Logic_Testing/06-Testing_for_the_Circumvention_of_Work_Flows)
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md)
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md)

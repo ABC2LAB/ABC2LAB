@@ -1,14 +1,21 @@
 # 명세 (docs/spec/)
 
 ABC2LAB 인터페이스 명세의 현재본입니다. 개발 중에는 이 폴더가 기준입니다.
-노션 `ABC2LAB_인터페이스_명세서_v0.1`은 GitHub 관리자가 이 폴더를 기준으로 주기적으로 반영하는 사본입니다. 둘이 다르면 이 폴더를 따릅니다(2026-10-10 팀 합의).
+노션 `ABC2LAB_인터페이스_명세서_v0.2`는 GitHub 관리자가 이 폴더를 기준으로 주기적으로 반영하는 사본입니다. 둘이 다르면 이 폴더를 따릅니다(2026-10-10 팀 합의).
 
 ## 계약 버전
 
 - 실행 산출물 10개: `schema_version` 0.2.0
 - 개발 평가 입력 `ground_truth.json`: 0.1.0
 
-문서 이름의 판 번호(v0.x)는 팀 전체가 같이 전환할 때만 올리고, 파일 하나의 계약 변경은 그 파일의 `schema_version`만 올립니다. 지금 이름의 v0.1은 2026-10-05 확정 판이고, 모든 모듈 명세 갱신 뒤 v0.2로 올립니다. v0.1 원문은 커밋 `358f880`(2026-10-06 노션 export)에 있습니다.
+문서 이름의 판 번호(v0.x)는 팀 전체가 같이 전환할 때만 올리고, 파일 하나의 계약 변경은 그 파일의 `schema_version`만 올립니다. 지금 문서 판은 v0.2입니다.
+
+## 판 이력
+
+| 판 | 날짜 | 내용 | 원문 |
+|---|---|---|---|
+| v0.1 | 2026-10-05 | 8모듈·11 JSON 인터페이스 명세 확정(노션) | 커밋 `358f880`(10/06 노션 export) |
+| v0.2 | 2026-10-12 | 실행 산출물 `schema_version` 0.2.0 전환(crawl_result `Page.account_id`·응답 근거 `shape`/`identifiers`, semantic_analysis Resource properties(`resource_key`·`resource_scope`·`match_key`)와 KG Resource Type/Instance, 후보 `resource_ids`(Resource instance node_id)·`source_request_ids` 1개 이상, `Scenario.resource_ids`, 검증 결과 `graph_updates` 제약과 검증 관계 `source_account_id`), 명세 현재본을 레포 `docs/spec/`으로 전환, 모듈별 "현재 구현·연결 상태" 표 | 현재 `docs/spec/`(다음 판을 올릴 때 커밋으로 고정) |
 
 ## 누가 고치나
 
@@ -44,7 +51,7 @@ ABC2LAB 인터페이스 명세의 현재본입니다. 개발 중에는 이 폴�
 
 | 파일 | 노션 페이지 | URL |
 |---|---|---|
-| `00-index.md` | ABC2LAB_인터페이스_명세서_v0.1 | https://app.notion.com/p/59862d24e2b68392a7b701df0bd15bbb |
+| `00-index.md` | ABC2LAB_인터페이스_명세서_v0.2 | https://app.notion.com/p/59862d24e2b68392a7b701df0bd15bbb |
 | `01-dev-standard.md` | 개발 기준 · 환경 일원화와 GitHub 초기 설정 | https://app.notion.com/p/82c62d24e2b683e4a21e01d4e7c41318 |
 | `02-common-contract.md` | 공통 계약 · 파일 형식과 전달 규칙 | https://app.notion.com/p/ecf62d24e2b683d7a566013eed4d7d6b |
 | `03-runner-layout.md` | 실행 제어 · runner와 폴더 구조 | https://app.notion.com/p/a7d62d24e2b68218988981a208c29863 |
