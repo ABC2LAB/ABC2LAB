@@ -1,6 +1,6 @@
 # 의미 분석기 · semantic_analyzer
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md)
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md)
 
 <aside>
 🧠
@@ -14,8 +14,7 @@
 
 ## 현재 구현·연결 상태 — 2026-10-11
 
-기준 커밋 `30cb867`(dev)의 구현·공개 계약을 반영했다. PR #44·#57 병합 후 상태이며,
-이번 저장소 문서 갱신이 노션 원본의 export 갱신을 의미하지는 않는다.
+기준 커밋 `30cb867`(dev)의 구현·공개 계약을 반영했다. PR #44·#57 병합 후 상태다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
@@ -25,7 +24,7 @@
 | LLM 설정 | 기본 `provider=fake`(네트워크 0 결정적). 커밋 파일을 고치지 않고 경로로 교체한다: CLI `--config` > 환경변수 `SEMANTIC_ANALYZER_CONFIG_PATH` > 기본 `configs/default.toml`. collector `COLLECTOR_CONFIG_PATH`와 같은 방식(PR #57) |
 | 설정 오류 처리 | 명시 경로(인자·환경변수)인데 파일이 없거나 `[llm]`·`provider` 키가 빠지면 `fake`로 조용히 떨어지지 않고 오류로 멈춘다. 기본 파일 부재만 `fake`로 동작(PR #57) |
 | 독립 회귀 | semantic_analyzer `47 passed`. 셸에 `SEMANTIC_ANALYZER_CONFIG_PATH`를 export한 상태로 전체 pytest를 돌려도 autouse 격리로 동일하게 통과 |
-| 실제 전체 연결 | front-half 라이브 연결 확인(collector→semantic_analyzer→KG ingest→access_analyzer, Rule A 후보 산출). 실모델(Ollama) 품질 재확인은 GPU 후속이며 전체 pipeline 완료로 표시하지 않는다 |
+| 실제 전체 연결 | `pipeline.py` 12단계 전체 연결 확인(10/11). semantic_analyzer는 `SEMANTIC_ANALYZER_CONFIG_PATH`로 로컬 Ollama(llama3, CPU) 실모델 실행 포함. 실모델 추론 품질 평가는 후속 |
 
 상세 구현·회귀는 `modules/semantic_analyzer/`의 `tests/`·`configs/`를 따른다.
 계약 호환 확인·소유 fixture 검증을 전체 pipeline 연결 완료로 표시하지 않는다.
@@ -239,7 +238,7 @@
 
 ## 변경 이력
 
-저장소 문서 갱신이며, 노션 원본의 export 갱신을 의미하지 않는다. 새 필드·버전은 아래 근거 PR에서 전원 합의로 도입했다.
+새 필드·버전은 아래 근거 PR에서 전원 합의로 도입했다.
 
 | 날짜 | 변경 | 근거 |
 | --- | --- | --- |
@@ -249,4 +248,4 @@
 
 ---
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md) ·
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md) ·

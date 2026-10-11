@@ -1,6 +1,6 @@
 # 평가·리포트 · reporter
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md)
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md)
 
 <aside>
 📊
@@ -15,8 +15,7 @@
 ## 현재 구현·연결 상태 — 2026-10-11
 
 기준 커밋 `30cb867`의 구현과 PR #59~#62의 단일 회차 Runner 연결·실제 실행 오류
-수정 내용을 반영했다. 문서 판 번호는 팀 전체 전환 전까지 v0.1을 유지하며,
-이번 변경은 노션 원본이나 export 기준일을 직접 갱신하지 않는다.
+수정 내용을 반영했다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
@@ -343,4 +342,4 @@ Schema·의존성을 변경하지 않는다. 명세 PR 병합 후 노션 반영�
 
 ---
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md) ·
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md) ·

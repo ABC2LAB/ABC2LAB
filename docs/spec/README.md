@@ -1,20 +1,57 @@
-# 명세 스냅샷 (docs/spec/)
+# 명세 (docs/spec/)
 
-노션 `ABC2LAB_인터페이스_명세서_v0.1`과 하위 페이지를 export한 사본입니다.
-노션 무료 플랜에서는 Claude Code가 노션을 읽을 수 없어서, 모듈 필드 표를 파일로 읽을 수 있게 레포에 둡니다.
+ABC2LAB 인터페이스 명세의 현재본입니다. 개발 중에는 이 폴더가 기준입니다.
+노션 `ABC2LAB_인터페이스_명세서_v0.2`는 GitHub 관리자가 이 폴더를 기준으로 주기적으로 반영하는 사본입니다. 둘이 다르면 이 폴더를 따릅니다(2026-10-10 팀 합의).
 
-**노션이 원본입니다. 이 폴더는 직접 수정하지 않습니다.** 노션과 다른 곳을 발견하면 GitHub 관리자에게 알립니다.
+## 계약 버전
 
-- 원본: https://app.notion.com/p/59862d24e2b68392a7b701df0bd15bbb
-- 기준일: export 2026-10-06 (명세 v0.1, 10/5 확정)
+- 실행 산출물 10개: `schema_version` 0.2.0
+- 개발 평가 입력 `ground_truth.json`: 0.1.0
 
-## 파일
+문서 이름의 판 번호(v0.x)는 팀 전체가 같이 전환할 때만 올리고, 파일 하나의 계약 변경은 그 파일의 `schema_version`만 올립니다. 지금 문서 판은 v0.2입니다.
 
-본문은 export 그대로이고, 페이지 사이 링크만 이 폴더의 파일명으로 바꿨습니다.
+## 판 이력
+
+| 판 | 날짜 | 내용 | 원문 |
+|---|---|---|---|
+| v0.1 | 2026-10-05 | 8모듈·11 JSON 인터페이스 명세 확정(노션) | 커밋 `358f880`(10/06 노션 export) |
+| v0.2 | 2026-10-12 | 실행 산출물 `schema_version` 0.2.0 전환(crawl_result `Page.account_id`·응답 근거 `shape`/`identifiers`, semantic_analysis Resource properties(`resource_key`·`resource_scope`·`match_key`)와 KG Resource Type/Instance, 후보 `resource_ids`(Resource instance node_id)·`source_request_ids` 1개 이상, `Scenario.resource_ids`, 검증 결과 `graph_updates` 제약과 검증 관계 `source_account_id`), 명세 현재본을 레포 `docs/spec/`으로 전환, 모듈별 "현재 구현·연결 상태" 표 | 현재 `docs/spec/`(다음 판을 올릴 때 커밋으로 고정) |
+
+## 누가 고치나
+
+| 파일 | 고치는 사람 |
+|---|---|
+| `m1`~`m8` 모듈 명세 | 그 모듈 담당자 |
+| `README.md`, `00`~`04` 공통 문서 | GitHub 관리자 |
+
+## 모듈 명세를 고칠 때 (모듈 담당자)
+
+1. 코드를 바꾸는 PR에서 자기 `m*.md`를 같이 고칩니다. 코드와 명세가 다른 상태로 머지하지 않습니다.
+2. 파일 맨 아래 "변경 이력"에 날짜 · 내용 · 근거(PR·커밋)를 한 줄 남깁니다.
+3. 출력 계약(필드·타입·enum·의미·버전)이 바뀌면 생산자와 모든 직접 소비자가 먼저 합의하고 PR 제목에 "스키마 변경"을 붙입니다([02 공통 계약](02-common-contract.md) "고도화와 계약 변경의 경계").
+4. 머지되면 디스코드에 공지합니다. 계약·동작이 바뀐 경우만 하고 오타·문장 다듬기는 생략합니다.
+   형식: `[명세] 파일 · 바뀐 점 한 줄 · PR 링크 · 영향받는 모듈`
+5. 다른 담당자의 모듈 명세는 직접 고치지 않습니다. 담당자에게 말하거나 그 담당자 리뷰를 받는 PR로 제안합니다.
+6. 모듈 명세 위쪽 "현재 구현·연결 상태 — 날짜" 표(독립 구현 / 공개 계약 / 실제 전체 연결 행 필수)를 상태가 바뀔 때 갱신합니다.
+
+## 노션 반영 (GitHub 관리자)
+
+- 방향은 레포 → 노션 한쪽뿐입니다. 노션은 직접 고치지 않습니다(다음 반영 때 덮어써집니다). 노션 댓글도 반영 때 사라질 수 있으니 논의는 PR·디스코드에서 합니다.
+- 마지막 반영 날짜와 기준 커밋은 노션 메인 페이지 상단 안내에만 적습니다. 레포에는 적지 않습니다.
+- 주기: 발표 전(10/15, 12/18)과 그 사이 주 1회.
+- 절차:
+  1. 노션 상단 안내에서 기준 커밋을 확인합니다.
+  2. `git fetch origin && git diff --stat <기준 커밋>..origin/dev -- docs/spec/`로 바뀐 파일을 뽑습니다.
+  3. 바뀐 파일의 노션 페이지만 본문을 교체합니다. 페이지 사이 링크는 노션 페이지 멘션으로 바꿉니다. 대응은 아래 표를 따릅니다.
+  4. 상단 안내의 날짜·기준 커밋을 이번 `origin/dev` 커밋으로 고칩니다.
+  5. 디스코드에 "노션 반영 완료(기준 커밋 · 바뀐 페이지)"를 공지합니다.
+- 페이지가 추가·삭제되면 아래 표도 같이 고칩니다.
+
+## 파일과 노션 페이지
 
 | 파일 | 노션 페이지 | URL |
 |---|---|---|
-| `00-index.md` | ABC2LAB_인터페이스_명세서_v0.1 | https://app.notion.com/p/59862d24e2b68392a7b701df0bd15bbb |
+| `00-index.md` | ABC2LAB_인터페이스_명세서_v0.2 | https://app.notion.com/p/59862d24e2b68392a7b701df0bd15bbb |
 | `01-dev-standard.md` | 개발 기준 · 환경 일원화와 GitHub 초기 설정 | https://app.notion.com/p/82c62d24e2b683e4a21e01d4e7c41318 |
 | `02-common-contract.md` | 공통 계약 · 파일 형식과 전달 규칙 | https://app.notion.com/p/ecf62d24e2b683d7a566013eed4d7d6b |
 | `03-runner-layout.md` | 실행 제어 · runner와 폴더 구조 | https://app.notion.com/p/a7d62d24e2b68218988981a208c29863 |
@@ -27,11 +64,3 @@
 | `m6-safety_policy.md` | Safety Policy · safety_policy | https://app.notion.com/p/9b862d24e2b683c0ac0e012f09df80a0 |
 | `m7-verifier.md` | 재현·검증기 · verifier | https://app.notion.com/p/3c962d24e2b6822a81fe8180c4c16833 |
 | `m8-reporter.md` | 평가·리포트 · reporter | https://app.notion.com/p/d7d62d24e2b6821a8f4481c91d28bda0 |
-
-## 갱신 방법 (GitHub 관리자)
-
-1. 노션 명세 메인 페이지를 하위 페이지 포함, Markdown 형식으로 export합니다.
-2. 이 폴더의 md 13개를 새 export로 교체합니다. 파일명은 위 표를 따르고, 노션 페이지 사이 링크는 바뀐 파일명으로 고칩니다. 본문은 고치지 않습니다.
-3. 이 README의 기준일을 고칩니다. 페이지가 추가·삭제됐으면 표도 고칩니다.
-4. `docs: 명세 스냅샷 갱신 (YYYY-MM-DD)` PR을 올립니다.
-5. 머지되면 디스코드에 공지합니다.

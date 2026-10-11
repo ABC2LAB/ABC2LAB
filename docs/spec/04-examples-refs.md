@@ -1,6 +1,6 @@
 # 연결 예시 · 참고 자료
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md)
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md)
 
 <aside>
 📎
@@ -26,7 +26,7 @@
 - 필요한 근거와 input_refs 대상 파일을 자기 fixture run_root에 함께 둔다. 다른 모듈의 구현 폴더를 참조하지 않는다. 원래 입력 파일과 해당 해시는 정확히 대응시킨다.
 - GroundTruthRef는 기존 계약처럼 project_root 기준 `datasets/<dataset_id>/ground_truth.json`을 가리킨다. 자기 평가 fixture에서 필요한 project_root와 정답 경로를 제공한다.
 - 기존에 제공한 가상 연결 예시의 JSON 구조·ID·요청/근거 대응은 참고 자료로 사용한다. 모듈별 예상 위치로 fixture를 구성할 때 모듈 담당자가 상대 참조·실제 바이트 SHA-256을 검증한다.
-- 이번 변경은 모듈별 소유권과 예상 폴더 설계 변경이다. 실제 저장소 파일 이동이나 모듈 코드·테스트 구현 완료를 의미하지 않는다.
+- 구현 상태는 [00-index](00-index.md) "구현 상태"를 본다.
 
 ## 참고
 
@@ -35,4 +35,4 @@
 - OWASP WSTG 인가 테스트: [https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/05-Authorization_Testing/02-Testing_for_Bypassing_Authorization_Schema](https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/05-Authorization_Testing/02-Testing_for_Bypassing_Authorization_Schema)
 - OWASP WSTG 업무 흐름 테스트: [https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/10-Business_Logic_Testing/06-Testing_for_the_Circumvention_of_Work_Flows](https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/10-Business_Logic_Testing/06-Testing_for_the_Circumvention_of_Work_Flows)
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md)
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md)

@@ -1,6 +1,6 @@
 # 웹 정보 수집기 · collector
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md)
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md)
 
 <aside>
 🌐
@@ -11,6 +11,20 @@
 </aside>
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
+
+## 현재 구현·연결 상태 — 2026-10-11
+
+기준 커밋 `30cb867`(PR #61·#62 병합 후)의 구현·공개 계약을 반영했다.
+
+| 구분 | 현재 상태 |
+| --- | --- |
+| 독립 구현 | `collect`, 공개 `run()`·CLI, 역할별·역할당 복수 계정 탐색, `crawl_result.json` export adapter, 응답·DOM 근거 파일(EvidenceRef)과 자원 식별자 보존, 원자 저장 구현 완료 |
+| 세션 공개 창구 | `entrypoint.open_session_executor()`(인자 없음, 컨텍스트 매니저)로 연다. 여는 중 오류는 설정이 없거나 틀리면 호출 즉시 `ValueError`, Playwright·브라우저 시작 실패면 with 진입 때 `RuntimeError`(`SessionTransportError`), 설정 파일 권한이면 `OSError`. 세부 규약은 [모듈 README](../../modules/collector/README.md) "세션 공개 창구" |
+| 공개 계약 | 출력 `crawl_result.json`과 근거 파일(`response_evidence`·`dom_evidence`) `0.2.0` |
+| 독립 회귀 | collector `430 passed` |
+| 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행(테스트 앱 vulnerable 모드)에서 collect가 completed로 끝나고, 같은 실행에서 세션 창구를 열어 verifier가 allow 시나리오를 이 창구로 전송했다(2026-10-11) |
+
+남은 것: 허용 대상을 설정의 대상 origin 기준으로 맞추기(이동찬 요청, 별도 PR), 엔드포인트 발견율 고도화.
 
 ## 독립 동작·수정 책임
 
@@ -80,9 +94,9 @@
 
 ## 완료 기준
 
-- [ ]  기존 웹 탐색 동작을 유지하면서 export adapter가 crawl_result.json Schema를 만족한다.
-- [ ]  각 요청의 request_id·account_id·role_id·session_ref가 서로 대응한다.
-- [ ]  세션 공개 창구로 허용 계정의 컨텍스트를 제공하고 실제 쿠키·토큰은 수집기 내부에 보관한다.
+- [x]  기존 웹 탐색 동작을 유지하면서 export adapter가 crawl_result.json Schema를 만족한다.
+- [x]  각 요청의 request_id·account_id·role_id·session_ref가 서로 대응한다.
+- [x]  세션 공개 창구로 허용 계정의 컨텍스트를 제공하고 실제 쿠키·토큰은 수집기 내부에 보관한다.
 
 ## 구현 주의사항
 
@@ -195,7 +209,13 @@
 
 **재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [EvidenceRef](02-common-contract.md), [RuntimeMetrics](02-common-contract.md).
 
-## 변경 이력 (0.1.0 → 0.2.0)
+## 변경 이력
+
+| 날짜 | 변경 | 근거 |
+| --- | --- | --- |
+| 2026-10-10 | 세션 공개 창구를 여는 공개 함수 `open_session_executor()`와 여는 중 오류 타입(`ValueError`·`RuntimeError`(`SessionTransportError`)·`OSError`)을 정함. 출력 계약 변경 없음 | #55·#60 |
+
+### 0.1.0 → 0.2.0
 
 출력 파일 `crawl_result.json`과 근거 파일(`response_evidence`·`dom_evidence`)의 `schema_version`을 0.2.0으로 올렸다(전원 동시 전환). 필드 의미 변경은 아래뿐이고 나머지는 버전 상수만 바뀌었다. 근거 파일을 읽는 모듈은 2단계에서 맞춘다.
 
@@ -206,4 +226,4 @@
 
 ---
 
-[ABC2LAB_인터페이스_명세서_v0.1](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md) ·
+[ABC2LAB_인터페이스_명세서_v0.2](00-index.md) · [공통 계약 · 파일 형식과 전달 규칙](02-common-contract.md) · [실행 제어 · runner와 폴더 구조](03-runner-layout.md) ·
