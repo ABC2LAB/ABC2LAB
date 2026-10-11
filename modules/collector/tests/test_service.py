@@ -237,13 +237,13 @@ def test_server_clock_regression_counted_and_warned(
 
 
 def test_browser_launch_error_wrapped() -> None:
-    def fail_launch() -> None:
+    def fail_launch(**launch_options: object) -> None:
         raise PlaywrightError("Executable doesn't exist at /tmp/chrome\n자세한 설치 안내 여러 줄")
 
     playwright = SimpleNamespace(chromium=SimpleNamespace(launch=fail_launch))
 
     with pytest.raises(BrowserLaunchError) as raised:
-        service._launch_browser(playwright)
+        service._launch_browser(playwright, load_config({"target_url": LOG_TARGET_URL}))
 
     assert "Executable doesn't exist" in str(raised.value)
     assert "설치 안내" not in str(raised.value)

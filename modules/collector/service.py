@@ -17,6 +17,7 @@ from playwright.sync_api import Browser, Playwright, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
 from modules.collector.core.auth import SECRET_MASK, open_account_context
+from modules.collector.core.browser_scope import RedirectHopMonitor, build_launch_args
 from modules.collector.core.capture import RequestCapture, list_secret_variants, start_capture
 from modules.collector.core.config import AccountSettings, CrawlerConfig, describe_origin
 from modules.collector.core.explorer import crawl
@@ -47,6 +48,8 @@ class AccountCrawl:
     session_ref: str | None
     # 대상 서버 시계가 뒤로 간 횟수
     clock_regressions: int = 0
+    # 같은 호스트의 다른 포트·스킴으로 간 리다이렉트 hop(막지 못한 것). scheme://host:port만
+    unblocked_redirect_origins: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -63,7 +66,7 @@ class CollectOutcome:
 def collect(config: CrawlerConfig) -> CollectOutcome:
     """브라우저를 띄워 설정의 계정 순서대로 탐색한다. 브라우저를 못 띄우면 BrowserLaunchError."""
     with sync_playwright() as playwright:
-        browser = _launch_browser(playwright)
+        browser = _launch_browser(playwright, config)
         try:
             return crawl_accounts(browser, config)
         finally:
@@ -91,8 +94,9 @@ def crawl_account(browser: Browser, config: CrawlerConfig, account: AccountSetti
     session_ref: str | None = None
     pages: list[DiscoveredPage] = []
     error_message: str | None = None
+    redirect_monitor = RedirectHopMonitor(config)
     try:
-        context = open_account_context(browser, config, account)
+        context = open_account_context(browser, config, account, redirect_monitor)
         if not account.is_guest:
             session_ref = make_session_ref()
         try:
@@ -115,6 +119,7 @@ def crawl_account(browser: Browser, config: CrawlerConfig, account: AccountSetti
         error=error_message,
         session_ref=session_ref,
         clock_regressions=_count_clock_regressions(account.alias, capture),
+        unblocked_redirect_origins=tuple(dict.fromkeys(redirect_monitor.unblocked_origins)),
     )
 
 
@@ -123,9 +128,9 @@ def make_session_ref() -> str:
     return f"{SESSION_REF_PREFIX}:{secrets.token_hex(SESSION_REF_RANDOM_BYTES)}"
 
 
-def _launch_browser(playwright: Playwright) -> Browser:
+def _launch_browser(playwright: Playwright, config: CrawlerConfig) -> Browser:
     try:
-        return playwright.chromium.launch()
+        return playwright.chromium.launch(args=build_launch_args(config))
     except PlaywrightError as error:
         raise BrowserLaunchError(f"브라우저를 띄우지 못함: {_first_line(str(error))}") from None
 

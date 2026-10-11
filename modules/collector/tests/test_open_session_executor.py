@@ -248,7 +248,7 @@ def test_browser_launch_failure_raises_runtime_error_on_enter(
     # 실제 창구 열기를 쓰고, 그 아래 Playwright 경계만 브라우저가 없는 것처럼 바꾼다.
     @contextmanager
     def playwright_without_browser() -> Iterator[SimpleNamespace]:
-        def launch() -> None:
+        def launch(**launch_options: Any) -> None:
             raise PlaywrightError("Executable doesn't exist at /missing/chrome")
 
         yield SimpleNamespace(chromium=SimpleNamespace(launch=launch))
@@ -308,7 +308,7 @@ def test_browser_launch_failure_with_empty_message_is_still_runtime_error(
 ) -> None:
     @contextmanager
     def playwright_with_silent_launch_failure() -> Iterator[SimpleNamespace]:
-        def launch() -> None:
+        def launch(**launch_options: Any) -> None:
             raise PlaywrightError("")
 
         yield SimpleNamespace(chromium=SimpleNamespace(launch=launch))

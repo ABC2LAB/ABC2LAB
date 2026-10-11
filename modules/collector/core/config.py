@@ -195,7 +195,7 @@ def secret_key_names(alias: str) -> tuple[str, str]:
 
 def is_request_allowed(config: CrawlerConfig, url: str) -> bool:
     """절대 규칙 1번 판단: url의 origin이 허용 목록과 정확히 같을 때만 True."""
-    return _parse_origin(url) in config.allowed_origins
+    return parse_origin(url) in config.allowed_origins
 
 
 def describe_origin(origin: Origin) -> str:
@@ -304,7 +304,8 @@ def _parse_login(login_settings: Mapping[str, Any]) -> LoginSettings:
     )
 
 
-def _parse_origin(url: str) -> Origin | None:
+def parse_origin(url: str) -> Origin | None:
+    """url의 origin. http(s)가 아니거나 호스트·포트를 읽을 수 없으면 None."""
     try:
         parts = urlsplit(url)
     except ValueError:
@@ -322,7 +323,7 @@ def _parse_origin(url: str) -> Origin | None:
 
 def _parse_allowed_origin(url: str, key: str, is_origin_only: bool) -> Origin:
     """허용 origin 하나를 검증한다. 오류 메시지에는 키 이름과 이유만 넣는다(값에 계정·내부 주소가 섞일 수 있다)."""
-    origin = _parse_origin(url)
+    origin = parse_origin(url)
     if origin is None:
         raise ConfigError(f"{key}: http(s)://호스트[:포트] 형식이어야 함")
     parts = urlsplit(url)
