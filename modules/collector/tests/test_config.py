@@ -10,6 +10,8 @@ from modules.collector.core.config import (
     GUEST_ROLE,
     ConfigError,
     LoginSuccessCheck,
+    Origin,
+    describe_origin,
     is_request_allowed,
     load_config,
     load_config_files,
@@ -17,6 +19,12 @@ from modules.collector.core.config import (
 )
 
 TARGET_URL = "http://localhost:8001"
+# 설정 origin 기준 허용을 보는 테스트 값(Docker Compose 서비스명·내부 도메인·사설 IP·IPv6). 운영 코드에는 없다.
+SERVICE_NAME_URL = "http://testapp-vulnerable:8000"
+INTERNAL_DOMAIN_URL = "https://app.corp.internal"
+PRIVATE_IP_URL = "http://10.0.0.5:8080"
+IPV6_LITERAL_URL = "http://[fd00::1]:8080"
+UNDERSCORE_SERVICE_URL = "http://testapp_vulnerable:8000"
 SECRET_PASSWORD = "s3cret-value-do-not-log"
 SECRET_LOGIN_ID = "login-id-do-not-log@example.test"
 
@@ -334,29 +342,100 @@ def test_state_changing_keywords_overridden_and_lowered() -> None:
 
 
 @pytest.mark.parametrize(
-    "target_url",
+    ("target_url", "expected_origin"),
     [
-        pytest.param("http://example.com", id="public_host"),
-        pytest.param("http://192.168.0.10:8000", id="private_lan_host"),
-        pytest.param("localhost:8001", id="no_scheme"),
-        pytest.param("ftp://localhost", id="non_http_scheme"),
-        pytest.param("http://localhost:abc", id="invalid_port"),
+        pytest.param(f"{SERVICE_NAME_URL}/start", Origin("http", "testapp-vulnerable", 8000), id="service_name"),
+        pytest.param(UNDERSCORE_SERVICE_URL, Origin("http", "testapp_vulnerable", 8000), id="underscore_service_name"),
+        pytest.param(f"{INTERNAL_DOMAIN_URL}/", Origin("https", "app.corp.internal", 443), id="internal_domain"),
+        pytest.param(PRIVATE_IP_URL, Origin("http", "10.0.0.5", 8080), id="private_ip"),
+        pytest.param(f"{IPV6_LITERAL_URL}/", Origin("http", "fd00::1", 8080), id="ipv6_literal"),
     ],
 )
-def test_target_url_must_be_loopback_http(target_url: str) -> None:
-    settings = make_guest_only_settings()
-    settings["target_url"] = target_url
+def test_target_url_origin_is_allowed_whatever_host(target_url: str, expected_origin: Origin) -> None:
+    config = load_config({"target_url": target_url})
 
-    with pytest.raises(ConfigError, match="target_url"):
+    assert config.allowed_origins == frozenset({expected_origin})
+    assert is_request_allowed(config, target_url) is True
+
+
+@pytest.mark.parametrize(
+    ("target_url", "reason"),
+    [
+        pytest.param("localhost:8001", "형식", id="no_scheme"),
+        pytest.param("ftp://localhost", "형식", id="non_http_scheme"),
+        pytest.param("http://localhost:abc", "형식", id="invalid_port"),
+        pytest.param("http://[not-an-ip]:8000", "형식", id="bracket_not_ip"),
+        pytest.param(f"http://user@{SERVICE_NAME_URL.removeprefix('http://')}", "사용자 정보", id="userinfo"),
+        pytest.param("http://user:pw-do-not-log@testapp-vulnerable:8000", "사용자 정보", id="userinfo_password"),
+        pytest.param("http://app,evil:8000", "호스트", id="comma"),
+        pytest.param("http://app evil:8000", "호스트", id="space"),
+        pytest.param("http://*.corp.internal", "호스트", id="wildcard"),
+        pytest.param("http://[fe80::1%25eth0]:8000", "호스트", id="ipv6_zone_id"),
+        # 브라우저가 다른 IPv4로 바꿔 읽는 비표준 숫자 호스트
+        pytest.param("http://127.1:8000", "호스트", id="ipv4_short"),
+        pytest.param("http://2130706433:8000", "호스트", id="ipv4_decimal"),
+        pytest.param("http://0x7f.0.0.1:8000", "호스트", id="ipv4_hex"),
+        pytest.param("http://010.0.0.1:8000", "호스트", id="ipv4_leading_zero"),
+    ],
+)
+def test_target_url_rejected(target_url: str, reason: str) -> None:
+    with pytest.raises(ConfigError) as error_info:
+        load_config({"target_url": target_url})
+
+    message = str(error_info.value)
+    assert message.startswith("target_url:")
+    assert reason in message
+    # 메시지에는 키 이름과 이유만 넣는다. 값(계정·내부 주소가 섞일 수 있음)은 넣지 않는다.
+    assert target_url not in message
+
+
+def test_extra_origins_accept_origin_with_or_without_trailing_slash() -> None:
+    settings = {"target_url": SERVICE_NAME_URL, "extra_allowed_origins": [f"{INTERNAL_DOMAIN_URL}/", PRIVATE_IP_URL]}
+
+    config = load_config(settings)
+
+    assert config.allowed_origins == frozenset(
+        {
+            Origin("http", "testapp-vulnerable", 8000),
+            Origin("https", "app.corp.internal", 443),
+            Origin("http", "10.0.0.5", 8080),
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("extra_origin", "reason"),
+    [
+        pytest.param(f"{INTERNAL_DOMAIN_URL}/api", "경로", id="path"),
+        pytest.param(f"{INTERNAL_DOMAIN_URL}/?tab=1", "경로", id="query"),
+        pytest.param(f"{INTERNAL_DOMAIN_URL}/#top", "경로", id="fragment"),
+        pytest.param("ftp://app.corp.internal", "형식", id="non_http_scheme"),
+        pytest.param("https://user@app.corp.internal", "사용자 정보", id="userinfo"),
+        pytest.param("https://app.corp.internal,evil.example", "호스트", id="comma"),
+        pytest.param("https://*.corp.internal", "호스트", id="wildcard"),
+    ],
+)
+def test_extra_origin_rejected(extra_origin: str, reason: str) -> None:
+    settings = {"target_url": SERVICE_NAME_URL, "extra_allowed_origins": [extra_origin]}
+
+    with pytest.raises(ConfigError) as error_info:
         load_config(settings)
 
+    message = str(error_info.value)
+    assert message.startswith("extra_allowed_origins:")
+    assert reason in message
+    assert extra_origin not in message
 
-def test_extra_origin_must_be_loopback() -> None:
-    settings = make_guest_only_settings()
-    settings["extra_allowed_origins"] = ["http://127.0.0.1:8001", "https://example.com"]
 
-    with pytest.raises(ConfigError, match="extra_allowed_origins"):
-        load_config(settings)
+@pytest.mark.parametrize(
+    ("origin", "expected"),
+    [
+        pytest.param(Origin("http", "testapp-vulnerable", 8000), "http://testapp-vulnerable:8000", id="name"),
+        pytest.param(Origin("http", "fd00::1", 8080), "http://[fd00::1]:8080", id="ipv6_bracketed"),
+    ],
+)
+def test_describe_origin(origin: Origin, expected: str) -> None:
+    assert describe_origin(origin) == expected
 
 
 @pytest.mark.parametrize(

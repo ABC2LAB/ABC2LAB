@@ -18,7 +18,7 @@ from playwright.sync_api import Error as PlaywrightError
 
 from modules.collector.core.auth import SECRET_MASK, open_account_context
 from modules.collector.core.capture import RequestCapture, list_secret_variants, start_capture
-from modules.collector.core.config import AccountSettings, CrawlerConfig
+from modules.collector.core.config import AccountSettings, CrawlerConfig, describe_origin
 from modules.collector.core.explorer import crawl
 from modules.collector.core.models import CapturedRequest, DiscoveredPage
 from modules.collector.core.server_clock import count_clock_regressions
@@ -72,6 +72,8 @@ def collect(config: CrawlerConfig) -> CollectOutcome:
 
 def crawl_accounts(browser: Browser, config: CrawlerConfig) -> CollectOutcome:
     started_at = datetime.now(UTC)
+    # 어떤 대상까지 요청할 수 있는지 실행마다 남긴다. origin만 적고 경로·쿼리는 넣지 않는다.
+    logger.info("허용 origin: %s", ", ".join(sorted(describe_origin(origin) for origin in config.allowed_origins)))
     logger.info("탐색 시작: 계정 %s", ", ".join(account.alias for account in config.accounts))
     account_crawls = tuple(crawl_account(browser, config, account) for account in config.accounts)
     outcome = CollectOutcome(started_at, datetime.now(UTC), account_crawls)
