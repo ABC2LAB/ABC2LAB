@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.lock.txt \
 
 COPY modules/ ./modules/
 COPY pipeline.py ./
-COPY local_web/__init__.py local_web/server.py ./local_web/
+COPY local_web/__init__.py local_web/server.py local_web/inputs.py ./local_web/
 COPY local_web/frontend/ ./local_web/frontend/
 
 RUN useradd --uid 10001 --create-home web

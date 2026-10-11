@@ -9,10 +9,25 @@ services:
       LOCAL_WEB_BIND_HOST: 0.0.0.0
       LOCAL_WEB_PORT: "8080"
       LOCAL_WEB_PUBLIC_PORT: ${LOCAL_WEB_PORT:-8080}
+      LOCAL_WEB_COLLECTOR_TEMPLATE_PATH: /config/collector.toml
+      LOCAL_WEB_DATASETS_PATH: /app/datasets
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:?local_web/.env에 NEO4J_PASSWORD를 설정}
       NEO4J_DATABASE: neo4j
+    volumes:
+      - type: bind
+        source: ${LOCAL_WEB_COLLECTOR_CONFIG_PATH:?Collector TOML의 호스트 절대 경로를 설정}
+        target: /config/collector.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${LOCAL_WEB_DATASETS_DIR:?datasets의 호스트 절대 경로를 설정}
+        target: /app/datasets
+        read_only: true
+        bind:
+          create_host_path: false
     ports:
       - "127.0.0.1:${LOCAL_WEB_PORT:-8080}:8080"
     depends_on:

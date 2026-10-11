@@ -1,4 +1,4 @@
-"""정적 화면과 Web 자체 상태만 제공하는 개발용 서버. 진단 실행은 아직 미연결."""
+"""정적 화면·입력 준비를 제공하는 개발용 서버. 진단 실행은 아직 미연결."""
 
 from __future__ import annotations
 
@@ -8,13 +8,21 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
+from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+from local_web.inputs import (
+    MAX_ACCOUNTS, MAX_INPUT_BYTES, TOKEN_PATTERN, InputError, InputSettings, InputStore,
+    list_dataset_ids, load_template, template_accounts,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_PORT = 8080
 REQUEST_TIMEOUT_SECONDS = 10
+SESSION_COOKIE = "abc2lab_web_session"
+INPUT_POST_ROUTES = {"/api/input-preparations", "/api/input-preparations/clear"}
 FRONTEND_ROOT = Path(__file__).resolve().parent / "frontend"
 STATIC_ROUTES = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -62,7 +70,8 @@ def parse_port(value: str) -> int:
 class LocalWebServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, settings: WebSettings) -> None:
+    def __init__(self, settings: WebSettings, input_settings: InputSettings | None = None) -> None:
+        self.inputs = InputStore(input_settings or InputSettings())
         super().__init__((settings.bind_host, settings.port), RequestHandler)
         # 컨테이너 내부 healthcheck 포트와 브라우저 공개 포트를 모두 검사한다.
         ports = {self.server_port, settings.public_port}
@@ -71,6 +80,14 @@ class LocalWebServer(ThreadingHTTPServer):
         }
         if 80 in ports:
             self.allowed_authorities.update({"localhost", "127.0.0.1"})
+
+    def server_close(self) -> None:
+        self.inputs.close()
+        super().server_close()
+
+    def handle_error(self, request: object, client_address: object) -> None:
+        # 기본 traceback 대신 고정 메시지로 기록해 입력·내부 경로 노출을 막는다.
+        logger.error("http_request_failed")
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -93,12 +110,23 @@ class RequestHandler(BaseHTTPRequestHandler):
         if len(origins) > 1 or (origins and origins[0] != f"http://{hosts[0]}"):
             self.send_error(HTTPStatus.FORBIDDEN)
             return False
-        if self.command not in {"GET", "HEAD"}:
+        sites = self.headers.get_all("Sec-Fetch-Site", [])
+        if self.path.startswith("/api/") and (
+            len(sites) > 1 or (sites and sites[0] not in {"same-origin", "none"})
+        ):
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return False
+        if self.command not in {"GET", "HEAD", "POST"} or (
+            self.command == "POST" and self.path not in INPUT_POST_ROUTES
+        ):
             self.send_error(HTTPStatus.METHOD_NOT_ALLOWED)
             return False
         return True
 
     def do_GET(self) -> None:
+        if self.path == "/api/input-options":
+            self.show_input_options()
+            return
         if self.path == "/health":
             # Web 응답을 모델 준비·인증·KG 접속·전체 실행의 성공으로 해석하지 않는다.
             payload = {"status": "ok", "scope": "web_only", "diagnosis_enabled": False}
@@ -124,17 +152,123 @@ class RequestHandler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:
         self.do_GET()
 
-    def respond(self, status: int, body: bytes, content_type: str) -> None:
+    def session_id(self) -> str | None:
+        cookies = self.headers.get_all("Cookie", [])
+        if len(cookies) != 1:
+            return None
+        try:
+            parsed = SimpleCookie(cookies[0])
+        except CookieError:
+            return None
+        cookie = parsed.get(SESSION_COOKIE)
+        return cookie.value if cookie and TOKEN_PATTERN.fullmatch(cookie.value) else None
+
+    def show_input_options(self) -> None:
+        try:
+            session_id, session = self.server.inputs.open_session(self.session_id())
+        except InputError:
+            self.send_error(HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        issues, accounts, dataset_ids = [], [], []
+        try:
+            accounts = template_accounts(load_template(self.server.inputs.settings))
+        except InputError as error:
+            issues.append(error.code)
+        try:
+            dataset_ids = list_dataset_ids(self.server.inputs.settings)
+            if not dataset_ids:
+                issues.append("DATASETS_EMPTY")
+        except InputError as error:
+            issues.append(error.code)
+        payload = {
+            "input_enabled": not issues, "dataset_ids": dataset_ids, "accounts": accounts,
+            "issues": issues, "csrf_token": session.csrf_token,
+            "limits": {"max_accounts": MAX_ACCOUNTS},
+            "preparation": self.server.inputs.preparation_summary(session),
+            "diagnosis_enabled": False,
+        }
+        self.respond_json(HTTPStatus.OK, payload, {
+            "Set-Cookie": f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/",
+        })
+
+    def do_POST(self) -> None:
+        origins = self.headers.get_all("Origin", [])
+        tokens = self.headers.get_all("X-CSRF-Token", [])
+        session_id = self.session_id()
+        if len(origins) != 1 or len(tokens) != 1 or session_id is None:
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return
+        try:
+            self.server.inputs.authenticate(session_id, tokens[0])
+        except InputError:
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return
+        try:
+            payload = self.read_input_json()
+            if self.path.endswith("/clear"):
+                if payload != {}:
+                    raise InputError("INPUT_INVALID")
+                self.server.inputs.clear_preparation(session_id, tokens[0])
+                result = {"status": "cleared", "diagnosis_enabled": False}
+            else:
+                result = self.server.inputs.prepare(session_id, tokens[0], payload)
+        except InputError as error:
+            logger.info("input_rejected code=%s", error.code)
+            status = HTTPStatus.BAD_REQUEST
+            if error.code == "INPUT_TOO_LARGE":
+                status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+            elif error.code in {"TEMPLATE_INVALID", "TEMPLATE_UNAVAILABLE", "TEMPLATE_LOGIN_MISSING", "DATASETS_UNAVAILABLE", "INPUT_PREPARATION_FAILED"}:
+                status = HTTPStatus.SERVICE_UNAVAILABLE
+            elif error.code == "INPUT_SESSION_INVALID":
+                status = HTTPStatus.FORBIDDEN
+            self.respond_json(status, {"error": error.code})
+            return
+        except OSError:
+            logger.error("input_storage_failed")
+            self.send_error(HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        self.respond_json(HTTPStatus.OK, result)
+
+    def read_input_json(self) -> object:
+        lengths = self.headers.get_all("Content-Length", [])
+        types = self.headers.get_all("Content-Type", [])
+        if self.headers.get_all("Transfer-Encoding", []):
+            raise InputError("INPUT_INVALID")
+        if len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdecimal():
+            raise InputError("INPUT_INVALID")
+        length = int(lengths[0]) if len(lengths[0]) < 10 else MAX_INPUT_BYTES + 1
+        if length > MAX_INPUT_BYTES:
+            raise InputError("INPUT_TOO_LARGE")
+        if length < 2 or len(types) != 1 or types[0].lower() not in {"application/json", "application/json; charset=utf-8"}:
+            raise InputError("INPUT_INVALID")
+        try:
+            body = self.rfile.read(length)
+            if len(body) != length:
+                raise InputError("INPUT_INVALID")
+            return json.loads(body.decode("utf-8"), object_pairs_hook=unique_json_object, parse_constant=reject_json_constant)
+        except (OSError, UnicodeError, ValueError, RecursionError):
+            raise InputError("INPUT_INVALID") from None
+
+    def respond_json(self, status: int, payload: object, headers: Mapping[str, str] | None = None) -> None:
+        self.respond(status, json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8"),
+                     "application/json; charset=utf-8", headers)
+
+    def respond(self, status: int, body: bytes, content_type: str, headers: Mapping[str, str] | None = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         for name, value in SECURITY_HEADERS.items():
             self.send_header(name, value)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.close_connection = True
         if getattr(self, "command", None) != "HEAD":
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except OSError:
+                logger.info("http_client_disconnected")
 
     def send_error(
         self, code: int, message: str | None = None, explain: str | None = None
@@ -150,11 +284,24 @@ class RequestHandler(BaseHTTPRequestHandler):
         logger.warning("http_protocol_warning")
 
 
+def unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result = {}
+    for name, value in pairs:
+        if name in result:
+            raise InputError("INPUT_INVALID")
+        result[name] = value
+    return result
+
+
+def reject_json_constant(value: str) -> None:
+    raise InputError("INPUT_INVALID")
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
         settings = WebSettings.from_environment(os.environ)
-        server = LocalWebServer(settings)
+        server = LocalWebServer(settings, InputSettings.from_environment(os.environ))
     except (ValueError, OSError):
         logger.error("web_startup_failed")
         return 1

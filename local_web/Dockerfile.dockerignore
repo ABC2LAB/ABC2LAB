@@ -15,6 +15,7 @@
 !local_web/
 !local_web/__init__.py
 !local_web/server.py
+!local_web/inputs.py
 !local_web/frontend/
 !local_web/frontend/*.html
 !local_web/frontend/*.css
