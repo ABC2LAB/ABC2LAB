@@ -12,6 +12,20 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
+## 현재 구현·연결 상태 — 2026-10-11
+
+기준 커밋 `30cb867`(PR #61·#62 병합 후)의 구현·공개 계약을 반영했다.
+
+| 구분 | 현재 상태 |
+| --- | --- |
+| 독립 구현 | `prepare_queries`·`analyze`, 공개 `run()`·CLI, 원자 저장 구현 완료. prepare_queries는 `resource_ownership`·`role_resource_access`·`workflow_dependencies`·`structure_snapshot`을 한 번씩 작성한다 |
+| 후보 규칙 | 구현된 규칙은 Rule A(`rule_same_role_other_owner`, 수평: 같은 역할의 다른 계정이 소유한 자원 접근) 하나뿐이다. 규칙 입력은 `resource_ownership`·`role_resource_access` 결과뿐이다. 운영자 접근 정책 입력이 없어 후보 `expected_basis`는 `inferred`다 |
+| 공개 계약 | 출력 `graph_query`·`vulnerability_candidates`, 입력 `graph_query_result` 모두 `0.2.0` |
+| 독립 회귀 | access_analyzer `80 passed` |
+| 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행에서 prepare_queries → KG query → analyze가 completed로 끝나고 후보가 scenario_generator·reporter까지 전달됐다(2026-10-11) |
+
+남은 것: 기능 수준·강제 브라우징·업무 흐름 규칙. 세부는 [모듈 README](../../modules/access_analyzer/README.md).
+
 ## 독립 동작·수정 책임
 
 **이 모듈 담당자의 전체 책임:** 명세에 맞는 입력을 받으면 입력 검증·변환·실제 처리·출력 변환·출력 검증·저장·오류 처리·설정·모듈별 의존성 선언·테스트·동작 확인을 자기 폴더 안에서 끝낸다. 실행·테스트는 팀 공통 Python과 루트 잠금 환경에서 수행한다. 외부 모듈의 내부 코드·공유 도구에 의존하지 않는다.
@@ -82,9 +96,9 @@
 
 ## 완료 기준
 
-- [ ]  prepare_queries와 analyze를 분리하고 knowledge_graph와 합의한 질의·응답 계약을 각각 검증한다.
+- [x]  prepare_queries와 analyze를 분리하고 knowledge_graph와 합의한 질의·응답 계약을 각각 검증한다.
 - [ ]  질의 ID·키·graph_revision을 검증하고, 오래된 결과로 후보를 만들지 않는다.
-- [ ]  후보에 원본 요청·계정·자원·기대 조건의 근거를 연결하고 후보를 취약점 확정으로 기록하지 않는다.
+- [x]  후보에 원본 요청·계정·자원·기대 조건의 근거를 연결하고 후보를 취약점 확정으로 기록하지 않는다.
 
 ## 구현 주의사항
 
@@ -202,7 +216,13 @@
 
 **재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [EvidenceRef](02-common-contract.md), [ModelInfo](02-common-contract.md), [RuntimeMetrics](02-common-contract.md).
 
-## 변경 이력 (0.1.0 → 0.2.0)
+## 변경 이력
+
+| 날짜 | 변경 | 근거 |
+| --- | --- | --- |
+| 2026-10-11 | 현재 구현·연결 상태 표 추가 | 문서만, 계약 변경 없음 |
+
+### 0.1.0 → 0.2.0
 
 출력 `graph_query.json`·`vulnerability_candidates.json`의 `schema_version`을 0.2.0으로 올렸다(전원 동시 전환). 필드 의미 변경은 아래뿐이다.
 

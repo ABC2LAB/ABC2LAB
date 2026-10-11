@@ -12,6 +12,20 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
+## 현재 구현·연결 상태 — 2026-10-11
+
+기준 커밋 `30cb867`(PR #61·#62 병합 후)의 구현·공개 계약을 반영했다.
+
+| 구분 | 현재 상태 |
+| --- | --- |
+| 독립 구현 | `verify`, 공개 `run()`·CLI, 안전 게이트(계획 SHA-256·Policy 판정·계정·세션 대응), allow 재현 실행(바인딩, `effective_origins` 재검사, `max_redirects` 기본 0), Check 평가(`session_valid`·`response_status`·`response_json`)와 result 분류, 원자 저장 구현 완료 |
+| 세션 공개 창구 | collector 창구를 Protocol로만 쓴다(런너 주입). 주입되지 않으면 `SESSION_UNAVAILABLE`로 미실행·판단불가 |
+| 공개 계약 | 출력 `verification_results` `0.2.0`(관계 source는 `source_account_id`), 입력 `test_scenarios`·`safety_decisions`·`crawl_result` `0.2.0` 미러 |
+| 독립 회귀 | verifier `91 passed` |
+| 실제 전체 연결 | 부분. 루트 `pipeline.py` 실제 실행에서 allow 시나리오를 세션 창구로 보내 판정했다(2026-10-11). `graph_updates`가 빈 배열이라 KG `apply_verification`이 반영할 관계는 없다 |
+
+남은 것: `graph_updates` 채우기(지금 빈 배열), `resource_state`·`resource_owner`·`baseline_match` 평가(지금 판단불가), 입력 partial 기록(지금은 입력이 partial이어도 completed·오류 0건), 상태 변경 재현 전 DB 초기화(지금은 상태 변경 단계를 보내지 않음). 세부는 [모듈 README](../../modules/verifier/README.md).
+
 ## 독립 동작·수정 책임
 
 **이 모듈 담당자의 전체 책임:** 명세에 맞는 입력을 받으면 입력 검증·변환·실제 처리·출력 변환·출력 검증·저장·오류 처리·설정·모듈별 의존성 선언·테스트·동작 확인을 자기 폴더 안에서 끝낸다. 실행·테스트는 팀 공통 Python과 루트 잠금 환경에서 수행한다. 외부 모듈의 내부 코드·공유 도구에 의존하지 않는다.
@@ -85,8 +99,8 @@
 
 ## 완료 기준
 
-- [ ]  계획 해시·Policy 판정·계정·역할·세션 대응을 확인하고 allow만 실행한다.
-- [ ]  block·require_approval은 요청 전송 없이 미실행 사유와 빈 steps로 보존한다.
+- [x]  계획 해시·Policy 판정·계정·역할·세션 대응을 확인하고 allow만 실행한다.
+- [x]  block·require_approval은 요청 전송 없이 미실행 사유와 빈 steps로 보존한다.
 - [ ]  실제 요청·응답 근거와 결과 분류를 기록하고, 검증 근거가 있는 graph_updates만 같은 출력 파일에 담는다.
 
 ## 구현 주의사항
@@ -205,7 +219,13 @@ KG 입력(`modules/knowledge_graph/schemas/input/verification_results.schema.jso
 - **CheckResult 부착**: subject가 단계면 그 단계에, 계정이면 그 계정이 처음 쓰인 단계에, 못 찾으면 첫 단계에. `observed`는 비밀 제거.
 - **세션 공개 창구**(collector 소유): verifier는 Protocol로만 쓰고 collector 코드를 import하지 않는다(런너 주입). `session_valid` Check 의미는 "창구 세션 보유 + 만료 감지 없음"이며 실제 만료는 send 응답 신호로 잡는다. 창구 `lease` 로그인 요청은 세션 준비라 `limits.max_requests`에 세지 않는다. 규약은 [m1-collector](m1-collector.md) "세션 공개 창구".
 
-## 변경 이력 (0.1.0 → 0.2.0)
+## 변경 이력
+
+| 날짜 | 변경 | 근거 |
+| --- | --- | --- |
+| 2026-10-11 | 현재 구현·연결 상태 표 추가 | 문서만, 계약 변경 없음 |
+
+### 0.1.0 → 0.2.0
 
 출력 `verification_results.json`의 `schema_version`을 0.2.0으로 올렸다(전원 동시 전환). 필드 의미 변경은 아래뿐이고 나머지는 버전 상수만 바뀌었다.
 

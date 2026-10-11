@@ -2,7 +2,7 @@
 
 폐쇄망 안에서 설치해 돌리는 진단 도구입니다. 소유 관계·권한 경계를 알아야 판정되는 인가·비즈니스 로직 취약점(IDOR·권한 상승·업무 흐름 우회)을 대상으로 합니다.
 
-입출력 계약·개발 기준은 노션 `ABC2LAB_인터페이스_명세서_v0.1`을 따릅니다.
+입출력 계약·개발 기준은 [`docs/spec/`](docs/spec/README.md)(명세 현재본)을 따릅니다. 노션 `ABC2LAB_인터페이스_명세서_v0.1`은 GitHub 관리자가 이 폴더를 기준으로 반영하는 사본입니다.
 
 ## 파이프라인
 
@@ -20,6 +20,8 @@
 | `reporter` | report · evaluate | `diagnosis_report.json` · `evaluation_results.json` | 이동찬 |
 
 collector는 `modules/collector/`에서 명세 형식 `crawl_result.json`과 근거 파일(응답·DOM)을 공개합니다(같은 역할 복수 계정 지원). `target-app/`은 테스트용 쇼핑몰입니다.
+
+`local_web/`은 UI 초기 설계 문서입니다(이동찬, 구현 전).
 
 ## 표준 개발 환경
 
@@ -152,7 +154,7 @@ docker compose up -d --build
 | collector | `COLLECTOR_CONFIG_PATH` · `COLLECTOR_SECRETS_PATH` | 없으면 `modules/collector/configs/collector.toml` · `.env`. 계정 값은 collector가 파일에서 직접 읽음 |
 | scenario_generator | `SCENARIO_GENERATOR_CONFIG_PATH` | 커밋된 기본값은 `provider = "none"`이라 복사본을 만들어 가리킴 |
 | safety_policy | `SAFETY_POLICY_CONFIG_PATH` | 필수, 기본값 없음. 운영자가 쓴 policy JSON을 run_root 밖에 두고 가리킴. safety_policy가 `run_root/private/safety_policy/`에 사본을 직접 만들고, 같은 run에서는 원본 해시가 같을 때만 재사용 |
-| semantic_analyzer | `SEMANTIC_ANALYZER_CONFIG_PATH` | #57 머지 후. 그 전에는 커밋된 기본 설정(fake) |
+| semantic_analyzer | `SEMANTIC_ANALYZER_CONFIG_PATH` | 없으면 커밋된 기본 설정(`provider = "fake"`). 실제 모델은 복사본을 만들어 가리킴 |
 
 ### 명령과 인자
 
@@ -213,12 +215,11 @@ stdout에는 요약 JSON 한 줄만 나오고 로그는 stderr로 갑니다. 요
 
 ### 전제가 없을 때 멈추는 곳
 
-| 아직 안 된 것 | 증상 |
+| 빠진 전제 | 증상 |
 |---|---|
 | `SCENARIO_GENERATOR_CONFIG_PATH`를 안 줌 | 커밋된 기본값이 `none`이라 `scenario_generator.generate`가 `DRAFTER_NOT_CONFIGURED`로 failed |
 | `SAFETY_POLICY_CONFIG_PATH`를 안 줌·파일 오류 | `safety_policy.evaluate`가 `CONFIG_INVALID`로 failed(런너는 Policy 파일을 찾거나 만들지 않음) |
-| #57 머지 전·`SEMANTIC_ANALYZER_CONFIG_PATH`를 안 줌 | 커밋된 기본 설정(fake: 경로 세그먼트 기반 규칙 추론, `model_info=null`)으로 돈다. 후보는 나오지만 추론 품질은 실제 모델보다 낮음 |
-| collector 창구의 Playwright 예외 감싸기 | 브라우저 쪽 문제면 런너가 요약 없이 traceback으로 끝남(파이썬 기본 종료 코드 1이라 위 표의 1과 섞임) |
+| `SEMANTIC_ANALYZER_CONFIG_PATH`를 안 줌 | 커밋된 기본 설정(fake: 경로 세그먼트 기반 규칙 추론, `model_info=null`)으로 실패 없이 끝까지 돈다. 후보도 나와서 실제 모델로 돈 것처럼 보이기 쉽지만 추론 품질은 실제 모델보다 낮음 |
 
 ### 런너 규칙
 
@@ -236,5 +237,6 @@ stdout에는 요약 JSON 한 줄만 나오고 로그는 stderr로 갑니다. 요
 |---|---|---|---|---|---|
 | 2026-10-06 | `cc1541c` (feature/minjun-setup) | Ubuntu 24.04.1 (WSL2) x86_64 | 3.12.13 | 0.12.23 | 잠금 19개 `--require-hashes` 설치 · `uv pip check` 통과 · 초기 패키지 import 성공 · pytest 205 passed |
 | 2026-10-06 | `bc80025` (main 기준 커밋) | 위와 같음 | 3.12.13 | 0.12.23 | `cc1541c`와 README.md 외 동일(`git diff --stat`)이라 위 결과를 그대로 적용 |
+| 2026-10-11 | `30cb867` (dev) | Ubuntu 24.04.1 (WSL2) x86_64 | 3.12.13 | 0.12.23 | 잠금 21개 `--require-hashes` 설치 · `uv pip check` 통과 · pytest 1931 passed, 12 skipped(skip은 전부 KG 실제 Neo4j 통합 테스트, `KG_RUN_NEO4J_INTEGRATION=1`일 때만 실행) · `.env` 없이 실행, chromium은 사용자 캐시에 이미 설치된 것 사용 |
 
 main·dev 브랜치 보호 적용(2026-10-06): PR 필수 · 승인 1개 · 승인 뒤 커밋을 올리면 승인 해제 · force push·삭제 금지.
