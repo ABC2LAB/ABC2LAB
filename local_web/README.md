@@ -1,13 +1,14 @@
-# ABC2LAB `local_web` 초기 통합 아키텍처
+# ABC2LAB `local_web` 아키텍처와 통합 검증 MVP
 
-> 상태: 구현 전 초기 아키텍처 문서
+> 상태: MVP 설계 단계 · Web/Docker 실행 구성은 아직 미구현
 >
 > 핵심 원칙: **경계는 강하게, 구현은 느슨하게 유지한다.**
 
 `local_web`은 ABC2LAB의 사용자 인터페이스 계층이다. 이 문서는 현재 단계에서
 반드시 지켜야 할 책임 경계와 제품 방향을 정의한다. 구체적인 API, 데이터 구조,
-프레임워크, 실행 프로세스는 각 진단 모듈의 공개 인터페이스가 안정화된 뒤
-확정한다.
+프레임워크 등 미정 사항은 실제 공개 인터페이스를 확인하고 사용자와 합의한 뒤
+확정한다. 기존 책임 경계는 유지하며, 이번 통합 검증 MVP의 합의·현재 연결 조건·
+구현 단계는 [19절](#19-통합-검증-mvp--2026-10-11)에 구분해 기록한다.
 
 ## 1. 문서 목적과 현재 단계
 
@@ -37,7 +38,8 @@ artifact, Schema, 실행 방식은 아직 최종 확정되지 않았다. 따라�
 - 사용자는 ABC2LAB을 실행하고 로컬 브라우저로 진단을 제어한다.
 - 여러 독립 모듈 사이에는 별도의 통합 경계가 필요하다.
 - UI는 통합 경계가 제공하는 진행 상태와 결과를 화면용 형태로 표현한다.
-- Pipeline Runner는 통합 경계의 구현 후보 중 하나다.
+- 이번 MVP는 기존 루트 `pipeline.py`를 실행 경계로 사용한다.
+- 최종 제품의 Runner 확장과 통합 계층 구조는 별도로 구체화한다.
 - Knowledge Graph, 승인 요청, 검증 결과, 최종 리포트를 주요 화면으로 제공한다.
 
 ### 향후 모듈 구현 후 확정할 사항
@@ -87,8 +89,10 @@ Knowledge Graph 확인
 최종 리포트 확인
 ```
 
-이 흐름은 제품 경험의 방향만 나타낸다. Web server, 진단 process, Runner, DB,
-Local LLM을 어떤 process 조합으로 실행할지는 아직 확정하지 않는다.
+이 흐름은 최종 제품 경험의 방향이다. 이번 MVP는 ABC2LAB도 Docker에서 실행하고
+로컬 브라우저로 사용한다. 컨테이너 분리·네트워크·마운트·port 등 구체 배치는
+모듈 담당자의 Docker 접속 변경을 확인한 뒤 확정한다. 최종 제품의 process 구성과
+승인·재개 기능이 구현됐다는 의미는 아니다.
 
 ## 3. `local_web`의 정의
 
@@ -270,11 +274,14 @@ local_web 변경
 실제 구현은 Pipeline Runner, adapter, 별도 process, CLI orchestration, service
 layer 등의 형태가 될 수 있다. 현재는 이 중 하나를 최종 구조로 고정하지 않는다.
 
-### Pipeline Runner 후보
+### MVP의 Runner와 최종 제품 통합 구조
 
-여러 독립 진단 모듈을 순서대로 연결하는 통합 계층은 필요하다. Pipeline Runner는
-그 구현 후보 중 하나이며, 실제 구조는 각 모듈의 공개 인터페이스가 안정화된 뒤
-확정한다.
+이번 MVP는 이미 구현된 루트 `pipeline.py`의 공개 CLI를 사용한다. Web은 실행
+인자와 모듈의 공개 설정을 전달하고 결과를 표시하며, 호출 순서나 진단 로직을
+다시 구현하지 않는다. 기존 Runner를 수정하지 않는다.
+
+최종 제품의 통합 계층 확장 방식은 여전히 미정이다. Pipeline Runner, adapter,
+별도 process 등의 세부 구성은 각 모듈의 공개 인터페이스를 확인한 뒤 결정한다.
 
 현재 예상 흐름은 개념적으로 다음과 같다.
 
@@ -577,8 +584,8 @@ local_web
 ```text
 Frontend framework
 Backend framework
-Runner 구현 방식
-Process 모델
+최종 제품의 Runner 확장 방식
+구체적인 process 모델
 Web API와 DTO
 SSE / WebSocket / polling
 Graph visualization library
@@ -666,8 +673,8 @@ API
 DTO
 JSON protocol
 event 이름
-artifact path
-Runner 구현
+최종 artifact 배치
+최종 제품의 Runner 확장 구현
 framework
 Graph format
 secret 전달 방식
@@ -729,3 +736,128 @@ Local LLM provider
 
 > 현재 단계에서는 책임 경계만 강하게 고정하고, 구체적인 구현 방식은 모듈
 > 구현과 공개 계약을 확인한 이후 결정한다.
+
+## 19. 통합 검증 MVP — 2026-10-11
+
+### 19.1 목적과 확정된 범위
+
+목적은 테스트 웹으로 전체 모듈의 연결과 실제 산출물을 확인하는 것이다.
+완성된 제품이나 모델 성능을 보장하는 단계가 아니다. 아래 항목은 설계 합의이며
+Web 기능의 구현 완료를 뜻하지 않는다.
+
+| 항목 | MVP 합의 |
+| --- | --- |
+| 실행 환경 | ABC2LAB도 Docker에서 실행. 테스트 웹은 별도 실행된 대상 |
+| 화면 입력 | 대상 URL, 역할별 복수 테스트 계정, 평가 데이터셋 |
+| 사전 설정 | 로그인 방식·탐색 제한, Neo4j, 모듈별 LLM, Safety Policy, 평가 matching_profile |
+| 추론 방식 | 테스트 전에 각 모듈의 provider·모델을 설정하고 실제 Local LLM 사용. Web에 모델 선택 기능을 넣지 않음 |
+| 실행 경계 | 기존 Runner의 development 단일 회차 실행 |
+| 결과 표현 | 실행 상태·공개 산출물·KG snapshot·진단 결과 |
+| 정답 비교 | Reporter가 계산한 지표·집계만 표시. 정답 항목별 상세 비교는 제외 |
+| 수정 범위 | `local_web/**`만. 모듈·Runner·Schema·루트 의존성·루트 Compose·명세는 변경하지 않음 |
+
+URL·로그인 방식·계정·역할·데이터셋을 특정 테스트 웹의 값이나 배열 위치로
+하드코딩하지 않는다. 화면의 계정 입력은 기존 Collector 계약의 역할·별칭·
+로그인 ID·비밀번호를 수용하며 비밀값은 공개 결과에 포함하지 않는다.
+
+### 19.2 최소 사용자 흐름과 화면
+
+```text
+사전 설정과 모델 준비
+    → ABC2LAB Docker 실행
+    → 로컬 브라우저에서 URL·테스트 계정·데이터셋 입력
+    → 기존 Runner 실행
+    → 실행 상태와 산출물 확인
+    → KG·진단 결과 확인
+    → Ground Truth 평가 지표 확인
+```
+
+화면은 다음 목적만 구현한다. 정확한 메뉴·컴포넌트·Graph library는 미정이다.
+
+| 화면 목적 | 공개 정보 |
+| --- | --- |
+| 입력·실행 | URL·계정·데이터셋 입력, 실행 요청 |
+| 진행·연결 확인 | 프로세스 상태, 발행된 산출물, 종료 후 Runner의 단계별 요약 |
+| 분석 결과 | crawl_result·semantic_analysis 요약, graph_query_result의 structure_snapshot |
+| 진단 과정·결과 | vulnerability_candidates·test_scenarios·safety_decisions·verification_results·diagnosis_report |
+| 개발 평가 | evaluation_results의 발견율·Precision·Recall·TP/FP/FN·미검증 집계·평가 한계 |
+
+화면은 같은 실행의 공개 결과만 Presentation 계층에서 읽어 변환한다.
+Ground Truth 내용은 `reporter.evaluate`만 읽으며 Web에서 매칭이나 평가를
+재구현하지 않는다. 데이터셋 선택은 정답을 분석 모듈에 전달한다는 뜻이 아니다.
+
+### 19.3 현재 확인된 공개 설정과 실행 조건
+
+기준 커밋 `2e4a689`에서 문서·공개 호출부·설정 예시를 확인했다.
+실제 컨테이너 접속과 전체 진단은 이번 문서 단계에서 실행하지 않았다.
+
+| 연결 | 현재 공개 설정·조건 |
+| --- | --- |
+| Collector | `COLLECTOR_CONFIG_PATH`, `COLLECTOR_SECRETS_PATH` 또는 공개 계정 환경변수. URL·역할·계정·로그인 설정 필요 |
+| Semantic Analyzer | `SEMANTIC_ANALYZER_CONFIG_PATH`. 커밋된 기본 설정은 fake이므로 실제 모델 설정 필요 |
+| Scenario Generator | `SCENARIO_GENERATOR_CONFIG_PATH`. 커밋된 기본 설정은 none이므로 실제 provider·모델 설정 필요 |
+| Knowledge Graph | 기존 `NEO4J_*` 설정으로 모듈이 접속. Web은 DB나 Cypher에 직접 접근하지 않음 |
+| Safety Policy | 운영자가 작성한 정책 원본을 `SAFETY_POLICY_CONFIG_PATH`로 제공. 모듈이 자기 private 사본 준비 |
+| 개발 평가 | Runner에 dataset_id·matching_profile 필요. 정답 경로는 기존 `datasets/<dataset_id>/ground_truth.json` |
+| Runner | 대상 URL은 Collector 설정과 동일해야 함. 한 회차 실행 후 stdout 요약 JSON과 종료 코드 제공 |
+
+Web 입력을 공개 설정으로 전달하는 작업과 모듈 내부 상태를 관리하는 작업을
+구분한다. Web은 다른 모듈의 private 폴더에 쓰지 않는다. 정책의 origin·계정
+범위가 입력과 맞지 않으면 설정 문제로 표시하며 자동 확대하거나 허용 정책을
+생성하지 않는다. 비밀값 전달·보관·폐기 구현은 7절·15절의 보안 경계 안에서
+별도로 합의한다.
+
+**Docker 연결의 미완료 조건:** 현재 Collector는 localhost·127.0.0.1·::1만
+허용한다. Docker 대상 접속을 위한 모듈 변경은 담당자가 진행 중이라고 사용자가
+알렸으며, 위 기준 커밋에는 반영되지 않았다. 해당 변경의 공개 설정과 실제 접속
+방식 확인 전에는 서비스명·host 주소·허용 범위를 추측하거나 우회하지 않는다.
+Neo4j·Local LLM의 컨테이너 접속 주소, 설정 마운트와 네트워크 배치도 추후
+확인·합의한다.
+
+### 19.4 결과와 제한 사항의 표현
+
+- 실행 중에는 프로세스 상태와 실제 발행된 산출물을 표시한다. 현재 Runner에는
+  구조화된 실시간 event 계약이 없으므로 추정 진행률이나 현재 단계를 확정하지 않는다.
+- 종료 후 Runner 요약의 completed·partial·failed·skipped와 종료 코드를 표시한다.
+  프로세스 종료를 모든 모듈의 성공으로 바꾸어 표시하지 않는다.
+- 미생성·실패·잘못된 결과를 정상 0건으로 숨기지 않는다. 앞 단계 실패로 뒤 결과가
+  없으면 미실행 상태로 표시한다.
+- 후보·의심·판단불가·정책 차단·승인 대기는 확정 취약점과 구분한다.
+- 현재 KG snapshot은 검증 전 query 시점의 결과다. 검증 반영 후 최신 상태라고
+  표시하지 않으며 후속 snapshot을 Web이 임의로 생성하지 않는다.
+- 평가 지표는 Reporter의 값을 그대로 표시한다. null은 미측정/계산 불가로 표시하고,
+  분자·분모·미검증 건수·평가 한계를 함께 보여준다.
+- 실제 모델을 사용하더라도 설정 누락·모델 오류를 fake/replay나 가상 성공으로
+  자동 대체하지 않는다. 연결 성공과 실제 진단 성능은 별도로 확인한다.
+
+### 19.5 제외 범위와 미정 사항
+
+이번 MVP에는 승인 후 재개·다회차 실행·모듈 선택 실행·Web의 모델 선택·정답
+항목별 상세 비교·취소/재개 제어·고급 dashboard·PDF 생성 기능을 넣지 않는다.
+승인 대기는 상태와 사유만 표시하며 Safety 판정을 수정하지 않는다.
+
+Frontend/Backend framework, Web API·DTO, 실시간 갱신 방식, Graph 표시 형식,
+port·네트워크·마운트, secret 전달·보관·폐기 방식은 아직 확정하지 않는다.
+구현 전 사용자에게 확인하고 공개 계약을 벗어나는 요구는 해당 담당자와 협의한다.
+
+### 19.6 구현 단계와 완료 기준
+
+| 단계 | 작업 | 완료 기준 |
+| --- | --- | --- |
+| 1 | README에 MVP 합의·책임 경계·연결 조건 기록 | 문서 승인·반영. 미완료 외부 조건은 별도 표시 |
+| 2 | Docker 실행 구성과 최소 Web 골격 | 합의된 배치로 컨테이너 실행 후 로컬 브라우저 접속 |
+| 3 | URL·복수 계정·데이터셋 입력 연결 | 기존 공개 설정으로 전달하고 비밀값 노출 방지 |
+| 4 | 기존 Runner 실행과 상태 표시 | 실행 여부·발행된 산출물·종료 후 단계별 결과 확인 |
+| 5 | 산출물 기반 결과 화면 | 수집 요약·KG snapshot·후보·정책·검증·리포트 표시 |
+| 6 | Reporter 평가 화면 | 평가 지표·분자/분모·미검증·미측정 상태 표시 |
+| 7 | 실제 테스트 웹 통합 검증 | 정상 및 로그인·설정·중간 실패 확인, 결과와 한계를 이력에 기록 |
+
+현재는 1단계 설계 범위다. 이후 기능은 아직 구현·검증되지 않았다.
+Docker 접속 조건과 모듈별 실제 모델·정책 설정이 준비되지 않으면 실제 전체
+실행을 완료로 기록하지 않는다.
+
+## 20. 변경 이력
+
+| 날짜 | 변경 | 구현·계약 영향 |
+| --- | --- | --- |
+| 2026-10-11 | 기존 책임 경계를 유지하고 Docker·사전 설정·실모델·지표 중심 통합 검증 MVP와 7단계 계획 추가 | README만 변경. Web/Docker 코드는 미구현. 모듈·Runner·Schema·의존성·기존 산출물 계약 변경 없음 |
