@@ -65,7 +65,7 @@ def test_bind_failure_preserves_startup_error(web_server: LocalWebServer) -> Non
         LocalWebServer(WebSettings("127.0.0.1", web_server.server_port, 8080))
 
 
-@pytest.mark.parametrize("path", ["/", "/style.css", "/app.js"])
+@pytest.mark.parametrize("path", ["/", "/style.css", "/app.js", "/results.js"])
 def test_static_assets(web_server: LocalWebServer, path: str) -> None:
     status, headers, body = request(web_server, path)
     assert status == 200
@@ -434,3 +434,75 @@ def test_http_busy_preserves_other_preparation_and_hides_active_details(
     assert json.loads(other) == {"state": "idle", "is_busy": True}
     assert json.loads(own)["run_id"].encode() not in other
     release.touch()
+
+
+@pytest.mark.parametrize("case", ["completed", "partial", "failed"])
+def test_public_results_owned_run_live_and_after_exit(
+    runner_server: LocalWebServer, input_payload: dict[str, object], tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, case: str,
+) -> None:
+    monkeypatch.setenv("LOCAL_WEB_TEST_PUBLIC_ARTIFACTS", "1")
+    monkeypatch.setenv("LOCAL_WEB_TEST_RUNNER_CASE", case)
+    release = tmp_path / "release-results"
+    monkeypatch.setenv("LOCAL_WEB_TEST_RUNNER_RELEASE", str(release))
+    caplog.set_level(logging.INFO)
+    headers, preparation = run_headers(runner_server, input_payload)
+    status, response_headers, body = request(runner_server, "/api/runs", headers,
+        RequestData("POST", json.dumps({"preparation_id": preparation}).encode()))
+    assert status == 202
+    run_id = json.loads(body)["run_id"]
+    own = {"Cookie": response_headers["Set-Cookie"].split(";")[0]}
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        status, _, body = request(runner_server, "/api/run-results", own)
+        payload = json.loads(body)
+        by_type = {row["artifact_type"]: row for row in payload["artifacts"]}
+        if by_type["crawl_result"]["state"] != "missing":
+            break
+        time.sleep(0.01)
+    assert status == 200 and payload["state"] == "running" and payload["run_id"] == run_id
+    assert by_type["crawl_result"]["state"] == ("failed" if case == "failed" else "completed")
+    _, _, other = request(runner_server, "/api/run-results")
+    assert json.loads(other) == {"state": "idle", "artifacts": []}
+    assert run_id.encode() not in other
+    release.touch()
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        _, _, body = request(runner_server, "/api/run-results", own)
+        payload = json.loads(body)
+        if payload["state"] != "running":
+            break
+        time.sleep(0.01)
+    assert payload["state"] == case
+    by_type = {row["artifact_type"]: row for row in payload["artifacts"]}
+    if case == "failed":
+        assert by_type["crawl_result"]["view"] is None
+        assert all(row["state"] == "missing" for name, row in by_type.items() if name != "crawl_result")
+    else:
+        assert all(row["state"] in {"completed", "partial"} for row in by_type.values())
+        assert by_type["semantic_analysis"]["state"] == ("partial" if case == "partial" else "completed")
+        assert len(by_type["diagnosis_report"]["view"]["confirmed_findings"]) == 1
+        record = runner_server.runs._records[own["Cookie"].split("=")[1]]
+        (record.run_root / "artifacts/iteration-000/collector/crawl_result.json").write_bytes(b"ALTERED")
+        _, _, changed = request(runner_server, "/api/run-results", own)
+        assert json.loads(changed)["artifacts"][0]["issue"] == "ARTIFACT_HASH_MISMATCH"
+    assert all(value not in body for value in (b"PASSWORD_SENTINEL", b"LOGIN_SENTINEL", b"PRIVATE_SESSION_SENTINEL", b"private/", b"ground_truth"))
+    assert "PASSWORD_SENTINEL" not in caplog.text
+    status, response_headers, body = request(runner_server, "/api/run-results", own, RequestData("HEAD"))
+    assert status == 200 and body == b"" and int(response_headers["Content-Length"]) > 0
+
+
+@pytest.mark.parametrize("cookie", ["abc2lab_web_run=invalid", "abc2lab_web_run=" + "f" * 64])
+def test_results_unknown_owner_not_enumerable(runner_server: LocalWebServer, cookie: str) -> None:
+    status, _, body = request(runner_server, "/api/run-results", {"Cookie": cookie})
+    assert status == 404 and json.loads(body) == {"error": "RUN_UNAVAILABLE"}
+
+
+@pytest.mark.parametrize("path", ["/api/run-results?run_id=other", "/api/run-results?path=private/secret", "/api/run-results/other"])
+def test_results_does_not_accept_run_or_file_selectors(runner_server: LocalWebServer, path: str) -> None:
+    assert request(runner_server, path)[0] == 404
+
+
+def test_results_is_readonly_and_same_origin(runner_server: LocalWebServer) -> None:
+    assert request(runner_server, "/api/run-results", {"Sec-Fetch-Site": "cross-site"})[0] == 403
+    assert request(runner_server, "/api/run-results", data=RequestData("POST"))[0] == 405

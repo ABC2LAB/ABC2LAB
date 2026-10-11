@@ -1,6 +1,7 @@
 """Web 경계 검증 전용 CLI 대역. 운영 이미지·실제 pipeline 실행에는 포함하지 않는다."""
 
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -43,6 +44,10 @@ def main() -> int:
     run_root = Path(args.runs_dir) / args.run_id
     run_root.mkdir(mode=0o700)
     case = os.environ.get("LOCAL_WEB_TEST_RUNNER_CASE", "completed")
+    fixtures = {}
+    if os.environ.get("LOCAL_WEB_TEST_PUBLIC_ARTIFACTS") == "1":
+        from public_artifacts import make_artifacts, public_bytes
+        fixtures = make_artifacts(args.run_id, args.target_url, case)
     if case == "ignore_term":
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
     steps = []
@@ -53,9 +58,11 @@ def main() -> int:
             destination = run_root / path
             destination.parent.mkdir(parents=True, exist_ok=True)
             # JSON 파싱·진단 성공을 파일 존재로 추측하지 않는지 확인한다.
-            destination.write_text("PUBLICATION_METADATA_ONLY", encoding="utf-8")
+            artifact_type = destination.stem
+            body = public_bytes(fixtures[artifact_type]) if artifact_type in fixtures else b"PUBLICATION_METADATA_ONLY"
+            destination.write_bytes(body)
         steps.append({"step": name, "status": status, "artifact": path,
-                      "sha256": "a" * 64 if path else None,
+                      "sha256": hashlib.sha256(body).hexdigest() if path else None,
                       "error_count": 1 if status in {"failed", "partial"} else 0,
                       "error_codes": ["PASSWORD_SENTINEL"],
                       "detail": "LOGIN_SENTINEL", "control": {"report_path": "/private/SECRET"}})

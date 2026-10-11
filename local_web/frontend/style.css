@@ -44,6 +44,33 @@ button:disabled { background: #d5dfed; color: #52657d; }
 .status-list li { padding: 10px 0; border-bottom: 1px solid #edf2fa; font-size: 14px; overflow-wrap: anywhere; }
 .status-list li:last-child { border-bottom: 0; }
 #run-meta { overflow-wrap: anywhere; }
+.result-grid, .result-panel { margin-top: 16px; }
+.result-panel, .card, main { min-width: 0; }
+h4 { font-size: 15px; margin: 26px 0 10px; }
+.count-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 16px 0; }
+.count-grid > div { border: 1px solid #dbe3ec; border-radius: 6px; padding: 14px; }
+.count-grid dt { color: #506378; font-size: 12px; }
+.count-grid dd { margin: 8px 0 0; font-size: 22px; font-weight: 700; }
+.table-scroll, .graph-canvas { max-width: 100%; overflow: auto; border: 1px solid #dbe3ec; border-radius: 6px; }
+.table-scroll table { border-collapse: collapse; width: 100%; font-size: 13px; }
+caption { text-align: left; padding: 12px; background: #edf2fa; font-weight: 650; }
+th, td { text-align: left; padding: 12px; border-bottom: 1px solid #dbe3ec; vertical-align: top; min-width: 130px; max-width: 380px; overflow-wrap: anywhere; white-space: pre-wrap; }
+th { background: #f3f6fa; }
+#results-status, #approval-state { overflow-wrap: anywhere; }
+.graph-canvas svg { display: block; min-width: 700px; width: 100%; }
+.graph-heading { fill: #274764; font-size: 14px; font-weight: 650; }
+.graph-edge { fill: none; stroke: #9cadc0; stroke-width: 1.5; opacity: .8; }
+.graph-edge.basis-inferred { stroke-dasharray: 6 4; }
+.graph-edge.basis-verified { stroke: #197954; stroke-width: 3; }
+.graph-arrow { fill: #7890ab; }
+.graph-node circle { fill: #285f96; stroke: #fff; stroke-width: 2; }
+.node-User circle, .node-Role circle { fill: #6b50c4; }
+.node-Page circle, .node-Action circle { fill: #be620f; }
+.node-Resource circle { fill: #b34452; }
+.node-Parameter circle { fill: #247851; }
+.node-symbol { fill: #fff; font-size: 13px; font-weight: 700; }
+.node-label { fill: #274764; font-size: 11px; }
+.table-scroll:focus-visible, .graph-canvas:focus-visible { outline: 3px solid #e1a92b; outline-offset: 3px; }
 :disabled { cursor: not-allowed; }
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #e1a92b; outline-offset: 3px; }
 [hidden] { display: none !important; }

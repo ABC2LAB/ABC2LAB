@@ -6,6 +6,7 @@
   <title>ABC2LAB · 통합 검증 MVP</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
+  <script src="/results.js" defer></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -14,6 +15,7 @@
       <a href="#input" aria-current="page">새 진단</a>
       <a href="#progress">진단 진행</a>
       <a href="#results">분석 결과</a>
+      <a href="#approval">승인 대기</a>
       <a href="#evaluation">성능 평가</a>
     </nav>
     <p class="sidebar-note">개발용 프로토타입<br>단일 회차 · Development</p>
@@ -23,7 +25,7 @@
       <div><span class="eyebrow">LOCAL DIAGNOSTICS</span><h1>파이프라인 통합 검증</h1></div>
       <p id="web-status" class="badge" role="status">Web 응답 확인 중</p>
     </header>
-    <p class="notice">기존 Runner를 Development 단일 회차로 실행한다. 산출물 상세 화면·KG·평가 지표는 후속 단계다. Web 정상 응답은 대상 접속이나 모델 준비 완료를 뜻하지 않는다.</p>
+    <p class="notice">기존 Runner를 Development 단일 회차로 실행하고 공개 산출물을 표시한다. 평가 지표는 후속 단계다. Web 정상 응답은 대상 접속이나 모델 준비 완료를 뜻하지 않는다.</p>
     <noscript><p class="notice">메뉴 전환과 Web 상태 확인에는 JavaScript가 필요하다.</p></noscript>
     <section id="input" aria-labelledby="input-title">
       <h2 id="input-title">새 진단</h2>
@@ -69,12 +71,28 @@
     </section>
     <section id="results" aria-labelledby="results-title" hidden>
       <h2 id="results-title">분석 결과</h2>
-      <div class="grid">
-        <article class="card empty"><h3>Knowledge Graph</h3><p>실제 structure_snapshot 표시 미연결</p></article>
-        <article class="card empty"><h3>진단 과정</h3><p>후보·시나리오·정책·검증 결과 조회 미연결</p></article>
-        <article class="card empty"><h3>승인 대기</h3><p>Safety Policy의 상태·사유 표시 미연결<br>이 MVP에서 승인 후 재개는 제공하지 않는다.</p></article>
-        <article class="card empty"><h3>결과 리포트</h3><p>Reporter 결과 표시 미연결<br>후보와 확정 취약점을 구분해 표시할 예정이다.</p></article>
+      <p id="results-status" role="status" aria-live="polite">진단 시작 전</p>
+      <button id="refresh-results" class="secondary" type="button">결과 다시 확인</button>
+      <div class="grid result-grid">
+        <article class="card"><h3>수집 요약</h3><p id="crawl-state" class="description"></p><div id="crawl-view"></div></article>
+        <article class="card"><h3>의미 분석 요약</h3><p id="semantic-state" class="description"></p><div id="semantic-view"></div></article>
       </div>
+      <article class="card result-panel">
+        <h3>Knowledge Graph</h3>
+        <p class="description">검증 전 query 시점의 실제 structure_snapshot이다. 검증 반영 후 최신 그래프가 아니다. 속성 원문 대신 공개 node_id·종류·basis·Resource 범위를 표시한다.</p>
+        <p id="graph-state" class="description"></p><div id="graph-view"></div>
+      </article>
+      <article class="card result-panel"><h3>진단 과정</h3><p class="description">ID로 후보·시나리오·정책·검증을 연결한다. 후보나 verifier의 success를 Web이 확정 취약점으로 바꾸지 않는다.</p><div id="process-view"></div></article>
+      <article class="card result-panel">
+        <h3>결과 리포트 · 확인된 취약점</h3>
+        <p class="description">Reporter가 confirmed로 분류한 항목만 아래 목록에 표시한다. 0건은 웹 전체에 취약점이 없다는 뜻이 아니다.</p>
+        <p id="report-state" class="description"></p><div id="report-view"></div>
+      </article>
+    </section>
+    <section id="approval" aria-labelledby="approval-title" hidden>
+      <h2 id="approval-title">승인 대기</h2>
+      <p class="notice">Safety Policy의 require_approval 항목만 표시한다. 이 MVP에서는 승인·정책 수정·재개를 제공하지 않는다.</p>
+      <p id="approval-state" class="description" role="status"></p><div id="approval-view"></div>
     </section>
     <section id="evaluation" aria-labelledby="evaluation-title" hidden>
       <h2 id="evaluation-title">개발 성능 평가</h2>

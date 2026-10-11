@@ -861,8 +861,9 @@ MVP 내부 Neo4j·Ollama 배치는 19.7절로 구체화한다. Collector 설정�
 | 6 | Reporter 평가 화면 | 평가 지표·분자/분모·미검증·미측정 상태 표시 |
 | 7 | 실제 테스트 웹 통합 검증 | 정상 및 로그인·설정·중간 실패 확인, 결과와 한계를 이력에 기록 |
 
-2단계 Web·Docker 골격, 3단계 입력 준비, 4단계 Runner 연결을 구현·대역으로
-검증했다. 5~7단계는 미완료다. 검증 결과와 한계는 19.8~19.10절에 기록한다.
+2단계 Web·Docker 골격, 3단계 입력 준비, 4단계 Runner 연결, 5단계 공개 산출물
+결과 화면을 구현·대역으로 검증했다. 6~7단계는 미완료다. 검증 결과와 한계는
+19.8~19.11절에 기록한다.
 Docker 접속 조건과 모듈별 실제 모델·정책 설정이 준비되지 않으면 실제 전체
 실행을 완료로 기록하지 않는다.
 
@@ -1166,6 +1167,106 @@ node --check local_web/frontend/app.js
 **다음 5단계:** 공개 산출물의 수집 요약·KG snapshot·후보·정책·검증·Reporter
 결과를 화면으로 표현한다. 판단·Schema·산출물 자체는 변경하지 않는다.
 
+### 19.11 5단계 공개 산출물 결과 화면 — 2026-10-12
+
+#### 현재 화면과 책임
+
+A안인 **기본 SVG 그래프와 노드·관계 표**를 구현했다. 기존 정적 UI를 확장하며
+Graph library·새 framework·의존성을 추가하지 않았다. 이 단계의 화면 모델과
+조회 경로는 MVP 내부 구현이며 최종 Web API·DTO·Graph 형식을 확정하지 않는다.
+
+| 화면 | 사용하는 공개 결과 | 표현 범위 |
+| --- | --- | --- |
+| 수집 요약 | `crawl_result` | 역할·계정·페이지·행동·관찰 요청 건수. 인증정보·URL 원문·응답 본문은 옮기지 않음 |
+| 의미 분석 요약 | `semantic_analysis` | 정규화 요청·노드·관계·업무 흐름 및 노드 종류별 건수 |
+| Knowledge Graph | `graph_query_result`의 `structure_snapshot` | 실제 node_id·관계 ID·source_id/target_id·종류·basis·Resource type/instance·업무 흐름. 다른 질의 결과의 배열 위치를 snapshot으로 가정하지 않음 |
+| 진단 과정 | 후보·시나리오·Safety·검증·Reporter | candidate_id·scenario_id·decision_id·verification_id로 연결. 계획 단계는 명시된 order로 정렬. 정책 판정·실행 상태·재현 결과를 구분하고 Reporter의 분류별 집계·확정 외 상태를 별도 표시 |
+| 승인 대기 | `safety_decisions` | require_approval만 별도 메뉴에 표시. 시나리오·후보 ID와 사유. 승인·정책 수정·재개 기능 없음 |
+| 결과 리포트 | `diagnosis_report` | Reporter가 confirmed로 분류한 항목만 목록 표시. 관련 ID·설명·마스킹된 근거 참조·진단 한계 |
+
+메뉴는 새 진단·진단 진행·분석 결과·승인 대기·성능 평가의 5개다. 성능 평가 메뉴는
+6단계 연결 전 안내 화면이다. 후보를 확정 취약점으로 바꾸거나 verifier의 success를
+직접 confirmed로 승격하지 않는다. 미실행·판단불가·승인 대기를 취약점 없음으로
+합치지 않는다. Reporter의 집계와 실제 항목 분류가 불일치하면 조회 오류로 표시하고,
+Web이 판정·집계를 덮어써 보정하지 않는다.
+
+KG는 **검증 전 query 시점**의 snapshot이며 검증 반영 후 최신 그래프가 아니다.
+snapshot 조회 실패·누락·복수 snapshot은 빈 그래프나 임의 첫 결과로 대체하지 않는다.
+현재 화면은 단일 snapshot만 지원한다. Neo4j 재조회·Cypher·그래프 생성·revision
+변경·LLM 호출은 수행하지 않는다. 업무 흐름은 기존 snapshot의 명시된 order를
+표현할 뿐 새 업무 규칙을 추론하지 않는다.
+
+#### 공개 파일 조회 경계
+
+- `local_web/artifacts.py`에서 위 **8종** 공개 JSON만 고정 경로로 읽어 최소 화면
+  모델로 변환한다. `graph_query`·`evaluation_results`는 4단계의 파일 존재 확인만
+  유지한다. Ground Truth 내용·private·로그·근거 본문·HTML 리포트 파일을 읽지 않는다.
+- MVP 내부 `GET/HEAD /api/run-results`는 HttpOnly run cookie로 **자기 최근 실행**만
+  조회한다. 다른 브라우저에는 실행 결과·ID를 공개하지 않는다. 요청의 run_id·파일
+  경로·query parameter로 조회 대상을 선택하는 기능이나 임의 파일 다운로드는 없다.
+- 절대 경로의 각 디렉터리·파일을 `dir_fd`와 `O_NOFOLLOW`로 열어 symlink 경로와
+  교체를 따라가지 않는다. 일반 파일만 읽고 hardlink·FIFO·루트 밖 경로를 거절한다.
+- JSON 중복 키·NaN/Infinity·비유한 수·잘못된 인코딩을 거절하고 envelope의 버전
+  0.2.0·run_id·development·iteration 0·작성자·종류·필수 필드·상태/data/errors 대응을
+  확인한다. 표시 필드의 타입·enum·ID 중복과 그래프 끝점도 확인한다. 이것은 **Web의
+  최소 표시 검증**이며 각 모듈의 전체 JSON Schema·참조·의미 검증을 대신하지 않는다.
+- 이미 읽은 공개 입력과 input_refs의 ID·회차·고정 경로·실제 바이트 hash를 대조한다.
+  Safety·Verifier의 scenarios_sha256도 읽은 시나리오 바이트와 대조한다. 원문 오류
+  message·input_refs·내부 경로는 API에 전달하지 않는다.
+- 실행 중에는 최종 원자 발행 경로의 파일과 envelope를 확인해 부분 조회한다.
+  Runner의 최종 완료 통지·해시가 아직 미확정임을 표시한다. 종료 후에는 검증한
+  Runner 요약에 실제 제공된 파일 hash와 다시 대조하며 파일 변경을 거절한다.
+  파일을 발견한 사실을 전체 진단 완료나 성능 검증 완료로 해석하지 않는다.
+- 미발행·failed·invalid·partial·completed를 구분한다. 실패·잘못된 파일의 view는
+  null이며 정상 0건으로 바꾸지 않는다. 유효한 빈 결과만 0건으로 표시한다.
+- properties·match_key·세션 참조·파라미터 값·인증 헤더·쿠키·요청/응답 본문을
+  화면으로 옮기지 않는다. 공개 사유·설명은 생산자의 마스킹 계약에 따르며, HTML로
+  실행하지 않고 textContent로 표시한다. Web이 생산자의 비밀값 제거 책임을 대체하는
+  것은 아니다. 근거는 redacted=true 참조의 ID·종류·hash만 표시하고 **근거 파일의
+  존재·해시 일치·본문을 확인했다고 주장하지 않는다.**
+
+조회 중 전체 실행 lock을 잡지 않는다. 결과 메뉴에서 실행 중에는 기존 상태
+polling에 맞춰 조회하고, 종료 후에는 메뉴 진입·새로고침·결과 다시 확인으로
+갱신한다. 오래된 요청 응답이 새 실행 화면을 덮어쓰지 않도록 요청 순서를 확인한다.
+Web 재시작 후 소유권 복구·과거 실행 조회는 계속 제외한다.
+
+#### MVP 표시 제한
+
+파일당 최대 8 MiB, 표시 검증에 사용하는 배열당 최대 2,000개, 표시 문자열당
+최대 8,192자다. 초과하면 고정 조회 오류를 표시하며 정상 결과로 대체하지 않는다.
+이는 Web 자원 제한이지 진단 모듈 Schema의 새 제한이 아니다.
+
+SVG는 최대 80개 노드와 그 노드 사이 최대 240개 관계, 표는 최대 100개 행을
+표시한다. 전체 건수와 표시 건수·한도를 함께 공개한다. 도식에서 잘린 노드·관계를
+없어진 데이터로 처리하지 않는다. 대규모 그래프의 페이지 이동·검색·확대/이동·
+배치 알고리즘 고도화·근거 파일 열람은 이번 단계에 추가하지 않았다.
+
+#### 검증 결과와 남은 범위
+
+```bash
+.venv/bin/python -m pytest local_web/tests tests/pipeline -q --tb=short
+node --check local_web/frontend/app.js
+node --check local_web/frontend/results.js
+```
+
+| 검증 | 실제 결과 | 한계 |
+| --- | --- | --- |
+| Web·기존 Runner 회귀 | **284 passed · 8 skipped** (Web 226 + 기존 Runner 58) | 공개 fixture·CLI 대역. 실제 전체 진단 아님 |
+| 읽기 전용 Docker | Web 전체 **234 passed**, UID 10001·root filesystem 읽기 전용 | 선택 검증 8건 포함. 운영용 대상·모델·DB 연결은 실행하지 않음 |
+| Chromium 결과 화면 | completed/partial/failed, 실행 중·종료 후·새로고침 조회, 실제 fixture의 SVG·표·Resource 범위·ID 연결·confirmed 분리·승인 대기·HTML 문자열 비실행, 다른 브라우저 차단, 390px 가로 넘침 없음·JS 오류 0건 | 공개 계약 fixture와 Web 프로세스 대역만 사용 |
+| 표시·경로·비밀값 경계 | 기존 생산자 출력 Schema가 fixture를 수용하는지 확인. 잘못된/누락/초과 JSON·버전/run/회차·해시/참조 불일치·중복 ID·잘못된 그래프 끝점·unsafe 근거·symlink/hardlink/FIFO 거절, GT/private/로그/근거 파일 비열람 | 모듈의 전체 의미·보안·진단 판정 검증을 대체하지 않음 |
+| 빌드·정적 검사 | `abc2lab-local-web:stage5` 빌드, JavaScript syntax·`git diff --check` 성공 | Compose 전체 진단 성공을 뜻하지 않음 |
+
+테스트 fixture·CLI 대역은 운영 이미지에서 제외한다. Docker 검증 컨테이너는
+자동 제거하며 기존 테스트 웹·Neo4j·Ollama·DB/모델 volume을 변경하지 않았다.
+모듈·루트 Runner·기존 Schema·루트 의존성·루트 Compose·docs/spec는 수정하지 않았다.
+
+**다음 6단계:** Reporter의 evaluation_results를 연결해 지표·분자/분모·미검증
+집계·미측정/null·평가 한계를 표시한다. Web은 GT 원문을 읽거나 성능을 재계산하지 않는다.
+그다음 7단계에서 외부 연결 조건·실모델·정책·대상 계정이 준비된 상태로 실제
+Docker 테스트 웹 전체 진단을 검증한다. 이번 단계에서는 실제 모듈·LLM·Neo4j·
+Ground Truth 평가 성능을 완료로 기록하지 않는다.
+
 ## 20. 변경 이력
 
 | 날짜 | 변경 | 구현·계약 영향 |
@@ -1174,3 +1275,4 @@ node --check local_web/frontend/app.js
 | 2026-10-12 | MVP 2단계 Web 화면·Docker 분리 배치·CPU 기본 Ollama·선택 GPU 설정과 공개 경계 구현·검증 | 94 passed, Docker 빌드·3개 서비스 healthy·호스트 접속·메뉴 4개·모바일 폭 확인. 입력·Runner·산출물 연결·모델 추론·전체 진단은 후속 단계. 모듈·Runner·Schema·루트 의존성 변경 없음 |
 | 2026-10-12 | MVP 3단계 읽기 전용 Collector 설정·데이터셋과 URL·복수 계정 입력 준비, 브라우저별 비밀값 임시 보관·폐기 구현 | Web·Runner 158 passed·2 skipped, 해당 Docker 환경 2 passed. 원본 설정 보존·GT 비열람·CSRF·만료·비밀값 비노출 확인. 실제 진단·평가·Runner 실행은 4단계 이후. 모듈·Schema·루트 설정·의존성 변경 없음 |
 | 2026-10-12 | MVP 4단계 기존 Runner 자식 실행·소유 실행 상태·공개 파일 존재·종료 단계 요약, external 대상 네트워크·호스트 결과 폴더·읽기 전용 모듈 설정 연결 | Web·Runner 228 passed·5 skipped, Docker Web 175 passed. CPU/GPU Compose·빌드·Chromium·단일 실행·세션 분리·실패/종료/비밀값 경계 확인. 실제 Docker 대상 진단·LLM/Neo4j·GT 평가는 미검증. 모듈·Runner·Schema·루트 설정·의존성 변경 없음 |
+| 2026-10-12 | MVP 5단계 공개 산출물 기반 수집/의미 요약·기본 SVG KG와 표·ID 연결 진단 과정·승인 대기 메뉴·confirmed 전용 리포트, 소유 실행의 최소 표시 검증 구현 | Web·Runner 284 passed·8 skipped, 읽기 전용 Docker Web 234 passed. fixture Schema·Chromium·부분/실패/미발행·해시/참조·파일 경계·HTML 비실행·390px 화면 확인. 실제 전체 진단·평가 지표 연결은 후속 단계. 모듈·Runner·Schema·루트 설정·의존성·docs/spec 변경 없음 |

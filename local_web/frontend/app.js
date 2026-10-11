@@ -17,6 +17,7 @@ let preparationId = null;
 let canRun = false;
 let isRunBusy = false;
 let runTimer = null;
+let runRequestSequence = 0;
 
 const inputMessages = {
   TEMPLATE_UNAVAILABLE: "Collector TOML 연결이 필요하다.",
@@ -56,6 +57,7 @@ function showSection(fragment) {
       link.removeAttribute("aria-current");
     }
   });
+  if (["results", "approval"].includes(id)) window.abc2labResults?.refresh();
 }
 
 async function checkWebStatus() {
@@ -226,6 +228,7 @@ function fillList(id, values) {
 }
 
 function showRun(result) {
+  window.abc2labResults?.setRun(result);
   const labels = {
     idle: "진단 시작 전", running: "Runner 실행 중 · 현재 단계·진행률 미제공",
     completed: "Runner completed · 취약점 없음 또는 모든 시나리오 실행을 의미하지 않는다.",
@@ -246,12 +249,15 @@ function showRun(result) {
 }
 
 async function refreshRun() {
+  const sequence = ++runRequestSequence;
   clearTimeout(runTimer);
   try {
     const response = await fetch("/api/run-status", { cache: "no-store", mode: "same-origin" });
     if (!response.ok) throw new Error("Run unavailable");
     const result = await response.json();
+    if (sequence !== runRequestSequence) return;
     showRun(result);
+    if (["results", "approval"].includes(location.hash.slice(1))) await window.abc2labResults?.refresh();
     const wasBusy = isRunBusy;
     isRunBusy = result.is_busy === true;
     if (isRunBusy) {
@@ -265,12 +271,14 @@ async function refreshRun() {
       await loadInputOptions();
     }
   } catch {
+    if (sequence !== runRequestSequence) return;
     document.getElementById("run-status").textContent = "실행 상태 조회 실패 · 실패/성공으로 판정하지 않는다. 다시 확인해야 한다.";
   }
 }
 
 startButton.addEventListener("click", async () => {
   if (!preparationId || !csrfToken) return;
+  runRequestSequence += 1;
   startButton.disabled = true;
   clearButton.disabled = true;
   const id = preparationId;

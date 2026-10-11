@@ -31,6 +31,7 @@ STATIC_ROUTES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/results.js": ("results.js", "text/javascript; charset=utf-8"),
 }
 SECURITY_HEADERS = {
     "Cache-Control": "no-store",
@@ -130,9 +131,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self) -> None:
-        if self.path == "/api/run-status":
+        if self.path in {"/api/run-status", "/api/run-results"}:
             try:
-                payload = self.server.runs.status(self.cookie_token(RUN_COOKIE))
+                reader = self.server.runs.results if self.path == "/api/run-results" else self.server.runs.status
+                payload = reader(self.cookie_token(RUN_COOKIE))
                 self.respond_json(HTTPStatus.OK, payload)
             except RunnerError:
                 self.respond_json(HTTPStatus.NOT_FOUND, {"error": "RUN_UNAVAILABLE"})

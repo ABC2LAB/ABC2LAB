@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from local_web.artifacts import read_results
 from local_web.inputs import MAX_INPUT_BYTES, TOKEN_PATTERN, InputError, InputStore, PreparedInput
 
 logger = logging.getLogger(__name__)
@@ -231,6 +232,7 @@ class RunRecord:
     summary: dict[str, object] | None = None
     issue: str | None = None
     elapsed_seconds: int | None = None
+    artifact_hashes: dict[str, str] = field(default_factory=dict, repr=False)
 
 
 class RunnerStore:
@@ -305,12 +307,17 @@ class RunnerStore:
 
     def _watch(self, record: RunRecord, prepared: PreparedInput) -> None:
         summary, state, issue = None, "failed", None
+        hashes = {}
         try:
             body, is_oversized = read_summary(record.process)
             code = record.process.wait()
             if is_oversized:
                 raise RunnerError("RUNNER_SUMMARY_TOO_LARGE")
             summary = safe_summary(body, record.run_root, code)
+            # 검증한 종료 통지의 hash만 내부에 보관한다. 원문 detail은 전달하지 않는다.
+            raw_steps = json.loads(body)["steps"]
+            hashes = {name: step["sha256"] for step, name in zip(raw_steps, STEP_ARTIFACTS.values(), strict=True)
+                      if name is not None and step.get("artifact") and step.get("sha256")}
             state = {0: "completed", 1: "partial", 2: "failed"}[code]
         except (OSError, RunnerError):
             logger.error("runner_result_unavailable")
@@ -327,6 +334,7 @@ class RunnerStore:
             with self._lock:
                 if record.state != "stopped":
                     record.state, record.summary, record.issue = state, summary, issue
+                    record.artifact_hashes = hashes
                 record.exit_code = record.process.returncode
                 record.elapsed_seconds = max(0, int(time.monotonic() - record.started_at))
                 if self._active is record:
@@ -346,6 +354,18 @@ class RunnerStore:
                     "elapsed_seconds": elapsed if elapsed is not None else max(0, int(time.monotonic() - record.started_at)),
                     "artifacts": public_artifacts(record.run_root),
                     "summary": record.summary, "issue": record.issue}
+
+    def results(self, owner_token: str | None) -> dict[str, object]:
+        with self._lock:
+            if owner_token is None:
+                return {"state": "idle", "artifacts": []}
+            if not TOKEN_PATTERN.fullmatch(owner_token) or owner_token not in self._records:
+                raise RunnerError("RUN_UNAVAILABLE")
+            record = self._records[owner_token]
+            run_root, hashes = record.run_root, dict(record.artifact_hashes)
+            run_id, state = record.run_id, record.state
+        # 큰 JSON 읽기 중에도 실행 상태·종료 처리의 lock은 잡지 않는다.
+        return {"run_id": run_id, "state": state, "artifacts": read_results(run_root, hashes)}
 
     def _stop_process(self, record: RunRecord) -> None:
         # 새 process group의 소유 자식만 대상으로 Playwright 자손도 정리한다.
