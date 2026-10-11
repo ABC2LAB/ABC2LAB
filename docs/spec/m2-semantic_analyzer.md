@@ -12,6 +12,24 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
+## 현재 구현·연결 상태 — 2026-10-11
+
+기준 커밋 `30cb867`(dev)의 구현·공개 계약을 반영했다. PR #44·#57 병합 후 상태이며,
+이번 저장소 문서 갱신이 노션 원본의 export 갱신을 의미하지는 않는다.
+
+| 구분 | 현재 상태 |
+| --- | --- |
+| 독립 구현 | `analyze` 공개 함수·CLI, 입력·출력 adapter, 출력 Schema·근거 재검증, 원자 저장 구현 완료 |
+| 모델·추론 | 요청 정규화, 자원(Resource) Type/Instance 분류, 행위 의미·역할 관계(ACCESS는 역할·계정 둘 다)·업무 흐름 추론 구현 완료 |
+| 공개 계약 | 입력 `crawl_result` 수신, 출력 `semantic_analysis` `0.2.0`(Resource 계약, KG와 정렬) |
+| LLM 설정 | 기본 `provider=fake`(네트워크 0 결정적). 커밋 파일을 고치지 않고 경로로 교체한다: CLI `--config` > 환경변수 `SEMANTIC_ANALYZER_CONFIG_PATH` > 기본 `configs/default.toml`. collector `COLLECTOR_CONFIG_PATH`와 같은 방식(PR #57) |
+| 설정 오류 처리 | 명시 경로(인자·환경변수)인데 파일이 없거나 `[llm]`·`provider` 키가 빠지면 `fake`로 조용히 떨어지지 않고 오류로 멈춘다. 기본 파일 부재만 `fake`로 동작(PR #57) |
+| 독립 회귀 | semantic_analyzer `47 passed`. 셸에 `SEMANTIC_ANALYZER_CONFIG_PATH`를 export한 상태로 전체 pytest를 돌려도 autouse 격리로 동일하게 통과 |
+| 실제 전체 연결 | front-half 라이브 연결 확인(collector→semantic_analyzer→KG ingest→access_analyzer, Rule A 후보 산출). 실모델(Ollama) 품질 재확인은 GPU 후속이며 전체 pipeline 완료로 표시하지 않는다 |
+
+상세 구현·회귀는 `modules/semantic_analyzer/`의 `tests/`·`configs/`를 따른다.
+계약 호환 확인·소유 fixture 검증을 전체 pipeline 연결 완료로 표시하지 않는다.
+
 ## 독립 동작·수정 책임
 
 **이 모듈 담당자의 전체 책임:** 명세에 맞는 입력을 받으면 입력 검증·변환·실제 처리·출력 변환·출력 검증·저장·오류 처리·설정·모듈별 의존성 선언·테스트·동작 확인을 자기 폴더 안에서 끝낸다. 실행·테스트는 팀 공통 Python과 루트 잠금 환경에서 수행한다. 외부 모듈의 내부 코드·공유 도구에 의존하지 않는다.
@@ -92,6 +110,7 @@
 - ACCESS는 관찰된 접근을 역할 단위(Role→Endpoint)와 계정 단위(User(계정)→Endpoint) 둘 다로 남긴다. 계정 단위 접근 분석(예: 수평 인가)이 필요하므로 역할 집계만으로 남기지 않는다.
 - User 계정 ID와 Role ID를 분리하고, 원본 요청 ID를 새 ID로 교체하지 않는다.
 - ground_truth.json을 읽거나 프롬프트에 넣지 않는다. 인증·비밀값을 제거한 데이터와 명시된 근거만 사용한다.
+- LLM 설정은 기본 `provider=fake`다. 커밋된 `configs/default.toml`을 고치지 않고 CLI `--config` 또는 환경변수 `SEMANTIC_ANALYZER_CONFIG_PATH`로 다른 설정을 가리킨다(우선순위: `--config` > 환경변수 > 기본). 명시한 경로에 파일이 없거나 `[llm]`·`provider`가 없으면 조용히 fake로 돌지 않고 오류로 멈춘다(fake로 돈 결과를 실모델 결과로 오인하지 않게 한다).
 
 ## 입력·출력 JSON 필드
 
@@ -217,6 +236,16 @@
 | `evidence_refs` | `array<EvidenceRef>` | 필수 | 업무 흐름 분석 근거 참조. |
 
 **재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [EvidenceRef](02-common-contract.md), [ModelInfo](02-common-contract.md), [RuntimeMetrics](02-common-contract.md).
+
+## 변경 이력
+
+저장소 문서 갱신이며, 노션 원본의 export 갱신을 의미하지 않는다. 새 필드·버전은 아래 근거 PR에서 전원 합의로 도입했다.
+
+| 날짜 | 변경 | 근거 |
+| --- | --- | --- |
+| 2026-10-07 | 입력 `crawl_result`에 Page `account_id` 미러, ACCESS를 역할·계정(User→Endpoint) 둘 다로 남기도록 명시, 검증 오류 메시지의 값 누출 차단 | PR #24. 출력 `schema_version`은 0.1.0 유지 |
+| 2026-10-08 | **0.1.0 → 0.2.0.** 출력 `schema_version`을 0.2.0으로 올리고 `node_type=Resource`의 `properties`에 ResourceProperties(`resource_key`·`resource_scope`·`match_key`) 계약을 추가(KG와 동시 전환) | PR #44. 소비자 knowledge_graph·reporter(이동찬)와 합의 |
+| 2026-10-11 | 현재 구현·연결 상태 절 추가, LLM 설정 경로(CLI `--config` > 환경변수 `SEMANTIC_ANALYZER_CONFIG_PATH` > 기본)와 명시 경로의 `[llm]`·`provider` 누락 시 오류 규칙을 명시 | PR #57. 기존 동작 문서화이며 계약·버전 변경 없음 |
 
 ---
 
