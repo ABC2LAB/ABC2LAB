@@ -1,4 +1,4 @@
-"""여러 테스트가 같이 쓰는 대역. 가짜 서버(127.0.0.1의 빈 포트에만 뜬다)와 세션 창구 전송 대역."""
+"""여러 테스트가 같이 쓰는 대역. 가짜 서버(loopback 주소의 빈 포트에만 뜬다, 기본 127.0.0.1)와 세션 창구 전송 대역."""
 
 import threading
 from collections.abc import Iterator, Sequence
@@ -53,12 +53,12 @@ def make_counting_handler(requested_paths: list[str]) -> type[BaseHTTPRequestHan
 
 
 @contextmanager
-def run_server(handler_class: type[BaseHTTPRequestHandler]) -> Iterator[str]:
-    server = ThreadingHTTPServer((LOCALHOST, 0), handler_class)
+def run_server(handler_class: type[BaseHTTPRequestHandler], host: str = LOCALHOST) -> Iterator[str]:
+    server = ThreadingHTTPServer((host, 0), handler_class)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://{LOCALHOST}:{server.server_address[1]}"
+        yield f"http://{host}:{server.server_address[1]}"
     finally:
         server.shutdown()
         server.server_close()
