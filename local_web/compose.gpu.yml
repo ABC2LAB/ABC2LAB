@@ -1,0 +1,10 @@
+# NVIDIA GPU를 명시적으로 사용할 때만 기본 Compose 위에 추가한다.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

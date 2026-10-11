@@ -1,0 +1,119 @@
+name: abc2lab-local-web
+
+services:
+  abc2lab:
+    build:
+      context: ..
+      dockerfile: local_web/Dockerfile
+    environment:
+      LOCAL_WEB_BIND_HOST: 0.0.0.0
+      LOCAL_WEB_PORT: "8080"
+      LOCAL_WEB_PUBLIC_PORT: ${LOCAL_WEB_PORT:-8080}
+      LOCAL_WEB_COLLECTOR_TEMPLATE_PATH: /config/collector.toml
+      LOCAL_WEB_DATASETS_PATH: /app/datasets
+      LOCAL_WEB_RUNS_PATH: /app/runs
+      LOCAL_WEB_MATCHING_PROFILE: ${LOCAL_WEB_MATCHING_PROFILE:-default-v1}
+      SEMANTIC_ANALYZER_CONFIG_PATH: /config/semantic_analyzer.toml
+      SCENARIO_GENERATOR_CONFIG_PATH: /config/scenario_generator.toml
+      SAFETY_POLICY_CONFIG_PATH: /config/policy.json
+      NEO4J_URI: bolt://local-web-neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?local_web/.env에 NEO4J_PASSWORD를 설정}
+      NEO4J_DATABASE: neo4j
+    volumes:
+      - type: bind
+        source: ${LOCAL_WEB_COLLECTOR_CONFIG_PATH:?Collector TOML의 호스트 절대 경로를 설정}
+        target: /config/collector.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${LOCAL_WEB_RUNS_DIR:?실행 결과를 저장할 호스트 절대 경로를 설정}
+        target: /app/runs
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${LOCAL_WEB_SEMANTIC_CONFIG_PATH:?Semantic Analyzer TOML의 호스트 절대 경로를 설정}
+        target: /config/semantic_analyzer.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${LOCAL_WEB_SCENARIO_CONFIG_PATH:?Scenario Generator TOML의 호스트 절대 경로를 설정}
+        target: /config/scenario_generator.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${LOCAL_WEB_POLICY_CONFIG_PATH:?Safety Policy JSON의 호스트 절대 경로를 설정}
+        target: /config/policy.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${LOCAL_WEB_DATASETS_DIR:?datasets의 호스트 절대 경로를 설정}
+        target: /app/datasets
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:${LOCAL_WEB_PORT:-8080}:8080"
+    networks:
+      - default
+      - target
+    stop_grace_period: 10s
+    depends_on:
+      neo4j:
+        condition: service_started
+      ollama:
+        condition: service_started
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=512m,mode=1777
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8080/health', timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  neo4j:
+    image: neo4j:5.26.31-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?local_web/.env에 NEO4J_PASSWORD를 설정}
+    volumes:
+      - neo4j_data:/data
+    networks:
+      default:
+        aliases:
+          - local-web-neo4j
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/7687"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama@sha256:adca95a12c2b386a8f9a995e7fa0600e187e3323b5e5522f5a6c3b1ec73eff99}
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  neo4j_data:
+  ollama_data:
+
+networks:
+  target:
+    external: true
+    name: ${LOCAL_WEB_TARGET_NETWORK:?별도로 실행한 테스트 웹의 기존 네트워크 이름을 설정}
