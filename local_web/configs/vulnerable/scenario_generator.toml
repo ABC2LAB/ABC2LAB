@@ -1,0 +1,8 @@
+# 의미 분석과 같은 모델로 첫 연결을 확인한다. 모듈 기본 설정은 변경하지 않는다.
+# CPU 추론 시간을 실측한 뒤 모델·타임아웃을 새 실행 설정으로 조정한다.
+[llm]
+provider = "ollama"
+model_id = "qwen2.5:1.5b"
+base_url = "http://ollama:11434"
+temperature = 0.0
+timeout_seconds = 300.0

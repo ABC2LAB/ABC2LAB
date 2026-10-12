@@ -1,0 +1,8 @@
+# RAM 12GB·CPU 환경의 첫 연결 검증용 선택. 실제 정확도·응답 시간은 미측정이다.
+# Ollama 컨테이너에 모델을 별도로 준비해야 한다. 자동 다운로드·fake 대체는 없다.
+[llm]
+provider = "ollama"
+model_id = "qwen2.5:1.5b"
+base_url = "http://ollama:11434"
+temperature = 0.0
+timeout_seconds = 300.0
