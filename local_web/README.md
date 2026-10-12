@@ -996,6 +996,12 @@ Web 서버에는 각각 `LOCAL_WEB_COLLECTOR_TEMPLATE_PATH`·`LOCAL_WEB_DATASETS
 같은 역할의 복수 계정을 허용하고, guest는 입력하지 않아도 Collector가 자동 추가한다.
 별칭은 로그인 ID와 달라야 한다. 역할·계정 수·URL을 특정 테스트 웹에 고정하지 않는다.
 
+로그인 ID 입력칸은 입력값을 확인할 수 있도록 평문으로 표시하고, 비밀번호만
+마스킹한다. 이메일·계정 식별자를 받을 수 있도록 로그인 ID에는 역할·별칭의
+소문자 식별자 규칙을 적용하지 않으며 기존 4096자 제한을 유지한다.
+이 표시 변경은 로그인 ID를 공개 결과·API 응답·로그·브라우저 저장소에 남겨도
+된다는 뜻이 아니다. 요청 완료·페이지 이탈 시 로그인 ID와 비밀번호를 함께 비운다.
+
 MVP 대상 URL은 http(s)와 경로만 받으며 userinfo·query·fragment는 거절한다.
 이는 비밀값 유입을 제한하기 위한 Web 입력 제한이다. 실제 origin·실행 허용·
 인증·계정 대응의 최종 검증은 Collector·Safety Policy 등 해당 모듈에 남긴다.
@@ -1449,3 +1455,4 @@ CPU Compose 이미지 재빌드·서비스 기동·모델 설치다. 대상 앱�
 | 2026-10-12 | MVP 5단계 공개 산출물 기반 수집/의미 요약·기본 SVG KG와 표·ID 연결 진단 과정·승인 대기 메뉴·confirmed 전용 리포트, 소유 실행의 최소 표시 검증 구현 | Web·Runner 284 passed·8 skipped, 읽기 전용 Docker Web 234 passed. fixture Schema·Chromium·부분/실패/미발행·해시/참조·파일 경계·HTML 비실행·390px 화면 확인. 실제 전체 진단·평가 지표 연결은 후속 단계. 모듈·Runner·Schema·루트 설정·의존성·docs/spec 변경 없음 |
 | 2026-10-12 | MVP 6단계 Reporter 공개 평가 결과·지표/분자/분모·후보/확정 TP/FP/FN·미검증/null·모델/측정값/한계 표시, 기존 메뉴 조회·새로고침 연결. PR #69의 Collector 설정 origin 허용과 리다이렉트 한계를 현재 연결 조건에 반영 | Web·Runner 332 passed·8 skipped, 최종 Chromium 포함 339 passed·1 skipped. 추가 평가 48건, GT 비열람·원본 지표 보존·참조/revision·조회 실패/복구·모바일·비밀값 경계 확인. 실제 Docker 전체 진단은 7단계. local_web 밖 코드·Schema·의존성·docs/spec 변경 없음 |
 | 2026-10-12 | MVP 7단계 준비: 사용자 승인 기반 vulnerable용 Collector·두 LLM·주문 조회 한정 정책 초안, .env.example·README 연결 안내와 설정 검증 추가 | 설정 7 passed, 설정·입력·Runner 104 passed. CPU qwen2.5:1.5b·호출당 300초, GET /orders 한정·검증 시나리오당 20건/60초, 비밀값 미저장. 실제 .env·모델 다운로드·서비스 기동·진단은 미실행. local_web 밖 변경 없음 |
+| 2026-10-12 | 로그인 ID 입력을 평문으로 표시하고 비밀번호 마스킹 유지. 인증정보 초기화를 input type 대신 필드명 기준으로 변경 | Chromium 포함 Web·Runner 346 passed·1 skipped. 이메일 형태·4096자 제한, 역할·별칭 규칙 유지. 성공·실패·페이지 이탈 시 로그인 ID·비밀번호 초기화와 브라우저 저장소/API 비노출 확인. JavaScript syntax·git diff 검사 성공. 모듈·Schema·백엔드·의존성 변경 없음 |
