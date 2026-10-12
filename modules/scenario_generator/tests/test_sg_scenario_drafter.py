@@ -17,11 +17,14 @@ def test_draft_request_carries_candidate_accounts_and_requests(matched_candidate
         request = build_draft_request(matched, TARGET_URL)
         assert request["target_url"] == TARGET_URL
         assert request["candidate"]["candidate_id"] == matched.candidate["candidate_id"]
-        assert request["actor_account"]["account_id"] == matched.actor_account["account_id"]
+        # 계정은 역할만 보여 준다. account_id·session_ref는 프로그램이 채우므로 초안이 복사하지 못하게 숨긴다.
+        assert request["actor_account"] == {"role_id": matched.actor_account["role_id"]}
         assert [r["request_id"] for r in request["source_requests"]] == matched.candidate["source_request_ids"]
-        expected_reference = matched.reference_account["account_id"] if matched.reference_account else None
-        actual_reference = request["reference_account"]["account_id"] if request["reference_account"] else None
-        assert actual_reference == expected_reference
+        expected_reference = {"role_id": matched.reference_account["role_id"]} if matched.reference_account else None
+        assert request["reference_account"] == expected_reference
+        # 원본 요청에는 계정 식별자를 넣지 않는다(실행 계정은 account_role로만 고른다).
+        for source in request["source_requests"]:
+            assert {"account_id", "role_id", "session_ref"}.isdisjoint(source)
 
 
 def test_draft_request_never_contains_secrets_or_evidence(matched_candidates: list[MatchedCandidate]) -> None:
