@@ -117,6 +117,7 @@
     - `assertions`: 실행 계정 단계 하나에 `response_status`와 `response_json`이 함께 있다. 그 단계 원본 응답이 JSON이 아니면(원본 요청 `response.content_type`에 `json`이 없거나 null) `response_status`만 있어도 된다. 검증 통과 뒤 JSON이 아닌 단계의 `response_json`은 버리고 `ASSERTION_NON_JSON_RESPONSE`로 남기며 시나리오는 발행한다.
     - `resource_state`·`resource_owner`·`baseline_match`는 쓸 수 있지만 verifier가 아직 평가하지 않아(판단불가) 필수 조건을 대신하지 못한다. 이 세 종류의 `subject_ref`·`selector` 규약은 verifier와 합의 전이다.
 - LLM 입력에는 헤더·쿠키·응답 본문·근거 파일 경로·민감 파라미터 값을 넣지 않는다. LLM 초안은 데이터로 보고 위 규칙과 Schema로 전부 다시 검증한다.
+- 검증을 통과하지 못한 초안(`DRAFT_INVALID`·`DRAFTER_FAILED`)은 개발용 진단으로 `runs/<run_id>/private/scenario_generator/draft_diagnostics.json`에 남긴다: 실패 step 위치, 누락/추가 필드·타입, url_template이 참조한 바인딩 vs 선언된 바인딩, 모델·프롬프트 버전, 그리고 **비밀값을 지운 초안 사본**(parameter 값 마스킹). 공개 `test_scenarios.json`에는 초안을 넣지 않으며 실패는 `status=failed`·`data=null`을 유지한다. 저장 실패는 공개 결과를 막지 않는다.
 
 ## 입력·출력 JSON 필드
 
@@ -212,6 +213,7 @@
 | 2026-10-10 | 초안 생성기(drafter) 설정을 기본적으로 설정 파일(`SCENARIO_GENERATOR_CONFIG_PATH` > 커밋된 `configs/scenario_generator.toml`)로 받음. CLI 옵션은 덮어쓰기용으로 남음. 커밋된 기본값 `provider = "none"`이면 `DRAFTER_NOT_CONFIGURED`로 failed. 출력 필드·버전 변경 없음 | #56 |
 | 2026-10-11 | JSON이 아닌 응답 단계는 `response_status`만 있어도 되고, 검증 통과 뒤 그 단계의 `response_json`은 버리고 `ASSERTION_NON_JSON_RESPONSE`로 남김(시나리오는 발행). LLM 입력의 parameter 모양을 출력 `ParameterValue`에 맞춤(내부). 출력 필드·버전 변경 없음 | #62 |
 | 2026-10-12 | 초안(LLM) 책임을 `steps`·`assertions`의 **선택**으로 좁힘: step 식별자(`account_id`·`role_id`·`session_ref`)·`method`·`body_ref`와 세션 `preconditions`를 프로그램이 원본에서 조립. 바인딩 없는 `url_template`은 선택한 원본 요청 URL과 일치해야 함(고정 예시 복사 차단). 프롬프트를 식별자 복사 대신 선택·JSON/비JSON 판정 구분으로 재작성. 출력 Scenario 필드·버전 변경 없음(조립 주체만 바뀜) | 파이프라인 실제 실행에서 고정 예시 ID 누출·식별자 자유 생성 발견 → LLM/프로그램 책임 재배치 요청 |
+| 2026-10-12 | 검증 실패 초안을 개발용 진단으로 `private/scenario_generator/draft_diagnostics.json`에 기록(실패 step·누락/추가 필드·타입·바인딩 미정의·모델/프롬프트 버전, 비밀값 마스킹 사본). 공개 산출물·계약 불변 | 실모델 초안 실패의 실제 원인(잘못된 필드·바인딩)을 사람이 보게 하기 위함(진단 1단계) |
 
 ### 0.2.0 `Scenario.resource_ids` (소비자 입력 사본 미러 기준)
 

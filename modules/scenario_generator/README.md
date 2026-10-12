@@ -180,7 +180,23 @@ drafter 옵션은 `--llm-provider` `--drafts` `--model-id` `--base-url` `--tempe
 | `ASSERTION_NON_JSON_RESPONSE` | JSON이 아닌 응답 단계를 가리키는 `response_json` 조건을 버림. 시나리오는 발행한다(메시지에는 버린 check_id만) | candidate_id |
 | `DRAFTER_NOT_CONFIGURED` | 초안 생성기(LLM)가 설정되지 않음(`provider = "none"`) | null |
 
+## 실패 초안 진단 (개발용)
+
+검증을 통과하지 못한 초안(`DRAFT_INVALID`·`DRAFTER_FAILED`)은 `runs/<run_id>/private/scenario_generator/draft_diagnostics.json`에 개발용으로 남긴다. 공개 `test_scenarios.json`에는 초안을 넣지 않고, 실패는 `status=failed`·`data=null`을 유지한다. 저장 실패는 공개 결과를 막지 않는다(로그만 남긴다).
+
+실패 후보마다 레코드 하나:
+
+- `candidate_id`, `failure`(`DRAFT_INVALID`|`DRAFTER_FAILED`), `model_info`(모델·프롬프트 버전)
+- `problems`: 검증 문제 전체(공개 오류는 요약본이지만 여기엔 전체를 남긴다)
+- `field_diagnosis`: top-level·step·request의 **누락/추가 필드**와 기본 타입·허용값 문제
+- `binding_analysis`: step마다 `url_template`이 참조한 바인딩 vs 그 step에 선언된 바인딩 vs **미정의**(참조−선언)
+- `draft`: **비밀값 제거 사본**(parameter 값 마스킹, 구조·url_template·바인딩은 보존)
+
+목적은 "기대 필드 목록"이 아니라 **실제로 어느 필드·바인딩이 틀렸는지** 사람이 보는 것이다.
+
 ## 초안 검증 규칙
+
+LLM 초안은 `steps`·`assertions`의 **선택**만 담는다. 아래 계정·`method`·`body_ref`·세션 사전조건은 프로그램이 원본에서 조립하므로, 다음 검사는 조립 결과에 대한 안전망이다(현재 경계는 [m5 명세](../../docs/spec/m5-scenario_generator.md)).
 
 Schema(필드·타입·enum, 미정의 키 거절) 외에 다음을 코드로 확인한다.
 

@@ -29,6 +29,7 @@ from modules.scenario_generator.input_adapter import (
     load_input_artifact,
 )
 from modules.scenario_generator.output_adapter import (
+    PRODUCER,
     STATUS_FAILED,
     OutputContractError,
     OutputParts,
@@ -64,6 +65,9 @@ EXIT_FILE_WRITTEN = 0
 EXIT_NO_FILE_WRITTEN = 2
 DRAFTER_NOT_CONFIGURED_CODE = "DRAFTER_NOT_CONFIGURED"
 MILLISECONDS_PER_SECOND = 1000
+# 실패 초안 진단은 공개 산출물이 아니라 scenario_generator private 영역에만 둔다(명세 02: private/<module_id>/).
+PRIVATE_DIR_NAME = "private"
+DIAGNOSTICS_FILENAME = "draft_diagnostics.json"
 CLI_SOURCE = "CLI"
 # CLI ollama 옵션(argparse dest) → 설정 키. drafter 옵션을 하나라도 주면 CLI 모드(설정 파일을 안 읽는다).
 CLI_OLLAMA_KEY_BY_DEST = {
@@ -167,10 +171,11 @@ def _make_failed_parts(
 
 def _produce_parts(
     input_paths: Mapping[str, Path], execution: ExecutionContext, drafter: ScenarioDrafter | None, started: float
-) -> OutputParts:
+) -> tuple[OutputParts, list[dict[str, Any]]]:
+    """(출력 parts, 실패 초안 진단). 진단은 공개 산출물이 아니라 private에 따로 저장한다."""
     loaded, input_errors = _load_inputs(input_paths, execution)
     if input_errors:
-        return _make_failed_parts([error.to_error_item() for error in input_errors], loaded, started)
+        return _make_failed_parts([error.to_error_item() for error in input_errors], loaded, started), []
     if drafter is None:
         error_item = {
             "code": DRAFTER_NOT_CONFIGURED_CODE,
@@ -178,17 +183,17 @@ def _produce_parts(
             "item_ref": None,
             "retryable": False,
         }
-        return _make_failed_parts([error_item], loaded, started)
+        return _make_failed_parts([error_item], loaded, started), []
 
     try:
         outcome = generate_scenarios(
             loaded["vulnerability_candidates"], loaded["crawl_result"], drafter
         )
     except InputError as error:
-        return _make_failed_parts([error.to_error_item()], loaded, started)
+        return _make_failed_parts([error.to_error_item()], loaded, started), []
 
     status = decide_status(len(outcome.scenarios), outcome.candidate_count, len(outcome.errors))
-    return OutputParts(
+    parts = OutputParts(
         status=status,
         errors=outcome.errors,
         input_refs=[loaded[artifact_type].artifact_ref for artifact_type in SUPPORTED_INPUT_TYPES],
@@ -196,6 +201,33 @@ def _produce_parts(
         model_info=drafter.model_info,
         runtime_metrics=_make_runtime_metrics(started, outcome),
     )
+    return parts, outcome.diagnostics
+
+
+def _write_draft_diagnostics(execution: ExecutionContext, diagnostics: list[dict[str, Any]]) -> None:
+    """실패 초안 진단을 private 영역(`run_root/private/scenario_generator/`)에만 저장한다.
+
+    공개 산출물이 아니라 개발용이므로, 저장에 실패해도 공개 결과·완료 응답을 막지 않는다(로그만 남긴다).
+    """
+    if not diagnostics:
+        return
+    private_dir = execution.run_root / PRIVATE_DIR_NAME / PRODUCER
+    path = private_dir / DIAGNOSTICS_FILENAME
+    record = {
+        "run_id": execution.run_id,
+        "iteration": execution.iteration,
+        "mode": execution.mode,
+        "produced_at": _make_created_at(),
+        "record_count": len(diagnostics),
+        "records": diagnostics,
+    }
+    try:
+        private_dir.mkdir(parents=True, exist_ok=True)
+        write_json_atomically(path, record)
+    except OSError as error:
+        logger.warning("초안 진단 기록을 저장하지 못했다(진행은 계속): %s", error)
+    else:
+        logger.info("초안 진단 기록 저장: %s (%d건)", path, len(diagnostics))
 
 
 def _make_created_at() -> str:
@@ -232,7 +264,7 @@ def run(
         mode=execution.mode,
         artifact_id=f"test_scenarios_{execution.run_id}_iteration{execution.iteration:03d}",
     )
-    parts = _produce_parts(parsed_input_paths, execution, drafter, started)
+    parts, diagnostics = _produce_parts(parsed_input_paths, execution, drafter, started)
     document = build_output_document(identity, _make_created_at(), parts)
 
     try:
@@ -240,6 +272,8 @@ def run(
     except OSError as error:
         raise OutputWriteError(f"출력 파일을 저장하지 못했다: {output_path.name}") from error
 
+    # 공개 산출물을 먼저 저장한 뒤, 실패 초안 진단을 private에 따로 남긴다(개발용, 공개 계약 불변).
+    _write_draft_diagnostics(execution, diagnostics)
     logger.info("test_scenarios.json 저장 완료: status=%s, errors=%d", parts.status, len(parts.errors))
     return {
         "status": parts.status,

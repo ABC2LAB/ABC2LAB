@@ -10,6 +10,7 @@ from enum import StrEnum
 from typing import Any
 
 from modules.scenario_generator.candidate_matcher import CrawlIndex, MatchedCandidate, build_crawl_index, match_candidates
+from modules.scenario_generator.draft_diagnostics import build_draft_invalid_record, build_drafter_failed_record
 from modules.scenario_generator.input_adapter import InputErrorCode, LoadedArtifact
 from modules.scenario_generator.scenario_drafter import (
     ACCOUNT_ROLE_ACTOR,
@@ -51,6 +52,8 @@ class GenerationOutcome:
     llm_calls: int
     input_tokens: int | None
     output_tokens: int | None
+    # 실패한 초안의 개발용 진단 레코드(비밀값 제거). entrypoint가 private 영역에만 저장한다.
+    diagnostics: list[dict[str, Any]]
 
 
 def _make_error_item(code: str, message: str, item_ref: str | None, is_retryable: bool) -> dict[str, Any]:
@@ -153,8 +156,12 @@ def _compose_scenario(matched: MatchedCandidate, draft_scenario: Any, index: Cra
 
 def _finalize_scenario(
     matched: MatchedCandidate, draft_scenario: Any, index: CrawlIndex, target_url: str
-) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-    """초안을 조립·검증하고, 통과하면 JSON이 아닌 응답 단계의 response_json 조건을 버린다. 실패면 (None, [DRAFT_INVALID])."""
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[str]]:
+    """초안을 조립·검증하고, 통과하면 JSON이 아닌 응답 단계의 response_json 조건을 버린다.
+
+    돌려주는 것: (시나리오|None, 오류 항목, 실패 문제 목록). 실패면 시나리오=None이고 문제 목록이 비어 있지 않다
+    (진단 기록용 전체 목록이며, 공개 오류 메시지는 요약본을 쓴다).
+    """
     candidate_id = matched.candidate["candidate_id"]
     context = ValidationContext(matched, index, target_url)
     scenario, problem = _compose_scenario(matched, draft_scenario, index)
@@ -166,8 +173,9 @@ def _finalize_scenario(
         problems = find_scenario_problems(scenario, context) if dropped_check_ids else []
     if problems:
         logger.warning("후보 %s의 초안이 검증을 통과하지 못했다 (%d건)", candidate_id, len(problems))
-        return None, [_make_error_item(GenerationErrorCode.DRAFT_INVALID.value, summarize_problems(problems), candidate_id, False)]
-    return scenario, [
+        error = _make_error_item(GenerationErrorCode.DRAFT_INVALID.value, summarize_problems(problems), candidate_id, False)
+        return None, [error], problems
+    notes = [
         _make_error_item(
             GenerationErrorCode.ASSERTION_NON_JSON_RESPONSE.value,
             f"JSON이 아닌 응답 단계를 가리키는 response_json 조건 {check_id}를 버렸다",
@@ -176,6 +184,7 @@ def _finalize_scenario(
         )
         for check_id in dropped_check_ids
     ]
+    return scenario, notes, []
 
 
 def _upstream_partial_errors(artifacts: list[LoadedArtifact]) -> list[dict[str, Any]]:
@@ -204,9 +213,11 @@ def generate_scenarios(
     errors = _upstream_partial_errors([candidates_artifact, crawl_artifact])
     errors += [rejected.to_error_item() for rejected in match_result.rejected]
     scenarios: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
     input_token_counts: list[int | None] = []
     output_token_counts: list[int | None] = []
     llm_calls = 0
+    model_info = getattr(drafter, "model_info", None)
 
     for matched in match_result.matched:
         candidate_id = matched.candidate["candidate_id"]
@@ -218,14 +229,17 @@ def generate_scenarios(
             errors.append(
                 _make_error_item(GenerationErrorCode.DRAFTER_FAILED.value, str(error), candidate_id, error.is_retryable)
             )
+            diagnostics.append(build_drafter_failed_record(candidate_id, str(error), model_info))
             continue
         input_token_counts.append(draft.input_tokens)
         output_token_counts.append(draft.output_tokens)
 
-        scenario, scenario_errors = _finalize_scenario(matched, draft.scenario, index, crawl_data["target_url"])
+        scenario, scenario_errors, problems = _finalize_scenario(matched, draft.scenario, index, crawl_data["target_url"])
         errors += scenario_errors
         if scenario is not None:
             scenarios.append(scenario)
+        else:
+            diagnostics.append(build_draft_invalid_record(candidate_id, draft.scenario, problems, model_info))
 
     return GenerationOutcome(
         scenarios=scenarios,
@@ -234,4 +248,5 @@ def generate_scenarios(
         llm_calls=llm_calls,
         input_tokens=_sum_known(input_token_counts),
         output_tokens=_sum_known(output_token_counts),
+        diagnostics=diagnostics,
     )
