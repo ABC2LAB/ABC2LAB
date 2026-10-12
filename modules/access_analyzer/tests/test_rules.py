@@ -15,6 +15,18 @@ FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "graph_query_result
 INPUT_REL = "artifacts/iteration-000/knowledge_graph/graph_query_result.json"
 CANDIDATES_SCHEMA = "output/vulnerability_candidates.schema.json"
 RESULT_SCHEMA = "input/graph_query_result.schema.json"
+# 리터럴 입력도 실제 KG 출력 모양을 따른다: 우리 graph_query를 가리키는 참조 하나와 계획한 네 질의의 결과.
+# 규칙과 상관없는 두 질의(workflow_dependencies·structure_snapshot)는 빈 결과로 채운다.
+GRAPH_QUERY_REF = {
+    "artifact_id": "graph_query-run_demo_001-000-0a1b2c3d", "artifact_type": "graph_query", "iteration": 0,
+    "path": "artifacts/iteration-000/access_analyzer/graph_query.json", "sha256": "0" * 64,
+}
+UNUSED_RESULTS = [
+    {"query_id": "q_workflow_dependencies", "query_key": "workflow_dependencies", "status": "completed", "rows": [],
+     "errors": []},
+    {"query_id": "q_structure_snapshot", "query_key": "structure_snapshot", "status": "completed",
+     "rows": [{"nodes": [], "relationships": [], "workflows": []}], "errors": []},
+]
 
 
 def _config(enabled: bool = True, max_candidates: int = 100) -> RuleConfig:
@@ -25,18 +37,26 @@ def _artifact(results, status="completed", errors=None, revision=1):
     return {
         "schema_version": "0.2.0", "artifact_type": "graph_query_result", "artifact_id": "r",
         "run_id": "run_demo_001", "iteration": 0, "producer": "knowledge_graph", "mode": "development",
-        "created_at": "2026-10-07T00:03:00Z", "status": status, "input_refs": [], "errors": errors or [],
-        "runtime_metrics": None,
-        "data": {"graph_id": "graph_demo_001", "graph_revision": revision, "results": results},
+        "created_at": "2026-10-07T00:03:00Z", "status": status, "input_refs": [GRAPH_QUERY_REF],
+        "errors": errors or [], "runtime_metrics": None,
+        "data": {
+            "graph_id": "graph_demo_001", "graph_revision": revision, "results": [*results, *UNUSED_RESULTS],
+        },
     }
 
 
 def _ownership(rows):
-    return {"query_id": "q_o", "query_key": "resource_ownership", "status": "completed", "errors": [], "rows": rows}
+    return {
+        "query_id": "q_resource_ownership", "query_key": "resource_ownership", "status": "completed", "errors": [],
+        "rows": rows,
+    }
 
 
 def _access(rows):
-    return {"query_id": "q_a", "query_key": "role_resource_access", "status": "completed", "errors": [], "rows": rows}
+    return {
+        "query_id": "q_role_resource_access", "query_key": "role_resource_access", "status": "completed",
+        "errors": [], "rows": rows,
+    }
 
 
 def _match_key(resource_id):

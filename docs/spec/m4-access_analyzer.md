@@ -12,16 +12,17 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-11
+## 현재 구현·연결 상태 — 2026-10-12
 
-기준 커밋 `30cb867`(PR #61·#62 병합 후)의 구현·공개 계약을 반영했다.
+기준 커밋 `11291f2`에 analyze 입력 대조 강화를 더한 구현·공개 계약을 반영했다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
 | 독립 구현 | `prepare_queries`·`analyze`, 공개 `run()`·CLI, 원자 저장 구현 완료. prepare_queries는 `resource_ownership`·`role_resource_access`·`workflow_dependencies`·`structure_snapshot`을 한 번씩 작성한다 |
 | 후보 규칙 | 구현된 규칙은 Rule A(`rule_same_role_other_owner`, 수평: 같은 역할의 다른 계정이 소유한 자원 접근) 하나뿐이다. 규칙 입력은 `resource_ownership`·`role_resource_access` 결과뿐이다. 운영자 접근 정책 입력이 없어 후보 `expected_basis`는 `inferred`다 |
+| 입력 대응 | analyze는 같은 실행 값으로 질의 계획을 다시 만들어 결과의 `(query_id, query_key)` 쌍이 계획과 정확히 같고, 입력 `input_refs`가 access_analyzer의 `graph_query` 하나를 가리킬 때만 후보를 만든다. 아니면 `QUERY_PLAN_MISMATCH`로 failed |
 | 공개 계약 | 출력 `graph_query`·`vulnerability_candidates`, 입력 `graph_query_result` 모두 `0.2.0` |
-| 독립 회귀 | access_analyzer `80 passed` |
+| 독립 회귀 | access_analyzer `87 passed` |
 | 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행에서 prepare_queries → KG query → analyze가 completed로 끝나고 후보가 scenario_generator·reporter까지 전달됐다(2026-10-11) |
 
 남은 것: 기능 수준·강제 브라우징·업무 흐름 규칙. 세부는 [모듈 README](../../modules/access_analyzer/README.md).
@@ -97,7 +98,7 @@
 ## 완료 기준
 
 - [x]  prepare_queries와 analyze를 분리하고 knowledge_graph와 합의한 질의·응답 계약을 각각 검증한다.
-- [ ]  질의 ID·키·graph_revision을 검증하고, 오래된 결과로 후보를 만들지 않는다.
+- [x]  질의 ID·키·graph_revision을 검증하고, 오래된 결과로 후보를 만들지 않는다.
 - [x]  후보에 원본 요청·계정·자원·기대 조건의 근거를 연결하고 후보를 취약점 확정으로 기록하지 않는다.
 
 ## 구현 주의사항
@@ -106,6 +107,7 @@
 - 기대 조건은 expected_basis=rule·inferred·unknown으로 구분한다. 추론·불명확한 기대를 확정 정책으로 취급하지 않는다.
 - 동일 역할의 다른 계정과 소유 자원을 구분한다. 역할 이름만으로 수평 인가 관계를 판단하지 않는다.
 - Neo4j 연결과 실제 Cypher 실행은 knowledge_graph에 맡긴다. query_id·query_key·revision이 대응하지 않으면 오래된 결과로 후보를 만들지 않는다.
+- analyze는 결과의 `(query_id, query_key)` 쌍 집합을 계획과 정확히 대조한다. 계획한 질의 누락·계획에 없는 query_id·짝 바뀜·같은 query_key 중복·`input_refs`의 graph_query 참조 없음은 `QUERY_PLAN_MISMATCH`로 failed(후보 없음)이고, 계획한 질의가 다 있고 일부만 failed면 partial이다.
 - 질의 실패·부분 결과를 후보 없음으로 단정하지 않는다. 작업 오류와 분석하지 못한 범위를 공통 상태·errors로 추적한다.
 
 ## 입력·출력 JSON 필드
@@ -221,6 +223,7 @@
 | 날짜 | 변경 | 근거 |
 | --- | --- | --- |
 | 2026-10-11 | 현재 구현·연결 상태 표 추가 | 문서만, 계약 변경 없음 |
+| 2026-10-12 | analyze 입력 대조 강화: 결과 `(query_id, query_key)`가 계획과 정확히 같고 `input_refs`에 access_analyzer의 graph_query가 하나일 때만 후보 생성, 아니면 오류 코드 `QUERY_PLAN_MISMATCH`(failed) | 동작 변경. 계약 필드 변경 없음(ErrorItem.code는 자유 문자열) |
 
 ### 0.1.0 → 0.2.0
 
