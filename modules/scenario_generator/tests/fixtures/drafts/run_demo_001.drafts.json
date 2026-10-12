@@ -1,18 +1,12 @@
 {
   "cand_horizontal_1": {
-    "preconditions": [
-      { "check_id": "pre_actor_session", "kind": "session_valid", "subject_ref": "account_a", "selector": null, "operator": "eq", "expected": true },
-      { "check_id": "pre_reference_session", "kind": "session_valid", "subject_ref": "account_b", "selector": null, "operator": "eq", "expected": true }
-    ],
     "steps": [
       {
         "step_id": "step_owner_list",
         "order": 0,
         "source_request_id": "req_b_list",
-        "account_id": "account_b",
-        "role_id": "role_user",
-        "session_ref": "session_ref_b",
-        "request": { "method": "GET", "url_template": "http://target.example.test/items", "parameters": [], "body_ref": null },
+        "account_role": "reference",
+        "request": { "url_template": "http://target.example.test/items", "parameters": [] },
         "bindings": [],
         "state_change": "none"
       },
@@ -20,10 +14,8 @@
         "step_id": "step_actor_detail",
         "order": 1,
         "source_request_id": "req_b_detail",
-        "account_id": "account_a",
-        "role_id": "role_user",
-        "session_ref": "session_ref_a",
-        "request": { "method": "GET", "url_template": "http://target.example.test/items/{binding_item_id}", "parameters": [], "body_ref": null },
+        "account_role": "actor",
+        "request": { "url_template": "http://target.example.test/items/{binding_item_id}", "parameters": [] },
         "bindings": [
           { "binding_id": "binding_item_id", "source_step_id": "step_owner_list", "source_part": "response_body", "selector": "/0/id" }
         ],
@@ -36,18 +28,13 @@
     ]
   },
   "cand_workflow_1": {
-    "preconditions": [
-      { "check_id": "pre_actor_session", "kind": "session_valid", "subject_ref": "account_a", "selector": null, "operator": "eq", "expected": true }
-    ],
     "steps": [
       {
         "step_id": "step_confirm_directly",
         "order": 0,
         "source_request_id": "req_a_confirm",
-        "account_id": "account_a",
-        "role_id": "role_user",
-        "session_ref": "session_ref_a",
-        "request": { "method": "POST", "url_template": "http://target.example.test/items/202/confirm", "parameters": [], "body_ref": null },
+        "account_role": "actor",
+        "request": { "url_template": "http://target.example.test/items/202/confirm", "parameters": [] },
         "bindings": [],
         "state_change": "expected"
       }

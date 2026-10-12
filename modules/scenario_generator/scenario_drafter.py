@@ -8,8 +8,17 @@ from typing import Any, Protocol
 
 from modules.scenario_generator.candidate_matcher import MatchedCandidate
 
-# Scenario 중 이 세 키만 초안(LLM 몫)이다. 나머지는 프로그램이 원본 후보에서 채운다.
-DRAFT_KEYS = frozenset({"preconditions", "steps", "assertions"})
+# 초안(LLM 몫)의 최상위 키. preconditions는 프로그램이 steps에서 세션 사전조건으로 생성한다.
+# steps의 식별자(account_id·role_id·session_ref·method·body_ref)도 프로그램이 원본에서 채운다.
+DRAFT_KEYS = frozenset({"steps", "assertions"})
+# 초안 step이 가져야 하는 키(축소형). 식별자 대신 선택(account_role)만 담는다.
+DRAFT_STEP_KEYS = frozenset({"step_id", "order", "source_request_id", "account_role", "request", "bindings", "state_change"})
+# 초안 step.request의 키. method·body_ref는 선택한 원본 요청에서 프로그램이 채운다.
+DRAFT_REQUEST_KEYS = frozenset({"url_template", "parameters"})
+# account_role: 실행 단계가 어느 계정으로 도는지. 실제 account_id·role_id·session_ref는 프로그램이 채운다.
+ACCOUNT_ROLE_ACTOR = "actor"
+ACCOUNT_ROLE_REFERENCE = "reference"
+ACCOUNT_ROLES = frozenset({ACCOUNT_ROLE_ACTOR, ACCOUNT_ROLE_REFERENCE})
 # 인증 헤더·쿠키 변경은 ParameterValue 계약이 허용하지 않으므로 LLM에게 보여 줄 이유가 없다.
 HIDDEN_PARAMETER_LOCATIONS = frozenset({"header", "cookie"})
 
@@ -39,12 +48,15 @@ class ScenarioDrafter(Protocol):
 
 
 def _view_account(account: dict[str, Any]) -> dict[str, Any]:
-    return {"account_id": account["account_id"], "role_id": account["role_id"], "session_ref": account["session_ref"]}
+    # 역할만 보여 준다. account_id·session_ref는 프로그램이 채우므로 초안이 복사할 이유가 없다.
+    return {"role_id": account["role_id"]}
 
 
 def _view_request(request: dict[str, Any]) -> dict[str, Any]:
     # 출력 ParameterValue와 같은 모양으로 보여 준다. 입력 모양({..., is_sensitive})을 베낀 초안이 필수 키
     # binding_ref를 빠뜨려 DRAFT_INVALID가 났다(10/11 실행). is_sensitive는 출력에 없는 키라 보여 주지 않는다.
+    # 원본 요청의 account_id·role_id·session_ref는 보여 주지 않는다: IDOR는 실행 계정(actor)으로 돌려야 하는데
+    # 원본 요청 계정을 복사하면 안 되기 때문이다(실행 계정은 account_role로만 고르고 값은 프로그램이 채운다).
     parameters = [
         {
             "name": parameter["name"],
@@ -58,9 +70,6 @@ def _view_request(request: dict[str, Any]) -> dict[str, Any]:
     ]
     return {
         "request_id": request["request_id"],
-        "account_id": request["account_id"],
-        "role_id": request["role_id"],
-        "session_ref": request["session_ref"],
         "method": request["method"],
         "url": request["url"],
         "parameters": parameters,
@@ -72,7 +81,10 @@ def _view_request(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_draft_request(matched: MatchedCandidate, target_url: str) -> dict[str, Any]:
-    """LLM에 보낼 입력. 헤더·쿠키·응답 본문·근거 파일 경로는 넣지 않는다."""
+    """LLM에 보낼 입력. 헤더·쿠키·응답 본문·근거 파일 경로·계정 식별자는 넣지 않는다.
+
+    초안은 source_request와 account_role(actor|reference)만 고르고, 실제 식별자는 프로그램이 채운다.
+    """
     candidate = matched.candidate
     return {
         "target_url": target_url,

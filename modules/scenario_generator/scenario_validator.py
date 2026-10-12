@@ -116,6 +116,11 @@ def _check_step_request(step: dict[str, Any], index: CrawlIndex) -> list[str]:
         problems.append(f"단계 {step_id}의 method가 원본 요청 {source['request_id']}과 다르다")
     if plan["body_ref"] is not None and plan["body_ref"] != source["body_ref"]:
         problems.append(f"단계 {step_id}의 body_ref가 원본 요청 {source['request_id']}의 것이 아니다")
+    # 바인딩 치환이 없는 url_template은 선택한 원본 요청 URL과 정확히 같아야 한다.
+    # (고정 예시 URL을 복사한 초안이 host/port만 맞아 통과하던 틈을 막는다. 동적 경로는 {바인딩}으로 열어 둔다.)
+    url_template = plan["url_template"]
+    if "{" not in url_template and url_template != source["url"]:
+        problems.append(f"단계 {step_id}의 url_template이 원본 요청 {source['request_id']}의 URL과 다르다")
     return problems
 
 

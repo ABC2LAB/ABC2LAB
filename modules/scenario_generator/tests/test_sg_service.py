@@ -221,7 +221,7 @@ def test_response_json_on_non_json_step_is_dropped_and_reported(
         source_by_step = {step["step_id"]: step["source_request_id"] for step in draft["steps"]}
         return [
             (check["check_id"], source_by_step[check["subject_ref"]])
-            for check in draft["preconditions"] + draft["assertions"]
+            for check in draft["assertions"]
             if check["kind"] == "response_json" and check["subject_ref"] in source_by_step
         ]
 

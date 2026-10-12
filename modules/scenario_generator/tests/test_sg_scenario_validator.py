@@ -13,19 +13,16 @@ from modules.scenario_generator.scenario_validator import (
     find_scenario_problems,
     summarize_problems,
 )
+from modules.scenario_generator.service import _compose_scenario
 
 Mutation = Callable[[dict[str, Any], dict[str, Any]], None]
 
 
-def compose_scenario(matched: MatchedCandidate, drafts: dict[str, Any]) -> dict[str, Any]:
-    candidate = matched.candidate
-    return {
-        "scenario_id": f"scenario_{candidate['candidate_id']}",
-        "candidate_id": candidate["candidate_id"],
-        "expected_basis": candidate["expected_basis"],
-        "resource_ids": list(candidate["resource_ids"]),
-        **copy.deepcopy(drafts[candidate["candidate_id"]]),
-    }
+def compose_scenario(matched: MatchedCandidate, index: CrawlIndex, drafts: dict[str, Any]) -> dict[str, Any]:
+    # 실제 서비스와 같은 방식으로 조립한다(식별자·method·body_ref·세션 사전조건은 프로그램이 채운다).
+    scenario, problem = _compose_scenario(matched, copy.deepcopy(drafts[matched.candidate["candidate_id"]]), index)
+    assert problem is None, problem
+    return scenario
 
 
 @pytest.fixture
@@ -44,7 +41,7 @@ def chained_case(
         allowed.add(matched.reference_account["account_id"])
     other_account = next(a for a in crawl_index.accounts_by_id.values() if a["account_id"] not in allowed)
     other_role_id = next(r for r in crawl_index.roles_by_id if r != matched.actor_account["role_id"])
-    return context, compose_scenario(matched, drafts), {"other_account_id": other_account["account_id"], "other_role_id": other_role_id}
+    return context, compose_scenario(matched, crawl_index, drafts), {"other_account_id": other_account["account_id"], "other_role_id": other_role_id}
 
 
 def get_consumer(scenario: dict[str, Any]) -> dict[str, Any]:
@@ -61,7 +58,7 @@ def test_valid_scenarios_have_no_problems(
 ) -> None:
     target_url = crawl_artifact.document["data"]["target_url"]
     for matched in matched_candidates:
-        scenario = compose_scenario(matched, drafts)
+        scenario = compose_scenario(matched, crawl_index, drafts)
         assert find_scenario_problems(scenario, ValidationContext(matched, crawl_index, target_url)) == []
 
 
@@ -144,6 +141,11 @@ def mutate_url_userinfo(s: dict[str, Any], env: dict[str, Any]) -> None:
 
 def mutate_url_without_scheme(s: dict[str, Any], env: dict[str, Any]) -> None:
     get_producer(s)["request"]["url_template"] = "//target.example.test/items"
+
+
+def mutate_url_same_origin_wrong_path(s: dict[str, Any], env: dict[str, Any]) -> None:
+    # 바인딩 없는 단계의 url을 같은 origin·다른 경로로 바꾼다(고정 예시 URL을 복사한 초안을 모사).
+    get_producer(s)["request"]["url_template"] = "http://target.example.test/some/other/path"
 
 
 def mutate_account_outside_candidate(s: dict[str, Any], env: dict[str, Any]) -> None:
@@ -247,6 +249,7 @@ PROBLEM_CASES: list[tuple[str, Mutation, str]] = [
     ("url has placeholder in host", mutate_url_placeholder_in_host, "주소에 바인딩"),
     ("url has userinfo", mutate_url_userinfo, "사용자 정보"),
     ("url has no scheme", mutate_url_without_scheme, "origin 밖"),
+    ("url same origin but wrong path", mutate_url_same_origin_wrong_path, "URL과 다르다"),
     ("account is not actor or reference", mutate_account_outside_candidate, "실행·기준 계정이 아니다"),
     ("role does not match account", mutate_role_mismatch, "role_id가"),
     ("session_ref does not match account", mutate_session_mismatch, "session_ref가"),
