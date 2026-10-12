@@ -35,8 +35,8 @@ def _request() -> dict[str, Any]:
             "actor_account": {}, "reference_account": None, "source_requests": []}
 
 
-def test_parses_three_key_draft_and_tokens():
-    draft_obj = {"preconditions": [], "steps": [], "assertions": []}
+def test_parses_draft_and_tokens():
+    draft_obj = {"steps": [], "assertions": []}
     client = OllamaScenarioDrafter(_config(),
                                    transport=lambda u, p, t: _response_bytes(draft_obj, in_tokens=11, out_tokens=22))
     result = client.draft(_request())
@@ -49,11 +49,12 @@ def test_prompt_carries_request_as_json_only():
 
     def transport(url: str, payload: bytes, timeout: float) -> bytes:
         captured["body"] = json.loads(payload)
-        return _response_bytes({"preconditions": [], "steps": [], "assertions": []})
+        return _response_bytes({"steps": [], "assertions": []})
 
     OllamaScenarioDrafter(_config(), transport=transport).draft(_request())
     body = captured["body"]
-    assert body["model"] == "test-model" and body["format"] == "json" and body["stream"] is False
+    # format(구조화 출력)은 test_sg_draft_schema.py가 본다.
+    assert body["model"] == "test-model" and body["stream"] is False
     assert json.loads(body["prompt"])["candidate"]["candidate_id"] == "c1"
     assert body["options"]["seed"] == 3
 

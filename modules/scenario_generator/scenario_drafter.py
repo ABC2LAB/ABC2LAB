@@ -3,24 +3,39 @@
 초안은 데이터일 뿐이다. 타입·ID·참조 검증은 scenario_validator가 다시 한다 (CLAUDE.md 절대 규칙 4).
 """
 
+import copy
+import functools
+import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from modules.scenario_generator.candidate_matcher import MatchedCandidate
+from modules.scenario_generator.scenario_validator import OUTPUT_SCHEMA_PATH
 
 # 초안(LLM 몫)의 최상위 키. preconditions는 프로그램이 steps에서 세션 사전조건으로 생성한다.
 # steps의 식별자(account_id·role_id·session_ref·method·body_ref)도 프로그램이 원본에서 채운다.
-DRAFT_KEYS = frozenset({"steps", "assertions"})
+# 순서는 구조화 출력에서 모델이 키를 쓰는 순서가 된다.
+DRAFT_FIELDS = ("steps", "assertions")
+DRAFT_KEYS = frozenset(DRAFT_FIELDS)
 # 초안 step이 가져야 하는 키(축소형). 식별자 대신 선택(account_role)만 담는다.
-DRAFT_STEP_KEYS = frozenset({"step_id", "order", "source_request_id", "account_role", "request", "bindings", "state_change"})
-# 초안 step.request의 키. method·body_ref는 선택한 원본 요청에서 프로그램이 채운다.
-DRAFT_REQUEST_KEYS = frozenset({"url_template", "parameters"})
+DRAFT_STEP_FIELDS = ("step_id", "order", "source_request_id", "account_role", "request", "bindings", "state_change")
+DRAFT_STEP_KEYS = frozenset(DRAFT_STEP_FIELDS)
+# 초안 step.request의 키. url_template·method·body_ref는 선택한 원본 요청에서 프로그램이 채운다.
+# 원본 URL을 LLM에게 베끼게 하면 작은 모델이 path 파라미터 이름을 {…}로 넣은 템플릿을 지어냈다(10/12 6차 입력 실행).
+DRAFT_REQUEST_FIELDS = ("parameters",)
+DRAFT_REQUEST_KEYS = frozenset(DRAFT_REQUEST_FIELDS)
 # account_role: 실행 단계가 어느 계정으로 도는지. 실제 account_id·role_id·session_ref는 프로그램이 채운다.
 ACCOUNT_ROLE_ACTOR = "actor"
 ACCOUNT_ROLE_REFERENCE = "reference"
 ACCOUNT_ROLES = frozenset({ACCOUNT_ROLE_ACTOR, ACCOUNT_ROLE_REFERENCE})
 # 인증 헤더·쿠키 변경은 ParameterValue 계약이 허용하지 않으므로 LLM에게 보여 줄 이유가 없다.
 HIDDEN_PARAMETER_LOCATIONS = frozenset({"header", "cookie"})
+# 구조화 출력 문법에 넣는 JSON 값(parameter value·check expected). 출력 jsonValue는 재귀라 문법이 커지므로
+# 스칼라와 스칼라 배열까지만 허용한다. 출력 계약 검증은 scenario_validator가 출력 Schema로 따로 한다.
+_SCALAR_TYPES = ["string", "number", "boolean", "null"]
+_DRAFT_VALUE_SCHEMA = {"type": [*_SCALAR_TYPES, "array"], "items": {"type": _SCALAR_TYPES}}
+_NON_EMPTY_STRING_SCHEMA = {"type": "string", "minLength": 1}
+_NULLABLE_STRING_SCHEMA = {"type": ["string", "null"]}
 
 
 class DrafterError(Exception):
@@ -36,7 +51,7 @@ class DrafterError(Exception):
 
 @dataclass(frozen=True)
 class Draft:
-    scenario: Any  # 신뢰하지 않는 값: {"preconditions", "steps", "assertions"} 모양이어야 한다
+    scenario: Any  # 신뢰하지 않는 값: {"steps", "assertions"} 모양이어야 한다
     input_tokens: int | None = None
     output_tokens: int | None = None
 
@@ -102,3 +117,62 @@ def build_draft_request(matched: MatchedCandidate, target_url: str) -> dict[str,
         "reference_account": _view_account(matched.reference_account) if matched.reference_account else None,
         "source_requests": [_view_request(request) for request in matched.source_requests],
     }
+
+
+def _object_schema(properties: dict[str, Any]) -> dict[str, Any]:
+    return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
+
+
+@functools.cache
+def _load_output_defs() -> dict[str, Any]:
+    return json.loads(OUTPUT_SCHEMA_PATH.read_text(encoding="utf-8"))["$defs"]
+
+
+@functools.cache
+def _build_draft_json_schema() -> dict[str, Any]:
+    defs = _load_output_defs()
+    parameter = _object_schema({
+        "name": _NON_EMPTY_STRING_SCHEMA,
+        "location": {"enum": defs["parameterValue"]["properties"]["location"]["enum"]},
+        "value": _DRAFT_VALUE_SCHEMA,
+        "binding_ref": _NULLABLE_STRING_SCHEMA,
+    })
+    binding = _object_schema({
+        "binding_id": _NON_EMPTY_STRING_SCHEMA,
+        "source_step_id": _NON_EMPTY_STRING_SCHEMA,
+        "source_part": {"enum": defs["binding"]["properties"]["source_part"]["enum"]},
+        "selector": _NON_EMPTY_STRING_SCHEMA,
+    })
+    check = _object_schema({
+        "check_id": _NON_EMPTY_STRING_SCHEMA,
+        "kind": {"enum": defs["check"]["properties"]["kind"]["enum"]},
+        "subject_ref": _NON_EMPTY_STRING_SCHEMA,
+        "selector": _NULLABLE_STRING_SCHEMA,
+        "operator": {"enum": defs["check"]["properties"]["operator"]["enum"]},
+        "expected": _DRAFT_VALUE_SCHEMA,
+    })
+    request_properties = {"parameters": {"type": "array", "items": parameter}}
+    step_properties = {
+        "step_id": _NON_EMPTY_STRING_SCHEMA,
+        "order": {"type": "integer", "minimum": 0},
+        "source_request_id": _NON_EMPTY_STRING_SCHEMA,
+        "account_role": {"enum": [ACCOUNT_ROLE_ACTOR, ACCOUNT_ROLE_REFERENCE]},
+        "request": _object_schema({field: request_properties[field] for field in DRAFT_REQUEST_FIELDS}),
+        "bindings": {"type": "array", "items": binding},
+        "state_change": {"enum": defs["scenarioStep"]["properties"]["state_change"]["enum"]},
+    }
+    step = _object_schema({field: step_properties[field] for field in DRAFT_STEP_FIELDS})
+    draft_properties = {
+        "steps": {"type": "array", "minItems": 1, "items": step},
+        "assertions": {"type": "array", "minItems": 1, "items": check},
+    }
+    return _object_schema({field: draft_properties[field] for field in DRAFT_FIELDS})
+
+
+def build_draft_json_schema() -> dict[str, Any]:
+    """초안 JSON Schema(Ollama 구조화 출력 format용). 키·중첩·허용값만 디코딩 단계에서 강제한다.
+
+    키는 DRAFT_* 순서, 허용값은 출력 Schema(test_scenarios)에서 가져와 계약과 어긋나지 않게 한다.
+    ID 존재·순서·참조 같은 의미는 강제하지 못하므로 service 조립과 scenario_validator가 계속 검증한다.
+    """
+    return copy.deepcopy(_build_draft_json_schema())

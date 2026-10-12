@@ -158,10 +158,12 @@ drafter 옵션은 `--llm-provider` `--drafts` `--model-id` `--base-url` `--tempe
 
 1. **입력 adapter** (`input_adapter.py`): 경로(run 루트 안)·해시·엄격한 JSON(중복 키·NaN 거절)·`schema_version`·Schema·`run_id`·상류 상태 확인
 2. **후보 대조** (`candidate_matcher.py`): 실행·기준 계정, 역할, 근거 요청, `session_ref`가 `crawl_result`와 맞는지 확인. ID만 존재하고 관계가 다르면 거절
-3. **초안 생성** (`scenario_drafter.py`): LLM에게 줄 입력을 만든다(헤더·쿠키·응답 본문·근거 경로·비밀 파라미터 값은 제외)
-4. **초안 검증** (`scenario_validator.py`): Schema + 의미 검사. 통과한 초안만 시나리오가 된다.
+3. **초안 생성** (`scenario_drafter.py`): LLM에게 줄 입력을 만든다(헤더·쿠키·응답 본문·근거 경로·비밀 파라미터 값은 제외).
+   Ollama drafter는 초안 JSON Schema를 `format`으로 넘겨 초안 모양(키·중첩·허용값)을 디코딩 단계에서 강제한다
+4. **조립** (`service.py`): 초안의 선택(원본 요청·`account_role`·바꿀 파라미터·바인딩·판정 조건)에 원본의 계정 식별자·`method`·`url_template`·`body_ref`와 세션 사전조건을 붙인다
+5. **초안 검증** (`scenario_validator.py`): Schema + 의미 검사. 통과한 초안만 시나리오가 된다.
    통과한 뒤 JSON이 아닌 응답 단계를 가리키는 `response_json` 조건을 버리고(`ASSERTION_NON_JSON_RESPONSE`), 버린 게 있으면 다시 검증한다
-5. **출력 adapter** (`output_adapter.py`) → **원자적 저장** (`utils/atomic_io.py`): 완료 파일은 덮어쓰지 않는다
+6. **출력 adapter** (`output_adapter.py`) → **원자적 저장** (`utils/atomic_io.py`): 완료 파일은 덮어쓰지 않는다
 
 후보 하나가 실패해도 나머지는 계속 처리하고, 실패는 `item_ref=candidate_id`로 `errors`에 남긴다.
 
@@ -189,14 +191,22 @@ drafter 옵션은 `--llm-provider` `--drafts` `--model-id` `--base-url` `--tempe
 - `candidate_id`, `failure`(`DRAFT_INVALID`|`DRAFTER_FAILED`), `model_info`(모델·프롬프트 버전)
 - `problems`: 검증 문제 전체(공개 오류는 요약본이지만 여기엔 전체를 남긴다)
 - `field_diagnosis`: top-level·step·request의 **누락/추가 필드**와 기본 타입·허용값 문제
-- `binding_analysis`: step마다 `url_template`이 참조한 바인딩 vs 그 step에 선언된 바인딩 vs **미정의**(참조−선언)
-- `draft`: **비밀값 제거 사본**(parameter 값 마스킹, 구조·url_template·바인딩은 보존)
+- `binding_analysis`: step마다 참조한 바인딩(`parameter_referenced`: parameter의 `binding_ref`, path 바인딩 포함 / `url_referenced`: 초안에 없어야 할 `url_template`이 있을 때 그 `{…}`) vs 그 step에 선언된 바인딩 vs **미정의**(참조−선언)
+- `draft`: **비밀값 제거 사본**(parameter 값 마스킹, 구조·바인딩은 보존)
 
 목적은 "기대 필드 목록"이 아니라 **실제로 어느 필드·바인딩이 틀렸는지** 사람이 보는 것이다.
 
 ## 초안 검증 규칙
 
-LLM 초안은 `steps`·`assertions`의 **선택**만 담는다. 아래 계정·`method`·`body_ref`·세션 사전조건은 프로그램이 원본에서 조립하므로, 다음 검사는 조립 결과에 대한 안전망이다(현재 경계는 [m5 명세](../../docs/spec/m5-scenario_generator.md)).
+LLM 초안은 `steps`·`assertions`의 **선택**만 담는다. 아래 계정·`method`·`url_template`·`body_ref`·세션 사전조건은 프로그램이 원본에서 조립하므로, 다음 검사는 조립 결과에 대한 안전망이다(현재 경계는 [m5 명세](../../docs/spec/m5-scenario_generator.md)).
+
+조립 단계(`service.py`)에서 먼저 거르는 것:
+
+- 초안 키가 정해진 것과 다르다(최상위 `steps`·`assertions`, step 7개, `request`는 `parameters`만). 값이 원본과 같아도 `url_template`·`method` 같은 프로그램 몫 키가 있으면 거절한다
+- 경로 바인딩: 초안은 URL을 쓰지 않고, 그 단계 원본 요청의 path 파라미터에 `binding_ref`를 건다(`value`=null).
+  프로그램은 원본 URL에서 그 파라미터 관찰값과 같은 경로 조각 **하나**를 `{binding_id}`로 바꾸고, 그 파라미터는 출력 `parameters`에서 뺀다.
+  다음은 거절한다: 리터럴 path 값(value가 있음), 원본 요청에 없는 path 이름·관찰값이 null인 이름, 같은 조각이 0개 또는 여러 개.
+  verifier는 URL에 자리가 없는 path 파라미터를 조용히 무시하므로, 효과 없는 path 변경을 "실행됨"으로 보이게 두지 않는다
 
 Schema(필드·타입·enum, 미정의 키 거절) 외에 다음을 코드로 확인한다.
 
@@ -214,7 +224,8 @@ Schema(필드·타입·enum, 미정의 키 거절) 외에 다음을 코드로 �
 - 바인딩 selector: 본문은 JSON Pointer 문법, 헤더는 소문자 이름. `response_json` 조건의 selector도 JSON Pointer
 - 단계의 계정은 후보의 **실행 계정 또는 기준 계정**만 쓰고, `role_id`·`session_ref`가 그 계정과 같다
 - `source_request_id`가 `crawl_result`에 있고, `method`가 원본 요청과 같고, `body_ref`는 null이거나 원본 요청의 것이다
-- `url_template`의 scheme·host·port가 `crawl_result.target_url`과 같다. 주소 부분에는 바인딩·사용자 정보를 쓸 수 없다
+- `url_template`의 scheme·host·port가 `crawl_result.target_url`과 같다. 주소 부분에는 바인딩·사용자 정보를 쓸 수 없다.
+  바인딩이 없는 `url_template`은 원본 요청 URL과 정확히 같다(프로그램이 채우므로 늘 참이고, 조립 실수를 막는 안전망이다)
 - `scenario_id`·`candidate_id`·`expected_basis`·`resource_ids`는 프로그램이 원본 후보에서 채운다. 초안에 이 키가 있으면 값이 원본과 같아도 거절하고, 채운 값이 원본 후보와 다르면 거절한다
 
 ## 초안 생성기(LLM) 연결
@@ -227,7 +238,7 @@ class ScenarioDrafter(Protocol):
     def draft(self, request: dict) -> Draft: ...  # Draft(scenario, input_tokens, output_tokens)
 ```
 
-- 초안은 `{"preconditions", "steps", "assertions"}` 세 키만 가진 객체여야 한다
+- 초안은 `{"steps", "assertions"}` 두 키만 가진 객체여야 한다(모양은 `scenario_drafter.build_draft_json_schema()`)
 - 호출 실패는 `DrafterError`로 감싸서 던진다(메시지에 비밀값·프롬프트 원문 금지)
 - 구현체는 두 개다.
 
@@ -236,15 +247,22 @@ class ScenarioDrafter(Protocol):
 | `ReplayScenarioDrafter` | `replay_drafter.py` | 개발·테스트. `drafts_path`(설정)·`--drafts`(CLI) 파일의 초안을 그대로 돌려준다. `model_info.model_id`는 `replay_file`로 남아 LLM이 아님을 드러낸다 |
 | `OllamaScenarioDrafter` | `ollama_drafter.py` | 실제 로컬 모델. 표준 라이브러리 `urllib`로 Ollama `/api/generate`를 부른다(추가 패키지 없음, 폐쇄망용) |
 
-- Ollama 프롬프트 버전은 `PROMPT_VERSION`(현재 `ollama-scenario-v4`)이고 `model_info.prompt_version`에 기록된다.
-  v4(10/11): parameter 객체 예시를 넣고 입력 parameter가 출력과 같은 모양이라고 적었다.
-  프롬프트에는 중첩 레코드(ScenarioStep·RequestPlan·ParameterValue·Binding·Check)의 정확한 필드와 아래 "초안 검증 규칙"의 판정 조건 요구를 적었다
+- Ollama 프롬프트 버전은 `PROMPT_VERSION`(현재 `ollama-scenario-v6`)이고 `model_info.prompt_version`에 기록된다.
+  - v4(10/11): parameter 객체 예시를 넣고 입력 parameter가 출력과 같은 모양이라고 적었다.
+  - v5(10/12): 초안을 선택으로 좁혔다(계정 식별자·`method`·`body_ref`·세션 사전조건은 프로그램).
+  - v6(10/12): URL 복사 지시를 빼고(`url_template`도 프로그램), 경로 바인딩은 path 파라미터의 `binding_ref`로만 표현한다고 적었다.
+  - 프롬프트에는 초안 레코드의 정확한 필드와 아래 "초안 검증 규칙"의 판정 조건 요구를 적었다
+- Ollama 호출의 `format`은 `"json"`이 아니라 초안 JSON Schema다(구조화 출력). `"json"`은 JSON인지만 강제해서 작은 모델이 키를 잘못 중첩했다(10/12 6차 입력 qwen2.5:1.5b: `bindings`·`state_change`를 `request` 안에).
+  Schema의 키는 `DRAFT_*` 상수 순서, 허용값은 출력 Schema에서 가져온다. 모든 객체가 미정의 키를 거절하고 `steps`·`assertions`는 1개 이상이다.
+  값(`value`·`expected`)은 생성 문법을 줄이려고 스칼라와 스칼라 배열까지만 둔다. 의미(ID 존재·순서·참조)는 강제하지 못하므로 조립·`scenario_validator`가 계속 본다.
+  `format`에 JSON Schema를 받는 Ollama(0.5 이상)가 필요하다
 - LLM에게 주는 입력은 `build_draft_request`가 만든 것뿐이다(헤더·쿠키·응답 본문·근거 경로·민감 파라미터 값 제외)
   - `source_requests[].parameters`는 출력 ParameterValue와 같은 `{name, location, value, binding_ref: null}` 모양으로 보여 준다.
     `is_sensitive`는 출력에 없는 키라 빼고, 민감 값은 null이다. 입력 모양이 출력과 다르면 LLM이 입력을 베끼다 필수 키(`binding_ref`)를 빠뜨렸다(10/11 실행 DRAFT_INVALID 2건)
+  - path 파라미터는 이름·관찰값을 그대로 보여 준다. 초안이 경로 바인딩을 걸 이름이 필요하다. 헤더·쿠키 파라미터는 보여 주지 않는다
 - 모델 출력은 데이터다. 모양이 맞아도 `scenario_validator`가 전부 다시 검증하고, 통과하지 못하면 `DRAFT_INVALID`로 버린다
 
-## 명세(v0.1) 대비 변경
+## 명세 대비 변경 이력
 
 필드 정의는 `docs/spec/m5-scenario_generator.md` "변경 이력"에도 같은 내용으로 적었다.
 
@@ -264,7 +282,7 @@ class ScenarioDrafter(Protocol):
 | `Check.subject_ref` (`response_status`·`response_json`·`session_valid`) | 응답 조건은 step_id, `session_valid`는 account_id | 확정 | verifier `execution.py` Check 평가 |
 | `Check.subject_ref`·selector (`resource_state`·`resource_owner`·`baseline_match`) | 정하지 않음. 필수 조건으로 치지 않는다 | 미정 | verifier(최민준). verifier가 아직 평가하지 않음 |
 | `Binding`의 위치 | 값을 **쓰는** 단계의 `bindings`에 두고 `source_step_id`로 앞 단계를 가리킨다 | 확정 | verifier는 URL을 만들 때 그 단계의 `bindings`만 읽는다. 이 모듈도 그 단계의 `bindings`에 정의된 바인딩만 쓰게 검증한다 |
-| `url_template`의 `{binding_id}` 와 `parameters(location=path)` | `url_template`의 `{...}`는 바인딩 ID만 허용 | 확정(더 엄격) | verifier는 `{경로 파라미터 이름}` 치환도 지원하지만, 이 모듈은 바인딩만 쓴다 |
+| `url_template`의 `{binding_id}` 와 `parameters(location=path)` | `url_template`은 프로그램이 원본 URL로 채우고 `{...}`는 바인딩 ID만 쓴다. 경로 바인딩은 관찰값 조각 하나를 `{binding_id}`로 바꾸고, 출력 `parameters`에는 `location=path`를 남기지 않는다 | 확정(더 엄격) | verifier는 `{경로 파라미터 이름}` 치환도 지원하지만, 이 모듈은 바인딩만 쓴다. verifier는 URL에 자리가 없는 path 파라미터를 무시한다 |
 | 근거 요청의 계정 | `source_request_ids`의 요청이 실행 계정의 것일 필요는 없다 | 확정 | access_analyzer README: 기준(소유자) 계정의 요청을 실행 계정이 재현한다 |
 | 후보와 시나리오의 수 | 후보 1개당 시나리오 1개. `scenario_id = "scenario_" + candidate_id` | 미정 | 이경준 |
 | 기준 계정 단계 | 기준(소유자) 계정으로 보내는 단계를 steps에 둘 수 있다(필수 아님) | 미정 | 이경준. 명세 m7의 정상 기준 비교를 위해 필수로 바꿀지 |
@@ -280,7 +298,7 @@ class ScenarioDrafter(Protocol):
 | access_analyzer ↔ knowledge_graph | access_analyzer 입력·출력 모두 `0.2.0`. `Candidate.resource_ids`는 KG Resource instance `node_id`다 | 이 모듈은 그 값을 `Scenario.resource_ids`로 그대로 복사한다. 형식은 가정하지 않는다 |
 | safety_policy | 등록된 요청 규칙이 없으면 GET이어도 `require_approval`. URL에 fragment·공백·`//`·`.`/`..` 세그먼트·잘못된 `%` 인코딩이 있으면 허용하지 않음 | 이 모듈은 위 URL 형식을 미리 거르지 않는다. 허용 여부는 safety_policy가 정한다 |
 | verifier | `state_change≠none` 단계와 `body_ref`가 있는 단계는 보내지 않는다(DB 초기화 훅·본문 역참조가 다음 PR). `resource_state`·`resource_owner`·`baseline_match`는 평가하지 않는다 | 지금 끝까지 판정되는 것은 **GET + `state_change=none` 읽기 시나리오**뿐이다. 그 밖은 판단불가(`indeterminate`) |
-| verifier ↔ knowledge_graph | KG 0.2는 검증 관계의 target으로 앞 단계에서 받은 Resource instance `node_id`만 받는다 | `test_scenarios` 0.2.0의 `Scenario.resource_ids`로 전달한다(위 "명세(v0.1) 대비 변경"). verifier가 이 값을 `graph_updates`에 쓰는 것은 verifier 쪽 작업이다 |
+| verifier ↔ knowledge_graph | KG 0.2는 검증 관계의 target으로 앞 단계에서 받은 Resource instance `node_id`만 받는다 | `test_scenarios` 0.2.0의 `Scenario.resource_ids`로 전달한다(위 "명세 대비 변경 이력"). verifier가 이 값을 `graph_updates`에 쓰는 것은 verifier 쪽 작업이다 |
 
 생산자 샘플로 교차 확인한 결과(10/9): collector·access_analyzer `run_demo_001` 샘플이 이 모듈 입력 adapter를 통과한다(Schema 오류 0).
 `resource_ids`를 넣은 `test_scenarios` 샘플은 safety_policy·verifier·reporter 입력 사본이 이 필드를 미러하기 전까지 거절된다
