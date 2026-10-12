@@ -324,3 +324,44 @@ def test_cli_rejects_malformed_expected_sha256(workspace: Workspace, drafts_path
 
 def test_cli_rejects_missing_drafts_file(workspace: Workspace, tmp_path: Path) -> None:
     assert main(cli_args(workspace, tmp_path / "no_such_drafts.json")) == 2
+
+
+class _InvalidDrafter:
+    """모든 후보에 account_role 누락 등 잘못된 축소 초안을 주는 drafter(진단 기록을 트리거한다)."""
+
+    model_info = {"model_id": "stub", "model_version": "stub", "prompt_version": "test", "temperature": None, "seed": None}
+
+    def draft(self, request: dict[str, Any]) -> Any:
+        from modules.scenario_generator.scenario_drafter import Draft
+        return Draft(scenario={
+            "steps": [{
+                "step_id": "s1", "order": 0, "source_request_id": "no_such_request",
+                "request": {"url_template": "http://wrong.example/x", "parameters": []},
+                "bindings": [], "state_change": "none",
+            }],
+            "assertions": [],
+        })
+
+
+def _diagnostics_path(workspace: Workspace) -> Path:
+    return workspace.run_root / "private" / "scenario_generator" / "draft_diagnostics.json"
+
+
+def test_failed_drafts_are_recorded_in_private_diagnostics(workspace: Workspace) -> None:
+    response = workspace.run(_InvalidDrafter())
+    # 공개 산출물은 기존대로 failed·data=null 유지(초안을 공개에 넣지 않는다).
+    assert response["status"] == "failed"
+    assert workspace.read_output()["data"] is None
+
+    record = json.loads(_diagnostics_path(workspace).read_text(encoding="utf-8"))
+    assert record["record_count"] == record["record_count"] and record["record_count"] >= 1
+    first = record["records"][0]
+    assert first["failure"] == "DRAFT_INVALID"
+    assert "account_role" in first["field_diagnosis"]["steps"][0]["missing"]
+    assert first["draft"] is not None  # 비밀값 제거 사본 포함
+    assert first["model_info"]["model_id"] == "stub"
+
+
+def test_successful_run_writes_no_diagnostics(workspace: Workspace, replay_drafter: ReplayScenarioDrafter) -> None:
+    workspace.run(replay_drafter)
+    assert not _diagnostics_path(workspace).exists()
