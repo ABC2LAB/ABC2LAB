@@ -1,0 +1,28 @@
+# 첫 vulnerable 테스트용 공개 설정 초안. 모듈 기본 설정이나 제품 기본값이 아니다.
+# 주소는 대상 컨테이너의 서비스명·내부 포트다. Web 입력 시 URL만 교체한다.
+target_url = "http://testapp-vulnerable:8000"
+extra_allowed_origins = []
+max_depth = 3
+allow_state_changing = false
+roles = ["user", "admin"]
+
+# 현재 테스트 앱의 로그인 폼에서 확인한 이름이다. 다른 웹에는 별도 설정이 필요하다.
+[login]
+path = "/login"
+username_field = "email"
+password_field = "password"
+success_check = "left_login_page"
+
+# 별칭은 공개 결과로 나간다. 로그인 ID·비밀번호는 저장하지 않고 Web에서 입력한다.
+# 별칭·역할 변경 시 운영자가 policy.json의 test_accounts도 별도로 확인한다.
+[[accounts]]
+alias = "user_a"
+role = "user"
+
+[[accounts]]
+alias = "user_b"
+role = "user"
+
+[[accounts]]
+alias = "admin_a"
+role = "admin"

@@ -1348,6 +1348,96 @@ volume·사용자 설정을 변경하지 않았다. `local_web/` 밖의 모듈·
 리다이렉트 partial도 확인하고 실제 결과·한계를 기록한다. 모듈 변경이 필요하면
 해당 담당자에게 요청하며 Web에서 판단·정책·허용 origin을 임의로 수정하지 않는다.
 
+### 19.13 7단계 준비: vulnerable 실행 설정 초안 — 2026-10-12
+
+사용자가 승인한 첫 테스트용 설정을 `local_web/configs/vulnerable/`에 추가했다.
+아직 서비스 실행·모델 다운로드·실제 로그인·전체 진단을 하지 않았다.
+테스트 앱에만 해당하는 값은 외부 설정에 두며 Web·모듈 코드에 하드코딩하지 않는다.
+이 초안은 제품 기본 정책이나 임의 웹에 공통 적용할 설정이 아니다.
+
+| 파일 | 승인한 설정 | 변경 시 확인할 사항 |
+| --- | --- | --- |
+| collector.toml | target_url=http://testapp-vulnerable:8000, extra_allowed_origins 없음, max_depth=3, allow_state_changing=false | 대상의 실제 Docker DNS·내부 포트·로그인 폼과 맞아야 함 |
+| semantic_analyzer.toml | Ollama qwen2.5:1.5b, http://ollama:11434, temperature=0.0, timeout_seconds=300.0 | CPU용 첫 모델 선택. 설치·메모리·응답 시간·추론 품질은 별도 확인 |
+| scenario_generator.toml | 의미 분석과 동일한 모델·주소·temperature·timeout | 모듈별 변경 가능. 두 설정이 같다는 사실은 두 단계 성공을 보장하지 않음 |
+| policy.json | policy_config 0.1.0·policy_version=draft-1, 해당 origin의 /orders 범위만, 시나리오당 최대 20건·60초 | 운영자가 범위·별칭·역할·요청 영향을 검토. Web이 입력에 맞춰 자동 수정하지 않음 |
+
+#### Collector 입력과 정책 계정
+
+- 로그인은 `/login`, input name은 `email`·`password`, 성공 판정은
+  `left_login_page`다. 현재 테스트 앱 폼·라우터에서 확인했으며 다른 웹에는 재확인한다.
+- 화면 초기 계정 별칭은 `user_a`·`user_b`(user), `admin_a`(admin)다. Guest는
+  Collector가 자동 추가한다. 로그인 ID·비밀번호는 어떤 초안 파일에도 넣지 않는다.
+- 정책은 Collector의 공개 ID 규칙에 맞춘 `account:guest`/`role:guest`,
+  `account:user_a`·`account:user_b`/`role:user`, `account:admin_a`/`role:admin`을
+  명시한다. Guest 외 계정은 세션이 필요하다. 실제 계정 비밀값은 Web 화면에서 받는다.
+- Web에서 별칭·역할·대상 URL을 변경하면 정책 원본도 운영자가 별도로 검토한다.
+  기존 정책과 안 맞는 입력은 실행 허용으로 대체하거나 범위를 자동 확대하지 않는다.
+
+#### 첫 검증 범위와 한계
+
+현재 테스트 앱의 GET `/orders`·`/orders/{order_id}` 구현은 조회만 하므로 이 범위에
+`state_change=none`·`data_impact=read_only`·`service_impact=low` 규칙을 작성했다.
+GET이라는 이유만으로 모든 경로를 읽기 전용으로 분류한 것이 아니다. 경로 prefix는
+정확한 `/orders`와 `/orders/` 하위 경로를 의미하며 `/orders-other`는 포함하지 않는다.
+대상 앱에 새 하위 경로나 상태 변경 동작이 추가되면 이 prefix의 규칙을 다시 검토한다.
+
+- 동일 경로의 POST·PUT·PATCH·DELETE는 세 영향 모두 `block`이다.
+- 다른 origin·경로는 허용 범위 밖이므로 차단한다. 허용 범위 안에서 규칙이 없는
+  method는 unknown/승인 대기로 남기며 요청을 실행하지 않는다.
+- 읽기 전용 규칙이라도 계획의 state_change가 unknown이면 승인 대기를 유지한다.
+  상태 변경 추정과 충돌하거나 다른 assessment가 실패해도 Web이 allow로 바꾸지 않는다.
+- 로그인 세션 획득은 Collector의 공개 인증 창구 책임이다. verifier 계획에 담긴
+  별도 POST `/login`은 이 정책 범위 밖이다. 이 초안으로 인증 POST를 검증 요청에
+  허용하는 것이 아니다.
+- 수집은 대상 전체를 탐색할 수 있지만 verifier의 첫 허용 범위는 주문 조회에 한정한다.
+  따라서 장바구니·관리자 기능 등 전체 취약점 검증 완료나 취약점 없음으로 해석하지 않는다.
+- 20건·60초는 **시나리오당 검증 요청 제한**이다. 전체 진단의 총량 제한이나 LLM의
+  호출당 300초 타임아웃과 다르다. 재시도·리다이렉트는 verifier의 실제 요청 예산에 포함된다.
+
+#### 실행 연결 전 준비
+
+`local_web/.env.example`의 안내를 따라 커밋하지 않는 `local_web/.env`를 직접
+준비한다. 설정 4개에는 다음 **호스트 절대 경로**를 지정한다. `<저장소 절대 경로>`는
+실제 위치로 치환하며, 예시 문자열 그대로 실행하지 않는다.
+
+```dotenv
+LOCAL_WEB_COLLECTOR_CONFIG_PATH=<저장소 절대 경로>/local_web/configs/vulnerable/collector.toml
+LOCAL_WEB_SEMANTIC_CONFIG_PATH=<저장소 절대 경로>/local_web/configs/vulnerable/semantic_analyzer.toml
+LOCAL_WEB_SCENARIO_CONFIG_PATH=<저장소 절대 경로>/local_web/configs/vulnerable/scenario_generator.toml
+LOCAL_WEB_POLICY_CONFIG_PATH=<저장소 절대 경로>/local_web/configs/vulnerable/policy.json
+```
+
+설정 4개는 이미지에 넣지 않고 Compose의 기존 읽기 전용 마운트로 전달한다.
+추가로 실제 대상 네트워크, datasets 디렉터리, UID 10001이 쓸 수 있는 결과
+디렉터리, Neo4j 비밀번호가 필요하다. 비밀번호는 템플릿·공유 로그·커맨드 인자에
+넣지 않는다. `compose.gpu.yml`은 NVIDIA 전용이므로 Intel UHD 620 환경에서는
+사용하지 않고 CPU 기본 구성을 사용한다. 모델 준비와 실행은 다음 작업이며,
+설정 파일 생성만으로 준비 완료나 실제 진단 성공을 표시하지 않는다.
+
+#### 설정 검증
+
+policy JSON은 소유 모듈의 공개 Schema를 읽어 검사한다. Web에서 모듈 내부
+평가 함수를 호출하거나 private에 쓰지 않는다. 실제 평가·차단·승인 판정은
+여전히 Safety Policy 책임이다. 검증 명령·결과는 아래에 기록한다.
+
+```bash
+.venv/bin/python -m pytest local_web/tests/test_execution_configs.py -q --tb=short
+.venv/bin/python -m pytest local_web/tests/test_execution_configs.py local_web/tests/test_inputs.py local_web/tests/test_runner.py -q --tb=short
+```
+
+- 새 설정 검증: **7 passed**. TOML·Web 공개 설정 검사, 정책 Schema `0.1.0`,
+  origin·범위·계정 ID·조회/차단 규칙·예산 대응, 계정 비밀값 키 비포함을 확인했다.
+- 설정·기존 입력·Runner 선택 회귀: **104 passed**, 1.42초. Runner는 테스트
+  CLI 대역이며 실제 대상·Ollama·Neo4j·Safety 판정·리포트 성능 검증이 아니다.
+- `git diff --check` 성공. 실제 `.env`·비밀값·결과 폴더는 생성하지 않았다.
+  설정 4개·연결 안내·테스트만 `local_web/`에서 변경했고 모듈·Schema·루트 설정·
+  의존성·docs/spec는 수정하지 않았다. **7단계 전체 완료가 아니라 실행 준비 초안이다.**
+
+다음은 `local_web/.env`의 실제 경로·네트워크·비밀번호와 결과 저장 권한 준비,
+CPU Compose 이미지 재빌드·서비스 기동·모델 설치다. 대상 앱의 기존 DB를
+임의로 초기화하지 않으며 실제 진단과 실패/제한 검증은 별도로 진행한다.
+
 ## 20. 변경 이력
 
 | 날짜 | 변경 | 구현·계약 영향 |
@@ -1358,3 +1448,4 @@ volume·사용자 설정을 변경하지 않았다. `local_web/` 밖의 모듈·
 | 2026-10-12 | MVP 4단계 기존 Runner 자식 실행·소유 실행 상태·공개 파일 존재·종료 단계 요약, external 대상 네트워크·호스트 결과 폴더·읽기 전용 모듈 설정 연결 | Web·Runner 228 passed·5 skipped, Docker Web 175 passed. CPU/GPU Compose·빌드·Chromium·단일 실행·세션 분리·실패/종료/비밀값 경계 확인. 실제 Docker 대상 진단·LLM/Neo4j·GT 평가는 미검증. 모듈·Runner·Schema·루트 설정·의존성 변경 없음 |
 | 2026-10-12 | MVP 5단계 공개 산출물 기반 수집/의미 요약·기본 SVG KG와 표·ID 연결 진단 과정·승인 대기 메뉴·confirmed 전용 리포트, 소유 실행의 최소 표시 검증 구현 | Web·Runner 284 passed·8 skipped, 읽기 전용 Docker Web 234 passed. fixture Schema·Chromium·부분/실패/미발행·해시/참조·파일 경계·HTML 비실행·390px 화면 확인. 실제 전체 진단·평가 지표 연결은 후속 단계. 모듈·Runner·Schema·루트 설정·의존성·docs/spec 변경 없음 |
 | 2026-10-12 | MVP 6단계 Reporter 공개 평가 결과·지표/분자/분모·후보/확정 TP/FP/FN·미검증/null·모델/측정값/한계 표시, 기존 메뉴 조회·새로고침 연결. PR #69의 Collector 설정 origin 허용과 리다이렉트 한계를 현재 연결 조건에 반영 | Web·Runner 332 passed·8 skipped, 최종 Chromium 포함 339 passed·1 skipped. 추가 평가 48건, GT 비열람·원본 지표 보존·참조/revision·조회 실패/복구·모바일·비밀값 경계 확인. 실제 Docker 전체 진단은 7단계. local_web 밖 코드·Schema·의존성·docs/spec 변경 없음 |
+| 2026-10-12 | MVP 7단계 준비: 사용자 승인 기반 vulnerable용 Collector·두 LLM·주문 조회 한정 정책 초안, .env.example·README 연결 안내와 설정 검증 추가 | 설정 7 passed, 설정·입력·Runner 104 passed. CPU qwen2.5:1.5b·호출당 300초, GET /orders 한정·검증 시나리오당 20건/60초, 비밀값 미저장. 실제 .env·모델 다운로드·서비스 기동·진단은 미실행. local_web 밖 변경 없음 |

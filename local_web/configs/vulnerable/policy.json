@@ -1,0 +1,57 @@
+{
+  "schema_version": "0.1.0",
+  "policy_id": "local-web-vulnerable-orders",
+  "policy_version": "draft-1",
+  "allowed_targets": [
+    {
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefixes": ["/orders"]
+    }
+  ],
+  "test_accounts": [
+    {
+      "account_id": "account:guest",
+      "role_ids": ["role:guest"],
+      "requires_session": false
+    },
+    {
+      "account_id": "account:user_a",
+      "role_ids": ["role:user"],
+      "requires_session": true
+    },
+    {
+      "account_id": "account:user_b",
+      "role_ids": ["role:user"],
+      "requires_session": true
+    },
+    {
+      "account_id": "account:admin_a",
+      "role_ids": ["role:admin"],
+      "requires_session": true
+    }
+  ],
+  "limits": {
+    "max_requests": 20,
+    "max_duration_ms": 60000
+  },
+  "request_rules": [
+    {
+      "rule_id": "orders.read-only",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/orders",
+      "methods": ["GET"],
+      "state_change": "none",
+      "data_impact": "read_only",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "orders.write-blocked",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/orders",
+      "methods": ["POST", "PUT", "PATCH", "DELETE"],
+      "state_change": "block",
+      "data_impact": "block",
+      "service_impact": "block"
+    }
+  ]
+}
