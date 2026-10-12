@@ -1252,10 +1252,19 @@ Web 재시작 후 소유권 복구·과거 실행 조회는 계속 제외한다.
 최대 8,192자다. 초과하면 고정 조회 오류를 표시하며 정상 결과로 대체하지 않는다.
 이는 Web 자원 제한이지 진단 모듈 Schema의 새 제한이 아니다.
 
-SVG는 최대 80개 노드와 그 노드 사이 최대 240개 관계, 표는 최대 100개 행을
-표시한다. 전체 건수와 표시 건수·한도를 함께 공개한다. 도식에서 잘린 노드·관계를
-없어진 데이터로 처리하지 않는다. 대규모 그래프의 페이지 이동·검색·확대/이동·
-배치 알고리즘 고도화·근거 파일 열람은 이번 단계에 추가하지 않았다.
+5단계 최초 구현은 SVG 앞 80개 노드·그 사이 240개 관계, 표 앞 100개 행만
+표시했다. 실제 snapshot에서 node_id 정렬 앞부분에 Action이 몰리면 다른 종류와
+연결 관계를 확인할 수 없는 문제가 있어, 2026-10-12 KG 탐색 화면 개선으로
+**앞부분 절단을 제거**했다. 현재 동작과 검증은 19.14절을 따른다.
+
+현재 KG 도식은 Web 표시 검증을 통과한 snapshot의 모든 노드와 관계를 대상으로
+한다. 필터·주변 보기에서는 선택 조건에 맞는 노드와 그 사이 실제 관계만 표시하며,
+원본 전체 건수와 현재 표시 건수를 구분한다. 노드·관계·업무 흐름·선택 노드 관계
+표는 페이지당 50건씩 전체 항목을 탐색한다. 다른 진단·리포트·평가 표는 기존
+100행 제한을 유지한다. Web의 파일·배열·문자열 제한은 변경하지 않았다.
+
+종류별 격자 배치는 UI 표현일 뿐 업무 순서·소유 관계를 추론하지 않는다.
+대규모 그래프의 force layout·cluster 분석·근거 파일 열람은 제공하지 않는다.
 
 #### 검증 결과와 남은 범위
 
@@ -1444,6 +1453,65 @@ policy JSON은 소유 모듈의 공개 Schema를 읽어 검사한다. Web에서 
 CPU Compose 이미지 재빌드·서비스 기동·모델 설치다. 대상 앱의 기존 DB를
 임의로 초기화하지 않으며 실제 진단과 실패/제한 검증은 별도로 진행한다.
 
+### 19.14 KG snapshot 탐색 화면 — 2026-10-12
+
+#### 책임과 데이터 경계
+
+기존 `graph_query_result`의 `structure_snapshot` 화면 모델만 사용한다. API·Backend·
+표시 검증·모듈·Runner·Schema·의존성은 변경하지 않는다. Neo4j 직접 접근,
+재질의·검증 후 snapshot 생성, revision 갱신, 새 노드·관계 추론은 하지 않는다.
+지금 보여 주는 그래프는 계속 **검증 전 query 시점**의 snapshot이다.
+
+공개 node_id·node_type·basis·Resource 범위와 관계 ID·source_id/target_id·relation_type만
+표시한다. properties·match_key·세션·파라미터·인증정보·근거 본문을 추가로 노출하지
+않는다. node_id 등 문자열은 textContent·DOM 속성으로 처리하며 HTML로 실행하지
+않는다. Ground Truth·private·로그를 화면 구성에 사용하지 않는다.
+
+#### 탐색 방법
+
+| 기능 | 현재 동작 |
+| --- | --- |
+| 전체 보기 | 입력 배열의 앞 80개·240개를 자르지 않고 모든 종류·노드·관계를 대상으로 표시. 전체 보기 버튼은 필터·선택·카메라·페이지를 초기화 |
+| 필터·검색 | 노드 종류·**노드** basis·Resource type/instance와 node_id 부분 문자열(대소문자 무시)의 교집합. 관계는 선택된 노드 사이의 원본 관계를 유지하며 relation basis를 바꾸거나 재판정하지 않음 |
+| 연결된 노드만 보기 | 원본 snapshot에 관계가 있는 노드만 표시하는 선택 옵션. 기본값은 해제이며 연결 없는 노드도 전체 보기에 포함 |
+| 화면 조작 | 고정 높이 SVG, 확대·축소·휠 배율·빈 영역 드래그·방향키 이동·화면 맞춤·선택 노드로 이동. 모듈 데이터는 변경하지 않음 |
+| 노드 선택 | 그래프 클릭/Enter/Space 또는 노드 표의 선택 버튼. 전체 ID·종류·basis·Resource 범위와 원본 연결 관계를 상세 패널에 표시 |
+| 주변 보기 | 필터를 초기화하고 선택 노드와 직접 연결된 양방향 1-hop 노드를 표시. 그 노드 사이 실제 관계만 유지. 연결 노드 선택으로 탐색을 이어가며 전체 보기로 복귀 가능 |
+| 전체 표 | 노드·관계·업무 흐름·선택 노드 원본 관계 표에서 50건씩 처음/이전/다음/마지막 페이지 이동. 각 표의 조건에 맞는 전체 건수·표시 구간·페이지 공개 |
+| 상태 보존 | 동일 실행·동일 불변 snapshot의 polling/새로고침은 검색 입력·포커스·필터·선택·페이지·카메라 유지. run/graph/revision 변경은 초기화 |
+
+전체 snapshot 건수, 현재 표시 건수, 원본 연결 없는 노드 건수를 구분한다.
+검색 결과 0건·유효 빈 snapshot·미발행·조회 오류·failed는 서로 다른 상태로
+표현하며, 필터 때문에 숨겨진 선택 노드는 상세 패널에서 제외 사실을 표시한다.
+원본 관계가 없는 노드는 오류로 처리하지 않는다.
+
+#### 검증
+
+```bash
+LOCAL_WEB_BROWSER_TESTS=1 .venv/bin/python -m pytest local_web/tests/test_results_browser.py -q --tb=short
+LOCAL_WEB_BROWSER_TESTS=1 .venv/bin/python -m pytest local_web/tests tests/pipeline -q --tb=short -rs
+node --check local_web/frontend/results.js
+git diff --check
+```
+
+- KG·결과 Chromium 테스트 **13 passed**(기존 3건 + 신규 10건). Action이 앞에
+  100개 이상 있는 174노드·347관계 대역에서 7종류·전체 노드/관계 표시, 마지막
+  페이지 탐색, 복합 필터·대소문자 검색·주변 이동·원본 고립 노드·자기 루프,
+  카메라 조작·휠 배율·선택 이동·동일 snapshot 상태 보존·revision/실행 변경
+  초기화·필터에서 제외된 선택 노드와 주변 보기 복구를 확인했다.
+- 빈/누락/실패 snapshot과 실패/invalid 산출물의 화면 정리·복구, node_id의
+  HTML 비실행, 1280px·390px 가로 넘침 없음, 브라우저 저장소 미사용을 확인했다.
+- 실제 공개 snapshot을 변경한 프런트에서 표시하는 별도 읽기 전용 Chromium
+  검사 **8/8 통과**: 308노드·170관계·7종류 전체 표시, User 주변 보기,
+  Resource instance 필터·마지막 노드 탐색, 모바일 가로 넘침 없음·JS 오류 0건.
+  공개 결과는 메모리에서 화면 모델로만 사용하고 원문·properties·세션·GT는
+  출력하지 않았다. 운영 Web을 재시작하거나 새 진단을 실행한 검증이 아니다.
+- Chromium 포함 전체 Web·Runner 회귀 **356 passed · 1 skipped**, 86.71초.
+  skipped는 읽기 전용 Docker 마운트 환경 전용 검사다. JavaScript 구문 검사와
+  `git diff --check`도 통과했다. 테스트 대역은 진단 성공·실모델 성능 검증이 아니다.
+- 실행 중인 Docker Web의 이미지 재빌드·서비스 재시작은 별도 작업이다. 기존
+  실행 소유권·결과 파일·DB/모델 volume은 이 화면 수정으로 변경하지 않는다.
+
 ## 20. 변경 이력
 
 | 날짜 | 변경 | 구현·계약 영향 |
@@ -1456,3 +1524,4 @@ CPU Compose 이미지 재빌드·서비스 기동·모델 설치다. 대상 앱�
 | 2026-10-12 | MVP 6단계 Reporter 공개 평가 결과·지표/분자/분모·후보/확정 TP/FP/FN·미검증/null·모델/측정값/한계 표시, 기존 메뉴 조회·새로고침 연결. PR #69의 Collector 설정 origin 허용과 리다이렉트 한계를 현재 연결 조건에 반영 | Web·Runner 332 passed·8 skipped, 최종 Chromium 포함 339 passed·1 skipped. 추가 평가 48건, GT 비열람·원본 지표 보존·참조/revision·조회 실패/복구·모바일·비밀값 경계 확인. 실제 Docker 전체 진단은 7단계. local_web 밖 코드·Schema·의존성·docs/spec 변경 없음 |
 | 2026-10-12 | MVP 7단계 준비: 사용자 승인 기반 vulnerable용 Collector·두 LLM·주문 조회 한정 정책 초안, .env.example·README 연결 안내와 설정 검증 추가 | 설정 7 passed, 설정·입력·Runner 104 passed. CPU qwen2.5:1.5b·호출당 300초, GET /orders 한정·검증 시나리오당 20건/60초, 비밀값 미저장. 실제 .env·모델 다운로드·서비스 기동·진단은 미실행. local_web 밖 변경 없음 |
 | 2026-10-12 | 로그인 ID 입력을 평문으로 표시하고 비밀번호 마스킹 유지. 인증정보 초기화를 input type 대신 필드명 기준으로 변경 | Chromium 포함 Web·Runner 346 passed·1 skipped. 이메일 형태·4096자 제한, 역할·별칭 규칙 유지. 성공·실패·페이지 이탈 시 로그인 ID·비밀번호 초기화와 브라우저 저장소/API 비노출 확인. JavaScript syntax·git diff 검사 성공. 모듈·Schema·백엔드·의존성 변경 없음 |
+| 2026-10-12 | KG 도식의 앞 80노드·240관계 절단 제거. 전체 snapshot 기반 노드 필터·검색·확대/이동·선택 상세·1-hop 주변 탐색·50행 페이지 이동과 동일 snapshot 상태 보존 구현 | Chromium 포함 Web·Runner 356 passed·1 skipped, KG·결과 브라우저 13 passed(신규 10건). 실제 공개 308노드·170관계·7종류 표시와 탐색 8/8 통과. 검증 전 snapshot·공개 최소 필드·미발행/실패 구분 유지. local_web 4개 파일만 변경. 모듈·Schema·Backend/API·의존성·docs/spec 변경 및 Docker 서비스 재시작 없음 |
