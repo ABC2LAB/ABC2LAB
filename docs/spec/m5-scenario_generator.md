@@ -12,19 +12,20 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-11
+## 현재 구현·연결 상태 — 2026-10-12
 
-기준 커밋 `30cb867`(PR #61·#62 병합 후)의 구현·공개 계약을 반영했다.
+기준 커밋 `f04a10e`(dev `f049146` 위, URL 조립·구조화 출력)의 구현·공개 계약을 반영했다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
-| 독립 구현 | `generate`, 공개 `run()`·CLI, 초안 생성기 `none`·`ollama`·`replay`, 초안 검증(판정 조건 필수 규칙·JSON이 아닌 응답 단계 처리), 원자 저장 구현 완료 |
-| 초안 경계 | LLM 초안은 `steps`·`assertions`만. step은 `source_request_id`+`account_role`(actor/reference) 등 **선택만** 담고, 식별자(`account_id`·`role_id`·`session_ref`)·`method`·`body_ref`와 세션 `preconditions`는 **프로그램이 원본에서 조립**한다(#57 요청 반영). 초안이 식별자를 지어내거나 고정 예시를 복사하지 못하게 범위를 좁혔다 |
+| 독립 구현 | `generate`, 공개 `run()`·CLI, 초안 생성기 `none`·`ollama`·`replay`, 초안 검증(판정 조건 필수 규칙·JSON이 아닌 응답 단계 처리), 실패 초안 진단, 원자 저장 구현 완료 |
+| 초안 경계 | LLM 초안은 `steps`·`assertions`만. step은 `source_request_id`+`account_role`(actor/reference) 등 **선택만** 담고, 식별자(`account_id`·`role_id`·`session_ref`)·`method`·`url_template`·`body_ref`와 세션 `preconditions`는 **프로그램이 원본에서 조립**한다(#57 요청 반영). 경로 바인딩은 path 파라미터의 `binding_ref`로 표현하고 프로그램이 URL에 넣는다. Ollama는 초안 JSON Schema를 `format`으로 받아 초안 모양을 디코딩 단계에서 지킨다 |
 | 공개 계약 | 출력 `test_scenarios` `0.2.0`(`Scenario.resource_ids` 포함), 입력 `vulnerability_candidates`·`crawl_result` `0.2.0` 미러. 출력 Scenario 모양은 불변(조립 주체만 바뀜) |
-| 독립 회귀 | scenario_generator `261 passed` |
+| 독립 회귀 | scenario_generator `296 passed` |
 | 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행(로컬 ollama 모델)에서 시나리오를 발행했고 safety_policy·verifier·reporter가 받아 처리했다(2026-10-11) |
+| 모델 크기 비교 | 6차 실행 입력(후보 5)으로 `generate`만 다시 실행: qwen2.5:1.5b·7b 모두 수정 전 0/5(초안 키 구조·미선언 바인딩) → 수정 후 5/5(2026-10-12) |
 
-남은 것: `resource_state`·`resource_owner`·`baseline_match`의 `subject_ref`·`selector` 규약을 verifier와 합의. 세부는 [모듈 README](../../modules/scenario_generator/README.md).
+남은 것: `resource_state`·`resource_owner`·`baseline_match`의 `subject_ref`·`selector` 규약을 verifier와 합의. qwen2.5:1.5b가 `response_status` 기대값을 정상 동작(403)으로 적어 판정이 뒤집히는 문제(5건 중 4건, 프롬프트 문구가 원인으로 보임). 세부는 [모듈 README](../../modules/scenario_generator/README.md).
 
 ## 독립 동작·수정 책임
 
@@ -109,15 +110,16 @@
 - Check는 조건 비교 규약이다. 상태 확인에 HTTP 요청이 필요하면 steps에 명시하여 Policy 예산과 실제 실행 근거에 포함한다.
 - state_change는 생성기의 추정이다. 최종 안전 평가와 실행 허용은 safety_policy가 담당한다.
 - 바인딩은 그 값을 **쓰는** 단계의 `bindings`에 두고 `source_step_id`로 앞 단계를 가리킨다. verifier는 단계마다 그 단계의 `bindings`만 읽어 `url_template`·`binding_ref`를 치환한다.
-- `url_template`의 `{...}`는 `binding_id`만 쓴다. scheme·host·port는 `crawl_result.target_url`과 같아야 하고 주소 부분에는 바인딩·사용자 정보를 쓸 수 없다. 바인딩이 없는 `url_template`은 선택한 원본 요청의 URL과 정확히 같아야 한다(고정 예시 URL을 복사한 초안을 거른다).
+- `url_template`은 **프로그램이 선택한 원본 요청의 URL로 채운다**(초안은 URL을 쓰지 않는다). `{...}`는 `binding_id`만 쓴다. scheme·host·port는 `crawl_result.target_url`과 같아야 하고 주소 부분에는 바인딩·사용자 정보를 쓸 수 없다. 바인딩이 없는 `url_template`은 선택한 원본 요청의 URL과 정확히 같다.
+- 앞 단계 값을 URL 경로에 넣으려면 초안이 그 단계 원본 요청의 path 파라미터에 `binding_ref`를 건다(`value`=null). 프로그램은 원본 URL에서 그 파라미터 관찰값과 같은 경로 조각 **하나**를 `{binding_id}`로 바꾸고, 그 파라미터는 출력 `parameters`에서 뺀다. 리터럴 path 값, 원본 요청에 없는 path 이름, 같은 조각이 0개·여러 개면 초안을 버린다(verifier는 URL에 자리가 없는 path 파라미터를 무시하므로 효과 없는 변경을 남기지 않는다).
 - 단계의 실행 계정은 초안이 고른 `account_role`(actor|reference)로 정하고, `account_id`·`role_id`·`session_ref`는 **프로그램이 그 계정에서 채운다**. `method`·`body_ref`도 선택한 원본 요청에서 프로그램이 채운다. 초안은 원본 요청의 계정을 복사하지 않는다(IDOR는 관찰자가 아니라 실행 계정으로 재현한다).
-- `scenario_id`(`"scenario_" + candidate_id`)·`candidate_id`·`expected_basis`·`resource_ids`(후보 `resource_ids`를 순서·값 그대로)·세션 `preconditions`는 프로그램이 원본 후보·steps에서 채운다. LLM 초안은 `steps`·`assertions`만 만들고, step은 `step_id`·`order`·`source_request_id`·`account_role`·`request{url_template,parameters}`·`bindings`·`state_change`만 담는다. 초안에 그 밖의 키가 있으면 값이 원본과 같아도 초안을 버린다. 후보 1개당 시나리오 1개다.
+- `scenario_id`(`"scenario_" + candidate_id`)·`candidate_id`·`expected_basis`·`resource_ids`(후보 `resource_ids`를 순서·값 그대로)·세션 `preconditions`는 프로그램이 원본 후보·steps에서 채운다. LLM 초안은 `steps`·`assertions`만 만들고, step은 `step_id`·`order`·`source_request_id`·`account_role`·`request{parameters}`·`bindings`·`state_change`만 담는다. 초안에 그 밖의 키가 있으면 값이 원본과 같아도 초안을 버린다. 후보 1개당 시나리오 1개다. Ollama 초안 생성기는 이 초안 모양을 JSON Schema로 만들어 `format`에 넘긴다(구조화 출력: 키·중첩·허용값을 디코딩 단계에서 강제). 의미 검증은 그대로 프로그램이 한다.
 - **판정 조건 필수 규칙.** HTTP 상태 코드만으로 위반을 확정하지 않는다(m7). 다음을 만족하지 않는 초안은 버린다.
     - `preconditions`: 프로그램이 steps에 쓰인 계정마다 `session_valid`(`subject_ref`=account_id, `operator=eq`, `expected=true`)를 생성한다(LLM이 만들지 않는다). `exists`는 세션이 무효여도 참이 되므로 쓰지 않는다.
     - `assertions`: 실행 계정 단계 하나에 `response_status`와 `response_json`이 함께 있다. 그 단계 원본 응답이 JSON이 아니면(원본 요청 `response.content_type`에 `json`이 없거나 null) `response_status`만 있어도 된다. 검증 통과 뒤 JSON이 아닌 단계의 `response_json`은 버리고 `ASSERTION_NON_JSON_RESPONSE`로 남기며 시나리오는 발행한다.
     - `resource_state`·`resource_owner`·`baseline_match`는 쓸 수 있지만 verifier가 아직 평가하지 않아(판단불가) 필수 조건을 대신하지 못한다. 이 세 종류의 `subject_ref`·`selector` 규약은 verifier와 합의 전이다.
 - LLM 입력에는 헤더·쿠키·응답 본문·근거 파일 경로·민감 파라미터 값을 넣지 않는다. LLM 초안은 데이터로 보고 위 규칙과 Schema로 전부 다시 검증한다.
-- 검증을 통과하지 못한 초안(`DRAFT_INVALID`·`DRAFTER_FAILED`)은 개발용 진단으로 `runs/<run_id>/private/scenario_generator/draft_diagnostics.json`에 남긴다: 실패 step 위치, 누락/추가 필드·타입, url_template이 참조한 바인딩 vs 선언된 바인딩, 모델·프롬프트 버전, 그리고 **비밀값을 지운 초안 사본**(parameter 값 마스킹). 공개 `test_scenarios.json`에는 초안을 넣지 않으며 실패는 `status=failed`·`data=null`을 유지한다. 저장 실패는 공개 결과를 막지 않는다.
+- 검증을 통과하지 못한 초안(`DRAFT_INVALID`·`DRAFTER_FAILED`)은 개발용 진단으로 `runs/<run_id>/private/scenario_generator/draft_diagnostics.json`에 남긴다: 실패 step 위치, 누락/추가 필드·타입, 참조한 바인딩(parameter `binding_ref`, 초안에 `url_template`이 있으면 그 `{…}`) vs 선언된 바인딩, 모델·프롬프트 버전, 그리고 **비밀값을 지운 초안 사본**(parameter 값 마스킹). 공개 `test_scenarios.json`에는 초안을 넣지 않으며 실패는 `status=failed`·`data=null`을 유지한다. 저장 실패는 공개 결과를 막지 않는다.
 
 ## 입력·출력 JSON 필드
 
@@ -214,6 +216,7 @@
 | 2026-10-11 | JSON이 아닌 응답 단계는 `response_status`만 있어도 되고, 검증 통과 뒤 그 단계의 `response_json`은 버리고 `ASSERTION_NON_JSON_RESPONSE`로 남김(시나리오는 발행). LLM 입력의 parameter 모양을 출력 `ParameterValue`에 맞춤(내부). 출력 필드·버전 변경 없음 | #62 |
 | 2026-10-12 | 초안(LLM) 책임을 `steps`·`assertions`의 **선택**으로 좁힘: step 식별자(`account_id`·`role_id`·`session_ref`)·`method`·`body_ref`와 세션 `preconditions`를 프로그램이 원본에서 조립. 바인딩 없는 `url_template`은 선택한 원본 요청 URL과 일치해야 함(고정 예시 복사 차단). 프롬프트를 식별자 복사 대신 선택·JSON/비JSON 판정 구분으로 재작성. 출력 Scenario 필드·버전 변경 없음(조립 주체만 바뀜) | 파이프라인 실제 실행에서 고정 예시 ID 누출·식별자 자유 생성 발견 → LLM/프로그램 책임 재배치 요청 |
 | 2026-10-12 | 검증 실패 초안을 개발용 진단으로 `private/scenario_generator/draft_diagnostics.json`에 기록(실패 step·누락/추가 필드·타입·바인딩 미정의·모델/프롬프트 버전, 비밀값 마스킹 사본). 공개 산출물·계약 불변 | 실모델 초안 실패의 실제 원인(잘못된 필드·바인딩)을 사람이 보게 하기 위함(진단 1단계) |
+| 2026-10-12 | `url_template`도 프로그램이 원본 요청에서 조립(초안 `request`는 `parameters`만). 경로 바인딩은 path 파라미터 `binding_ref`로 표현하고 프로그램이 관찰값 조각 하나를 `{binding_id}`로 바꿈. Ollama 호출 `format`을 초안 JSON Schema로(구조화 출력), 프롬프트 v6. 출력 필드·버전·의미 변경 없음(`url_template`은 지금도 허용되는 값만 나옴) | 6차 실행 입력으로 `generate`만 다시 실행: qwen2.5:1.5b 0/5(초안 키 중첩 오류 3·미선언 바인딩 2), 7b 0/5(미선언 바인딩 5, 미선언 이름은 path 파라미터 이름) → 수정 후 둘 다 5/5 |
 
 ### 0.2.0 `Scenario.resource_ids` (소비자 입력 사본 미러 기준)
 
@@ -229,7 +232,7 @@
 ```
 
 - **값 출처:** 이 시나리오의 원본 후보(`candidate_id`가 같은 `vulnerability_candidates.data.candidates[]`)의 `resource_ids`를 순서·값 그대로 복사한다. 값은 KG Resource instance `node_id`이고 형식(접두어·구분자)을 가정하지 않는다.
-- **채우는 주체:** scenario_generator 프로그램이 채운다. LLM 초안은 `preconditions`·`steps`·`assertions` 세 키만 가지며, 초안에 `resource_ids` 키가 있으면 값이 원본과 같아도 그 초안을 버린다(`DRAFT_INVALID`, `item_ref=candidate_id`). 채운 값이 원본 후보와 다르면 그 시나리오는 발행하지 않는다.
+- **채우는 주체:** scenario_generator 프로그램이 채운다. LLM 초안은 `steps`·`assertions` 두 키만 가지며(10/12부터 `preconditions`도 프로그램이 만든다), 초안에 `resource_ids` 키가 있으면 값이 원본과 같아도 그 초안을 버린다(`DRAFT_INVALID`, `item_ref=candidate_id`). 채운 값이 원본 후보와 다르면 그 시나리오는 발행하지 않는다.
 - **소비자 쪽:** 입력 사본에 위 조각을 같은 위치에 넣고 `schema_version` const를 `0.2.0`으로 둔다. 원본 후보와의 값 일치는 생산자가 보장하므로 소비자가 후보 파일과 다시 대조할 필요는 없다.
 
 ---
