@@ -255,3 +255,123 @@ def test_response_json_on_non_json_step_is_dropped_and_reported(
         source = requests[html_request_id]
         assert source["url"] not in error["message"] and "text/html" not in error["message"]
         assert all(str(p["value"]) not in error["message"] for p in source["parameters"] if p["value"])
+
+
+def requests_by_id(crawl_artifact: LoadedArtifact) -> dict[str, dict[str, Any]]:
+    return {r["request_id"]: r for r in crawl_artifact.document["data"]["requests"]}
+
+
+def observed_path_value(source: dict[str, Any], name: str) -> Any:
+    return next(p["value"] for p in source["parameters"] if p["location"] == "path" and p["name"] == name)
+
+
+def find_path_binding(drafts: dict[str, Any]) -> tuple[str, int, int]:
+    """fixture에서 path 파라미터에 바인딩을 건 초안 위치: (후보 ID, step 위치, parameter 위치)."""
+    for candidate_id, draft in drafts.items():
+        for step_index, step in enumerate(draft["steps"]):
+            for parameter_index, parameter in enumerate(step["request"]["parameters"]):
+                if parameter["location"] == "path" and parameter["binding_ref"] is not None:
+                    return candidate_id, step_index, parameter_index
+    raise AssertionError("fixture에 path 바인딩 초안이 있어야 이 테스트가 의미 있다")
+
+
+def test_url_template_is_built_by_the_program_from_the_source_request(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
+) -> None:
+    # m5: url_template은 프로그램이 선택한 원본 요청 URL로 채운다. 초안이 path 파라미터에 바인딩을 걸면
+    # 원본 URL에서 그 관찰값 조각 하나만 {binding_id}로 바뀌고, 그 파라미터는 URL로 흡수돼 출력에 남지 않는다.
+    requests = requests_by_id(crawl_artifact)
+    outcome = generate_scenarios(candidates_artifact, crawl_artifact, StubDrafter(replaying(drafts)))
+    assert outcome.errors == []
+
+    published = {s["candidate_id"]: s for s in outcome.scenarios}
+    binding_count = 0
+    for candidate_id, draft in drafts.items():
+        for draft_step, step in zip(draft["steps"], published[candidate_id]["steps"], strict=True):
+            source = requests[step["source_request_id"]]
+            restored = step["request"]["url_template"]
+            for parameter in draft_step["request"]["parameters"]:
+                if parameter["location"] != "path":
+                    continue
+                placeholder = "{" + parameter["binding_ref"] + "}"
+                assert restored.count(placeholder) == 1
+                restored = restored.replace(placeholder, str(observed_path_value(source, parameter["name"])))
+                binding_count += 1
+            assert restored == source["url"]
+            assert all(p["location"] != "path" for p in step["request"]["parameters"])
+    assert binding_count >= 1
+
+
+def _with_url_written(step: dict[str, Any], source: dict[str, Any], parameter: dict[str, Any]) -> None:
+    step["request"]["url_template"] = source["url"]  # 값이 원본과 같아도 URL은 프로그램 몫이다
+
+
+def _with_literal_path_value(step: dict[str, Any], source: dict[str, Any], parameter: dict[str, Any]) -> None:
+    parameter.update({"value": observed_path_value(source, parameter["name"]), "binding_ref": None})
+
+
+def _with_value_and_binding(step: dict[str, Any], source: dict[str, Any], parameter: dict[str, Any]) -> None:
+    parameter["value"] = observed_path_value(source, parameter["name"])
+
+
+def _with_unknown_path_name(step: dict[str, Any], source: dict[str, Any], parameter: dict[str, Any]) -> None:
+    parameter["name"] = parameter["name"] + "_not_in_source"
+
+
+def _with_undeclared_binding(step: dict[str, Any], source: dict[str, Any], parameter: dict[str, Any]) -> None:
+    step["bindings"] = []
+
+
+@pytest.mark.parametrize(
+    "break_step",
+    [_with_url_written, _with_literal_path_value, _with_value_and_binding, _with_unknown_path_name, _with_undeclared_binding],
+    ids=["draft writes url_template", "literal path value", "value with binding", "unknown path name", "undeclared binding"],
+)
+def test_path_change_outside_the_binding_rule_is_rejected(
+    candidates_artifact: LoadedArtifact,
+    crawl_artifact: LoadedArtifact,
+    drafts: dict[str, Any],
+    break_step: Callable[[dict[str, Any], dict[str, Any], dict[str, Any]], None],
+) -> None:
+    # verifier는 URL에 {이름} 자리가 없는 path 파라미터를 조용히 무시한다. 효과 없는 변경을 "실행됨"으로 보이지 않게 거절한다.
+    broken_id, step_index, parameter_index = find_path_binding(drafts)
+    source = requests_by_id(crawl_artifact)[drafts[broken_id]["steps"][step_index]["source_request_id"]]
+    base = replaying(drafts)
+
+    def behavior(request: dict[str, Any]) -> Draft:
+        draft = base(request)
+        if request["candidate"]["candidate_id"] == broken_id:
+            step = draft.scenario["steps"][step_index]
+            break_step(step, source, step["request"]["parameters"][parameter_index])
+        return draft
+
+    outcome = generate_scenarios(candidates_artifact, crawl_artifact, StubDrafter(behavior))
+
+    assert [(e["code"], e["item_ref"]) for e in outcome.errors] == [(GenerationErrorCode.DRAFT_INVALID, broken_id)]
+    assert broken_id not in [s["candidate_id"] for s in outcome.scenarios]
+    assert source["url"] not in outcome.errors[0]["message"]
+
+
+@pytest.mark.parametrize("segment_count", [0, 2], ids=["value not in path", "value twice in path"])
+def test_path_binding_needs_exactly_one_matching_segment(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any], segment_count: int
+) -> None:
+    # 관찰값과 같은 경로 조각이 하나가 아니면 어느 조각을 바꿀지 모른다. 추측하지 않고 거절한다.
+    broken_id, step_index, parameter_index = find_path_binding(drafts)
+    draft_step = drafts[broken_id]["steps"][step_index]
+    source_id = draft_step["source_request_id"]
+    parameter_name = draft_step["request"]["parameters"][parameter_index]["name"]
+    value = str(observed_path_value(requests_by_id(crawl_artifact)[source_id], parameter_name))
+
+    def change_url(document: dict[str, Any]) -> None:
+        for request in document["data"]["requests"]:
+            if request["request_id"] == source_id:
+                assert request["url"].count(f"/{value}") == 1
+                replacement = f"/{value}/{value}" if segment_count == 2 else f"/{value}0"
+                request["url"] = request["url"].replace(f"/{value}", replacement)
+
+    outcome = generate_scenarios(candidates_artifact, with_document(crawl_artifact, change_url), StubDrafter(replaying(drafts)))
+
+    assert [(e["code"], e["item_ref"]) for e in outcome.errors] == [(GenerationErrorCode.DRAFT_INVALID, broken_id)]
+    assert broken_id not in [s["candidate_id"] for s in outcome.scenarios]
+    assert value not in outcome.errors[0]["message"]

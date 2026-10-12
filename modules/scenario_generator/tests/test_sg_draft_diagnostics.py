@@ -15,7 +15,7 @@ MODEL_INFO = {"model_id": "m", "model_version": "m", "prompt_version": "ollama-s
 def _step(**overrides: Any) -> dict[str, Any]:
     base = {
         "step_id": "s1", "order": 0, "source_request_id": "r1", "account_role": "actor",
-        "request": {"url_template": "http://target.example.test/items/1", "parameters": []},
+        "request": {"parameters": []},
         "bindings": [], "state_change": "none",
     }
     base.update(overrides)
@@ -48,7 +48,9 @@ def test_field_diagnosis_reports_type_and_enum_problems() -> None:
 def test_request_key_diff_is_reported() -> None:
     step = _step(request={"url_template": "http://target.example.test/x", "parameters": [], "method": "GET"})
     request_diff = build_draft_invalid_record("c1", _draft([step]), ["문제"], MODEL_INFO)["field_diagnosis"]["steps"][0]["request"]
-    assert "method" in request_diff["extra"]  # method는 프로그램이 채우므로 초안에 있으면 안 됨
+    # method·url_template은 프로그램이 원본 요청에서 채우므로 초안에 있으면 안 됨
+    assert request_diff["extra"] == ["method", "url_template"]
+    assert request_diff["missing"] == []
 
 
 def test_binding_analysis_flags_undefined_url_binding() -> None:
@@ -57,6 +59,17 @@ def test_binding_analysis_flags_undefined_url_binding() -> None:
     assert analysis["url_referenced"] == ["item_id"]
     assert analysis["declared"] == []
     assert analysis["undefined"] == ["item_id"]
+
+
+def test_binding_analysis_flags_undefined_parameter_binding() -> None:
+    # URL은 프로그램이 채우므로 초안의 바인딩 참조는 parameter의 binding_ref로 온다(path 바인딩 포함).
+    step = _step(request={"parameters": [
+        {"name": "item_id", "location": "path", "value": None, "binding_ref": "b_item"},
+        {"name": "page", "location": "query", "value": "2", "binding_ref": None},
+    ]})
+    analysis = build_draft_invalid_record("c1", _draft([step]), ["문제"], MODEL_INFO)["binding_analysis"][0]
+    assert analysis["parameter_referenced"] == ["b_item"]
+    assert analysis["undefined"] == ["b_item"]
 
 
 def test_binding_analysis_clears_when_declared_in_same_step() -> None:

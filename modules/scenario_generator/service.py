@@ -8,6 +8,7 @@ import logging
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from modules.scenario_generator.candidate_matcher import CrawlIndex, MatchedCandidate, build_crawl_index, match_candidates
 from modules.scenario_generator.draft_diagnostics import build_draft_invalid_record, build_drafter_failed_record
@@ -35,6 +36,10 @@ logger = logging.getLogger(__name__)
 SCENARIO_ID_PREFIX = "scenario_"
 # 세션 사전조건 check_id 접두어. 프로그램이 steps에 쓰인 계정마다 하나씩 생성한다(LLM이 만들지 않는다).
 SESSION_PRECONDITION_PREFIX = "precondition_session_"
+# 출력 ParameterValue의 키. path 파라미터는 URL로 흡수돼 출력에 남지 않으므로 Schema 대신 여기서 모양을 확인한다.
+PARAMETER_KEYS = frozenset({"name", "location", "value", "binding_ref"})
+PATH_LOCATION = "path"
+PATH_SEPARATOR = "/"
 
 
 class GenerationErrorCode(StrEnum):
@@ -74,8 +79,51 @@ def _resolve_step_account(account_role: Any, matched: MatchedCandidate) -> dict[
     return None
 
 
+def _bind_path_segment(segments: list[str], parameter: dict[str, Any], observed_by_name: dict[str, Any]) -> str | None:
+    """path 파라미터 관찰값과 같은 경로 조각 하나를 {binding_ref}로 바꾼다(segments를 고친다). 못 하면 문제 문구."""
+    if set(parameter) != PARAMETER_KEYS:
+        return f"path 파라미터 키는 {sorted(PARAMETER_KEYS)}여야 한다"
+    binding_ref = parameter["binding_ref"]
+    # verifier는 URL에 자리가 없는 path 파라미터를 조용히 무시한다. 리터럴 path 값은 효과 없이 "실행됨"으로 보이므로 받지 않는다.
+    if not isinstance(binding_ref, str) or not binding_ref or parameter["value"] is not None:
+        return "path 파라미터는 value 없이 binding_ref로만 바꿀 수 있다"
+    name = parameter["name"]
+    observed = observed_by_name.get(name) if isinstance(name, str) else None
+    if observed is None:
+        return "path 파라미터가 원본 요청에 없거나 관찰값이 없다"
+    positions = [position for position, segment in enumerate(segments) if unquote(segment) == str(observed)]
+    if len(positions) != 1:
+        # 어느 조각을 바꿀지 하나로 정할 수 없으면 추측하지 않는다.
+        return "path 파라미터 관찰값과 같은 경로 조각이 하나가 아니다"
+    segments[positions[0]] = f"{{{binding_ref}}}"
+    return None
+
+
+def _compose_url_template(source: dict[str, Any], draft_parameters: Any, step_id: Any) -> tuple[str, Any, str | None]:
+    """선택한 원본 요청 URL로 url_template을 만든다. 돌려주는 것: (url_template, 출력 parameters, 문제|None).
+
+    초안은 URL을 쓰지 않는다. path 파라미터에 binding_ref를 걸면 그 조각만 {binding_ref}로 바꾸고 파라미터는 URL로 흡수한다.
+    """
+    if not isinstance(draft_parameters, list):
+        return source["url"], draft_parameters, None  # 모양 오류는 출력 Schema 검증이 잡는다
+    observed_by_name = {p["name"]: p["value"] for p in source["parameters"] if p["location"] == PATH_LOCATION}
+    url_parts = urlsplit(source["url"])
+    segments = url_parts.path.split(PATH_SEPARATOR)
+    remaining_parameters = []
+    for parameter in draft_parameters:
+        if not isinstance(parameter, dict) or parameter.get("location") != PATH_LOCATION:
+            remaining_parameters.append(parameter)
+            continue
+        problem = _bind_path_segment(segments, parameter, observed_by_name)
+        if problem is not None:
+            return source["url"], draft_parameters, f"step {step_id}: {problem}"
+    if len(remaining_parameters) == len(draft_parameters):
+        return source["url"], draft_parameters, None  # 바꾼 조각이 없으면 원본 URL 문자열을 그대로 쓴다
+    return urlunsplit(url_parts._replace(path=PATH_SEPARATOR.join(segments))), remaining_parameters, None
+
+
 def _compose_step(draft_step: Any, matched: MatchedCandidate, index: CrawlIndex) -> tuple[dict[str, Any] | None, str | None]:
-    """초안 step(선택만)을 출력 step으로 조립한다. 식별자·method·body_ref는 원본에서 채운다."""
+    """초안 step(선택만)을 출력 step으로 조립한다. 식별자·method·url_template·body_ref는 원본에서 채운다."""
     if not isinstance(draft_step, dict) or set(draft_step) != DRAFT_STEP_KEYS:
         return None, f"step 키는 {sorted(DRAFT_STEP_KEYS)}여야 한다"
     account = _resolve_step_account(draft_step["account_role"], matched)
@@ -88,6 +136,9 @@ def _compose_step(draft_step: Any, matched: MatchedCandidate, index: CrawlIndex)
     draft_request = draft_step["request"]
     if not isinstance(draft_request, dict) or set(draft_request) != DRAFT_REQUEST_KEYS:
         return None, f"step {draft_step['step_id']}: request 키는 {sorted(DRAFT_REQUEST_KEYS)}여야 한다"
+    url_template, parameters, problem = _compose_url_template(source, draft_request["parameters"], draft_step["step_id"])
+    if problem is not None:
+        return None, problem
     composed = {
         "step_id": draft_step["step_id"],
         "order": draft_step["order"],
@@ -97,8 +148,8 @@ def _compose_step(draft_step: Any, matched: MatchedCandidate, index: CrawlIndex)
         "session_ref": account["session_ref"],
         "request": {
             "method": source["method"],
-            "url_template": draft_request["url_template"],
-            "parameters": draft_request["parameters"],
+            "url_template": url_template,
+            "parameters": parameters,
             "body_ref": source["body_ref"],
         },
         "bindings": draft_step["bindings"],

@@ -66,8 +66,22 @@ def _diagnose_fields(draft: Any) -> dict[str, Any]:
     return diagnosis
 
 
+def _parameter_binding_refs(request: Any) -> list[str]:
+    parameters = request.get("parameters") if isinstance(request, dict) else None
+    if not isinstance(parameters, list):
+        return []
+    return [
+        parameter["binding_ref"]
+        for parameter in parameters
+        if isinstance(parameter, dict) and isinstance(parameter.get("binding_ref"), str)
+    ]
+
+
 def _binding_analysis(draft: Any) -> list[dict[str, Any]]:
-    """step마다 url_template이 참조한 바인딩 vs 그 step에 선언된 바인딩 vs 미정의(참조−선언)."""
+    """step마다 참조한 바인딩 vs 그 step에 선언된 바인딩 vs 미정의(참조−선언).
+
+    참조는 parameter의 binding_ref(path 바인딩 포함)다. 초안에 없어야 할 url_template이 있으면 그 {…}도 따로 보여 준다.
+    """
     steps = draft.get("steps") if isinstance(draft, dict) else None
     if not isinstance(steps, list):
         return []
@@ -77,7 +91,8 @@ def _binding_analysis(draft: Any) -> list[dict[str, Any]]:
             continue
         request = step.get("request")
         url_template = request.get("url_template") if isinstance(request, dict) else None
-        referenced = _PLACEHOLDER_PATTERN.findall(url_template) if isinstance(url_template, str) else []
+        url_referenced = _PLACEHOLDER_PATTERN.findall(url_template) if isinstance(url_template, str) else []
+        parameter_referenced = _parameter_binding_refs(request)
         raw_bindings = step.get("bindings")
         declared = (
             [binding.get("binding_id") for binding in raw_bindings if isinstance(binding, dict)]
@@ -86,9 +101,10 @@ def _binding_analysis(draft: Any) -> list[dict[str, Any]]:
         )
         analysis.append({
             "step_id": step.get("step_id"),
-            "url_referenced": referenced,
+            "url_referenced": url_referenced,
+            "parameter_referenced": parameter_referenced,
             "declared": declared,
-            "undefined": sorted(set(referenced) - set(declared)),
+            "undefined": sorted(set(url_referenced + parameter_referenced) - set(declared)),
         })
     return analysis
 

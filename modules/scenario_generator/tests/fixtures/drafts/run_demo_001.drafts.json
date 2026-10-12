@@ -6,7 +6,7 @@
         "order": 0,
         "source_request_id": "req_b_list",
         "account_role": "reference",
-        "request": { "url_template": "http://target.example.test/items", "parameters": [] },
+        "request": { "parameters": [] },
         "bindings": [],
         "state_change": "none"
       },
@@ -15,7 +15,11 @@
         "order": 1,
         "source_request_id": "req_b_detail",
         "account_role": "actor",
-        "request": { "url_template": "http://target.example.test/items/{binding_item_id}", "parameters": [] },
+        "request": {
+          "parameters": [
+            { "name": "item_id", "location": "path", "value": null, "binding_ref": "binding_item_id" }
+          ]
+        },
         "bindings": [
           { "binding_id": "binding_item_id", "source_step_id": "step_owner_list", "source_part": "response_body", "selector": "/0/id" }
         ],
@@ -34,7 +38,7 @@
         "order": 0,
         "source_request_id": "req_a_confirm",
         "account_role": "actor",
-        "request": { "url_template": "http://target.example.test/items/202/confirm", "parameters": [] },
+        "request": { "parameters": [] },
         "bindings": [],
         "state_change": "expected"
       }

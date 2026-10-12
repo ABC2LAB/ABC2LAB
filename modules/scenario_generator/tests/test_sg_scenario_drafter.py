@@ -94,6 +94,20 @@ def test_viewed_parameter_hides_sensitivity_flag_but_keeps_value_null(matched_ca
     assert all(parameter["value"] is None for parameter in viewed if parameter["name"] in sensitive_names)
 
 
+def test_viewed_request_keeps_path_parameters_for_binding(matched_candidates: list[MatchedCandidate]) -> None:
+    # 초안은 URL을 쓰지 않고 path 파라미터 이름에 binding_ref를 걸어 경로 바인딩을 표현한다. 이름·관찰값을 숨기면 표현할 수 없다.
+    expected = [
+        (parameter["name"], parameter["value"])
+        for matched in matched_candidates
+        for source in matched.source_requests
+        for parameter in source["parameters"]
+        if parameter["location"] == "path"
+    ]
+    assert expected, "fixture에 path parameter가 있는 원본 요청이 있어야 한다"
+    viewed = [(p["name"], p["value"]) for p in _viewed_parameters(matched_candidates) if p["location"] == "path"]
+    assert viewed == expected
+
+
 def test_replay_drafter_returns_the_prepared_draft(
     matched_candidates: list[MatchedCandidate], drafts: dict[str, Any]
 ) -> None:

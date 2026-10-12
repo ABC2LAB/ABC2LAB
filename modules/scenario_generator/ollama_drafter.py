@@ -2,7 +2,7 @@
 
 의존성 0: 패키지 대신 stdlib urllib로 Ollama HTTP API(/api/generate)를 부른다(폐쇄망 친화).
 입력은 build_draft_request가 만든 dict(헤더·쿠키·본문·근거경로·민감값 이미 제거)만 쓴다.
-초안은 데이터다 — 반환한 {preconditions, steps, assertions}는 scenario_validator가 전부 재검증한다.
+초안은 데이터다 — 반환한 {steps, assertions}는 service가 조립한 뒤 scenario_validator가 전부 재검증한다.
 호출/파싱 실패는 DrafterError로 던진다(service가 후보별 DRAFTER_FAILED로 기록, 가짜 정상 금지).
 """
 from __future__ import annotations
@@ -16,17 +16,18 @@ from typing import Any
 
 from modules.scenario_generator.scenario_drafter import Draft, DrafterError
 
-PROMPT_VERSION = "ollama-scenario-v5"
+PROMPT_VERSION = "ollama-scenario-v6"
 _GENERATE_PATH = "/api/generate"
 
-# 식별자(account_id·role_id·session_ref·method·body_ref)와 preconditions는 프로그램이 원본에서 채운다.
+# 식별자(account_id·role_id·session_ref)·method·url_template·body_ref와 preconditions는 프로그램이 원본에서 채운다.
 # 초안은 "무엇을 어느 계정으로 실행할지"만 고른다. 작은 모델이 식별자를 지어내거나 예시를 복사하지 못하게 범위를 좁혔다.
 _SYSTEM = (
     "You draft ONE reproduction plan for an access-control/business-logic finding, as STRICT JSON.\n"
     "Output ONLY a JSON object with EXACTLY these top-level keys: steps, assertions. "
     "Do NOT output preconditions, scenario_id, candidate_id, expected_basis, resource_ids, or any other key. "
     "No prose, no markdown.\n"
-    "The PROGRAM fills identifiers; you only SELECT. Do NOT output account_id, role_id, session_ref, method, or body_ref.\n"
+    "The PROGRAM fills identifiers and the URL; you only SELECT. "
+    "Do NOT output account_id, role_id, session_ref, method, url_template, or body_ref.\n"
     "Each STEP object has EXACTLY: step_id(string, unique), order(integer, contiguous from 0), "
     "source_request_id(one of source_requests[].request_id), "
     "account_role(\"actor\" or \"reference\"), request(object), "
@@ -35,14 +36,15 @@ _SYSTEM = (
     "account_role=\"actor\" is the account whose authorization is under test; it EXECUTES the resource request. "
     "For IDOR you replay the owner's observed resource request AS the actor — never as the request's original owner. "
     "Use \"reference\" ONLY for a setup step that must run as the owner, and ONLY if reference_account is not null.\n"
-    "request has EXACTLY: url_template, parameters(array of {name, location(path|query|body), value, binding_ref}). "
-    "url_template MUST equal the chosen source_request's url, copied EXACTLY (full http://host:port/path). "
-    "Insert a {binding_id} into it ONLY where a value must come from an earlier step's response. "
-    "Never invent a URL, never output angle brackets, ellipses, or the word 'placeholder'.\n"
+    "request has EXACTLY one key: parameters (array). The PROGRAM sends the chosen source_request's url as-is.\n"
     "Each PARAMETER has EXACTLY: name, location(path|query|body), value(literal JSON or null), "
     "binding_ref(string or null; null when value is literal). NEVER include is_sensitive or any other key. "
-    "parameters SHOULD be [] (url_template already identifies the resource); add one only to deliberately change a value. "
+    "parameters SHOULD be [] (the chosen source_request already identifies the resource); "
+    "add one only to deliberately change a value. "
     'source_requests[].parameters are shown in this same shape, e.g. {"name":"page","location":"query","value":"2","binding_ref":null}.\n'
+    "To put a value from an EARLIER step's response into the URL path, declare a binding in THIS step's bindings and add "
+    '{"name":<a path parameter name of THIS step\'s source_request>,"location":"path","value":null,"binding_ref":<that binding_id>}. '
+    "A path parameter MUST use binding_ref, never a literal value. The first step has no earlier step, so it has no path parameter.\n"
     "Each CHECK in assertions has EXACTLY: check_id(string; do NOT start it with 'precondition_'), "
     "kind(session_valid|response_status|response_json|resource_state|resource_owner|baseline_match), "
     "subject_ref(string), selector(JSON Pointer string or null), operator(exists|eq|ne|in|contains), expected(any JSON).\n"
@@ -54,10 +56,10 @@ _SYSTEM = (
     "If the response is NOT JSON, use response_status ONLY — do NOT add response_json.\n"
     "CRITICAL: bindings MUST be [] unless a value truly must be extracted from an earlier step's response; never invent one.\n"
     "Required SHAPE (the leakable string values below are placeholders that WILL be rejected if copied — "
-    "replace source_request_id with a real request_id and url_template with that request's real url):\n"
+    "replace source_request_id with a real request_id):\n"
     '{"steps":[{"step_id":"s1","order":0,"source_request_id":"the_chosen_request_id",'
     '"account_role":"actor",'
-    '"request":{"url_template":"the_chosen_source_request_url","parameters":[]},'
+    '"request":{"parameters":[]},'
     '"bindings":[],"state_change":"none"}],'
     '"assertions":[{"check_id":"a1","kind":"response_status","subject_ref":"s1","selector":null,'
     '"operator":"eq","expected":200},'

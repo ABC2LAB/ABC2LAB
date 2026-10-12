@@ -13,8 +13,9 @@ from modules.scenario_generator.candidate_matcher import MatchedCandidate
 DRAFT_KEYS = frozenset({"steps", "assertions"})
 # 초안 step이 가져야 하는 키(축소형). 식별자 대신 선택(account_role)만 담는다.
 DRAFT_STEP_KEYS = frozenset({"step_id", "order", "source_request_id", "account_role", "request", "bindings", "state_change"})
-# 초안 step.request의 키. method·body_ref는 선택한 원본 요청에서 프로그램이 채운다.
-DRAFT_REQUEST_KEYS = frozenset({"url_template", "parameters"})
+# 초안 step.request의 키. url_template·method·body_ref는 선택한 원본 요청에서 프로그램이 채운다.
+# 원본 URL을 LLM에게 베끼게 하면 작은 모델이 path 파라미터 이름을 {…}로 넣은 템플릿을 지어냈다(10/12 6차 입력 실행).
+DRAFT_REQUEST_KEYS = frozenset({"parameters"})
 # account_role: 실행 단계가 어느 계정으로 도는지. 실제 account_id·role_id·session_ref는 프로그램이 채운다.
 ACCOUNT_ROLE_ACTOR = "actor"
 ACCOUNT_ROLE_REFERENCE = "reference"
@@ -36,7 +37,7 @@ class DrafterError(Exception):
 
 @dataclass(frozen=True)
 class Draft:
-    scenario: Any  # 신뢰하지 않는 값: {"preconditions", "steps", "assertions"} 모양이어야 한다
+    scenario: Any  # 신뢰하지 않는 값: {"steps", "assertions"} 모양이어야 한다
     input_tokens: int | None = None
     output_tokens: int | None = None
 
