@@ -82,7 +82,7 @@ function addAccount(account = {}) {
   fields.className = "account-fields";
   const specifications = [
     ["role", "역할", "text"], ["alias", "공개 별칭", "text"],
-    ["login_id", "로그인 ID", "password"], ["password", "비밀번호", "password"],
+    ["login_id", "로그인 ID", "text"], ["password", "비밀번호", "password"],
   ];
   for (const [name, title, type] of specifications) {
     const group = document.createElement("div");
@@ -94,8 +94,9 @@ function addAccount(account = {}) {
     input.autocomplete = "off";
     input.required = true;
     input.spellcheck = false;
-    input.maxLength = type === "password" ? 4096 : 128;
-    if (type === "text") {
+    const isPublicAccountField = name === "role" || name === "alias";
+    input.maxLength = isPublicAccountField ? 128 : 4096;
+    if (isPublicAccountField) {
       input.pattern = "[a-z][a-z0-9_]*";
       input.value = typeof account[name] === "string" ? account[name] : "";
     }
@@ -119,7 +120,7 @@ function addAccount(account = {}) {
 }
 
 function clearCredentialFields() {
-  accounts.querySelectorAll("input[type=password]").forEach((input) => { input.value = ""; });
+  accounts.querySelectorAll('[data-field="login_id"], [data-field="password"]').forEach((input) => { input.value = ""; });
 }
 
 function showPreparation(preparation) {
