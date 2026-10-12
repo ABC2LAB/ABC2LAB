@@ -53,7 +53,8 @@ def test_prompt_carries_request_as_json_only():
 
     OllamaScenarioDrafter(_config(), transport=transport).draft(_request())
     body = captured["body"]
-    assert body["model"] == "test-model" and body["format"] == "json" and body["stream"] is False
+    # format(구조화 출력)은 test_sg_draft_schema.py가 본다.
+    assert body["model"] == "test-model" and body["stream"] is False
     assert json.loads(body["prompt"])["candidate"]["candidate_id"] == "c1"
     assert body["options"]["seed"] == 3
 

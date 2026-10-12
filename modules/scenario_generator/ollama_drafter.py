@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from modules.scenario_generator.scenario_drafter import Draft, DrafterError
+from modules.scenario_generator.scenario_drafter import Draft, DrafterError, build_draft_json_schema
 
 PROMPT_VERSION = "ollama-scenario-v6"
 _GENERATE_PATH = "/api/generate"
@@ -125,7 +125,9 @@ class OllamaScenarioDrafter:
             "system": _SYSTEM,
             "prompt": json.dumps(request, ensure_ascii=False),
             "stream": False,
-            "format": "json",
+            # "json"은 JSON인지만 강제한다. 초안 Schema를 넘겨 키·중첩·허용값을 디코딩 단계에서 막는다
+            # (6차 입력 qwen2.5:1.5b가 bindings·state_change를 request 안에 넣었다).
+            "format": build_draft_json_schema(),
             "options": options,
         }
         return json.dumps(body).encode("utf-8")
