@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from modules.semantic_analyzer.llm.adapter import LlmClient, RequestFeatures
@@ -18,6 +19,11 @@ from modules.semantic_analyzer.utils.normalize import (
 
 BASIS_OBSERVED = "observed"
 BASIS_INFERRED = "inferred"
+HTTP_OK_MIN = 200
+HTTP_OK_MAX = 300
+# query·body 파라미터를 인스턴스 식별자로 볼 기준(규칙 2 identifiers와 같음): 이름이 id형 + 값이 숫자/UUID.
+_ID_NAME_PATTERN = re.compile(r"(?:^id$|_id$|Id$)")
+_UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 @dataclass
@@ -71,6 +77,10 @@ def analyze_data(crawl_data: dict, client: LlmClient) -> dict:
         _process_request(graph, request, client, page_ids, action_ids)
         for request in crawl_data["requests"]
     ]
+    # 관찰 요청을 먼저 처리한 뒤, 요청하지 않고 발견만 한 엔드포인트를 추론 노드로 얹는다.
+    _add_discovered_endpoints(graph, crawl_data.get("discovered_endpoints", []), page_ids, action_ids)
+    # 접근이 아니라 관찰 근거로 OWNS를 세운다(모든 요청을 본 뒤에 단일 접근·응답 반환을 따진다).
+    _add_ownership(graph, crawl_data["requests"], normalized_requests)
     workflows = _build_workflows(crawl_data["requests"], normalized_requests, crawl_data["accounts"])
 
     return {
@@ -173,6 +183,36 @@ def _link_source(graph: _Graph, request: dict, endpoint_id: str,
         graph.add_edge(ids.action_node_id(action_id), "CALL", endpoint_id, {}, BASIS_OBSERVED, evidence)
 
 
+def _add_discovered_endpoints(graph: _Graph, discovered_endpoints: list[dict],
+                              page_ids: set[str], action_ids: set[str]) -> None:
+    """화면에서 발견했지만 요청은 보내지 않은 엔드포인트를 추론 노드로 얹는다.
+
+    collector가 폼·JS·스펙에서 찾았을 뿐 호출하지 않았으므로(규칙 5·6) 전부 basis=inferred다.
+    접근을 관찰한 게 아니라서 ACCESS 관계·normalized_requests는 만들지 않고, 값을 못 봤으니 value_type은 unknown이다.
+    """
+    for discovered in discovered_endpoints:
+        method = normalize_method(discovered["method"])
+        path_template = normalize_path_template(discovered["url_template"])
+        endpoint_id = ids.endpoint_node_id(method, path_template)
+        evidence = discovered.get("evidence_refs", [])
+        graph.add_node(endpoint_id, "Endpoint",
+                       {"method": method, "path_template": path_template}, BASIS_INFERRED, evidence)
+        for parameter in discovered["parameters"]:
+            parameter_id = ids.parameter_node_id(endpoint_id, parameter["location"], parameter["name"])
+            graph.add_node(parameter_id, "Parameter",
+                           {"name": parameter["name"], "location": parameter["location"],
+                            "value_type": "unknown", "is_sensitive": parameter["is_sensitive"]},
+                           BASIS_INFERRED, evidence)
+            graph.add_edge(endpoint_id, "USE", parameter_id, {}, BASIS_INFERRED, evidence)
+        for origin in discovered["discovered_from"]:
+            if origin["page_id"] in page_ids:
+                graph.add_edge(ids.page_node_id(origin["page_id"]), "CALL", endpoint_id, {},
+                               BASIS_INFERRED, evidence)
+            if origin["action_id"] in action_ids:
+                graph.add_edge(ids.action_node_id(origin["action_id"]), "CALL", endpoint_id, {},
+                               BASIS_INFERRED, evidence)
+
+
 def _process_parameters(graph: _Graph, endpoint_id: str, parameters: list[dict],
                         evidence: list[dict]) -> list[dict]:
     definitions: list[dict] = []
@@ -194,31 +234,44 @@ def _process_parameters(graph: _Graph, endpoint_id: str, parameters: list[dict],
     return definitions
 
 
-def _path_identifiers(request: dict) -> list[dict]:
-    """경로(path) 위치 파라미터에서 인스턴스 식별자 {key, value}를 만든다.
+def _looks_like_id(name: str, value: object) -> bool:
+    """query·body 파라미터가 자원 인스턴스 ID로 쓸 만한지(이름 id형 + 값 숫자/UUID). 규칙 2 identifiers와 같은 기준."""
+    if not _ID_NAME_PATTERN.search(name):
+        return False
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int) and value >= 0:
+        return True
+    return isinstance(value, str) and (value.isdigit() or bool(_UUID_PATTERN.fullmatch(value)))
 
-    민감 파라미터(value=null)나 빈 값은 식별자로 쓸 수 없어 제외한다. 값은 문자열로 맞춘다
-    (ResourceIdentifier.value는 비어있지 않은 문자열). 쓸 식별자가 없으면 type 범위로 떨어진다.
+
+def _instance_identifiers(request: dict) -> list[dict]:
+    """인스턴스 식별자 {key, value}를 만든다. path는 그대로, query·body는 id형(이름+값)만 쓴다.
+
+    민감 파라미터(value=null)·빈 값은 제외한다. 값은 문자열로 맞춘다(ResourceIdentifier.value는 비어있지 않은 문자열).
+    쓸 식별자가 없으면 type 범위로 떨어진다. (path 외 query·body의 자원 ID도 잡으려는 확장.)
     """
     identifiers: list[dict] = []
     for parameter in request["parameters"]:
-        if parameter["location"] != "path" or parameter["is_sensitive"]:
+        if parameter["is_sensitive"]:
             continue
         value = parameter["value"]
         if value is None or str(value) == "":
             continue
-        identifiers.append({"key": parameter["name"], "value": str(value)})
+        location = parameter["location"]
+        if location == "path" or (location in ("query", "body") and _looks_like_id(parameter["name"], value)):
+            identifiers.append({"key": parameter["name"], "value": str(value)})
     return identifiers
 
 
 def _apply_meaning(graph: _Graph, request: dict, endpoint_id: str, meaning, evidence: list[dict]) -> list[dict]:
-    """추론한 자원을 Resource 노드·REFERENCE/OWNS 관계로 얹는다(basis=inferred).
+    """추론한 자원을 Resource 노드·REFERENCE 관계로 얹는다(basis=inferred).
 
     Resource properties는 계약 0.2: resource_key·resource_scope(type|instance)·match_key.
-    경로 id로 특정 인스턴스에 접근했으면 instance 범위(식별자 포함)로 만들고 소유(OWNS)를 추정한다.
-    (1차 단순화: 요청에 쓸 수 있는 경로 식별자가 있으면 해당 요청의 추론 자원을 모두 instance로 본다.)
+    path·id형 query·body 식별자가 있으면 instance 범위(식별자 포함)로 만든다.
+    소유(OWNS)는 여기서 접근만으로 만들지 않는다 — _add_ownership이 관찰 근거로 따로 세운다.
     """
-    identifiers = _path_identifiers(request)
+    identifiers = _instance_identifiers(request)
     is_instance = bool(identifiers)
     identifier_values = tuple(item["value"] for item in identifiers)
     resource_node_ids: list[str] = []
@@ -235,12 +288,50 @@ def _apply_meaning(graph: _Graph, request: dict, endpoint_id: str, meaning, evid
             properties = {"resource_key": resource_key, "resource_scope": "type", "match_key": None}
         graph.add_node(resource_id, "Resource", properties, BASIS_INFERRED, evidence)
         graph.add_edge(endpoint_id, "REFERENCE", resource_id, {}, BASIS_INFERRED, evidence)
-        # 인스턴스 접근이면 소유 관계를 추정한다(IDOR 분석의 재료). 추론이다.
-        if is_instance:
-            graph.add_edge(ids.user_node_id(request["account_id"]), "OWNS", resource_id, {},
-                           BASIS_INFERRED, evidence)
         resource_node_ids.append(resource_id)
     return resource_node_ids
+
+
+def _response_returns_instance(request: dict, resource_node: dict) -> bool:
+    """요청의 2xx 응답이 그 인스턴스 자원을 실제로 돌려줬는지: 응답 identifiers에 인스턴스 식별값이 있으면 참."""
+    response = request.get("response") or {}
+    status = response.get("status_code")
+    if not isinstance(status, int) or not (HTTP_OK_MIN <= status < HTTP_OK_MAX):
+        return False
+    response_values = {str(item["value"]) for item in (response.get("identifiers") or [])}
+    match_key = resource_node["properties"].get("match_key") or {}
+    instance_values = {str(item["value"]) for item in match_key.get("identifiers", [])}
+    return bool(instance_values & response_values)
+
+
+def _add_ownership(graph: _Graph, requests: list[dict], normalized_requests: list[dict]) -> None:
+    """관찰 근거로만 OWNS를 세운다(접근만으로 만들지 않는다).
+
+    규칙: 인스턴스 자원을 접근한 계정이 **단 하나**이고(크롤러는 자기 레인만 도므로 단일=소유, 다계정=공개),
+    그 계정의 응답이 해당 자원을 실제로 돌려줬을 때만 OWNS(basis=observed). 공개 카탈로그처럼 여러 계정이 본 자원은
+    제외해 과대귀속(접근=소유)을 막는다.
+    """
+    request_by_id = {request["request_id"]: request for request in requests}
+    accessors_by_resource: dict[str, set[str]] = {}
+    evidence_by_pair: dict[tuple[str, str], list[dict]] = {}
+    for normalized in normalized_requests:
+        account_id = normalized["account_id"]
+        raw_request = request_by_id.get(normalized["request_id"], {})
+        for resource_id in normalized["resource_ids"]:
+            node = graph.nodes.get(resource_id)
+            if node is None or node["properties"].get("resource_scope") != "instance":
+                continue
+            accessors_by_resource.setdefault(resource_id, set()).add(account_id)
+            if _response_returns_instance(raw_request, node):
+                evidence_by_pair[(resource_id, account_id)] = normalized["evidence_refs"]
+    for resource_id, accounts in accessors_by_resource.items():
+        if len(accounts) != 1:
+            continue
+        account_id = next(iter(accounts))
+        evidence = evidence_by_pair.get((resource_id, account_id))
+        if evidence is None:
+            continue
+        graph.add_edge(ids.user_node_id(account_id), "OWNS", resource_id, {}, BASIS_OBSERVED, evidence)
 
 
 def _build_workflows(requests: list[dict], normalized_requests: list[dict],
