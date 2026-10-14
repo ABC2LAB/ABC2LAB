@@ -14,8 +14,9 @@
 
 ## 현재 구현·연결 상태 — 2026-10-14
 
-기준 커밋 `33421ef` + 이번 작업 트리 기준이다. 팀이 합의한 실행 산출물
-`0.3.0` 동시 전환을 자기 모듈에 적용했다. 문서 판 번호 v0.2는 변경하지 않는다.
+기준 커밋 `e93d0d8`(PR #81을 포함한 dev 병합) + 이번 작업 트리 기준이다.
+실행 계약 0.3.0을 유지하고 PR #81의 공개 형태를 자기 합성 fixture로 검증했다.
+이번에는 KG 실행 코드·모델·Schema 및 문서 판 v0.2를 변경하지 않는다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
@@ -23,7 +24,8 @@
 | 모델·질의 | Resource Type/Instance, 원본 계정·역할 ID, RequestObservation 및 요청 provenance 처리 완료 |
 | 공개 계약 | 입력 `semantic_analysis`·`graph_query`·`verification_results`, 출력 `graph_query_result` 모두 `0.3.0`만 지원 |
 | 검증 관계 호환 | source_account_id→기존 User 변환 유지; 외부 Verifier 출력은 현재 `0.2.0`으로 전환 필요 |
-| 독립 회귀 | KG `245 passed, 12 skipped`; 담당 3개 합동 `1015 passed, 12 skipped` |
+| PR #81 형태 회귀 | inferred Endpoint·Parameter·CALL·USE, observed OWNS, query/body instance·복합키의 입력·저장소 대역·snapshot 직렬화 검증 완료 |
+| 독립 회귀 | KG `257 passed, 12 skipped`; 담당 3개 합동 `1051 passed, 12 skipped` |
 | 실제 전체 연결 | 기존 단일 회차 Runner 호출 연결 유지(PR #59). 새 0.3 전체 실행은 외부 모듈 전환 후 재검증 필요; 실제 비어 있지 않은 검증 관계 반영은 후속 항목 |
 
 skip 12건은 이번에 활성화하지 않은 실제 Neo4j 통합 테스트다. 기존 실제 DB 검증과
@@ -36,6 +38,10 @@ semantic_analyzer·access_analyzer·verifier 출력과 access_analyzer의 KG 입
 현재 0.2다. Reporter KG 입력 사본은 0.3으로 일치 확인했다. 외부 모듈·공통 명세·
 Runner·local_web은 각 담당자가 합의된 버전으로 전환한다. 새 입력은 0.1·0.2 및
 미지원 버전을 거절하며 구버전 완료 산출물은 수정하지 않고 생산자가 다시 발행한다.
+
+PR #81 회귀 12건은 자기 합성 0.3 fixture와 저장소 대역만 사용한다.
+발견만 한 노드에서 RequestObservation·ACCESS가 생기지 않는 것과 basis·자원
+식별값 보존을 확인했다. 실제 0.2 생산자 출력 수용·Neo4j 적재·전체 pipeline 검증은 아님을 구분한다.
 
 ## 독립 동작·수정 책임
 
@@ -287,6 +293,7 @@ revision 확인·계정 조회·참조 검증·저장은 하나의 쓰기 트랜
 | 2026-10-10 | README의 Resource Type/Instance·요청 provenance·계정 source 변환을 명세에 반영하고 현재 구현·연결 상태와 완료 기준을 갱신 | `695b3c8`, PR #52·#53 반영. 기존 구현·0.2.0 계약을 기록하며 새 필드나 버전을 도입하지 않음 |
 | 2026-10-11 | Runner 연결 완료와 검증 관계 생성·검증 후 snapshot·다회차의 미구현 범위를 분리하고 상태 날짜·완료 기준을 갱신 | `30cb867`, PR #59~#62. KG 243 passed·12 skipped, Runner 대역 58 passed. 공개 JSON 0.2.0·문서 판 번호 유지 |
 | 2026-10-14 | 팀 합의로 실행 입력 3종·출력 1종을 0.3.0으로 동시 전환, 구버전 거절·fixture·현재 연결 상태 갱신 | `33421ef` + 작업 트리. KG 245 passed·12 skipped, 합동 1015 passed·12 skipped. Resource·ID·revision·제어 응답 의미 및 문서 판 v0.2 유지; 외부 모듈 전환 후 전체 재검증 필요 |
+| 2026-10-14 | PR #81 신규 노드·관계·observed OWNS·query/body instance·복합키의 독립 fixture와 회귀 12건 추가 | `e93d0d8` + 작업 트리. KG 257 passed·12 skipped, 합동 1051 passed·12 skipped. 실행 코드·모델·Schema·의존성 불변. 합성 0.3 입력·저장소 대역 검증이며 실제 생산자 전환·Neo4j·전체 실행은 미검증 |
 
 기존 책임 경계·공개 operation·실패 처리 규칙은 유지한다. 상세 과거 구현·DB 검증
 이력은 모듈 README에 보존한다. 2026-10-10 합동 회귀 `897 passed, 12 skipped`는

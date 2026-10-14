@@ -18,8 +18,9 @@ Neo4j 직접 접근과 Cypher 실행은 knowledge_graph 내부에서만 수행�
 
 ## 현재 상태 — 2026-10-14
 
-기준 커밋 `33421ef`(dev·feature/dongchan 동일)에서 팀이 합의한 실행 계약
-`0.3.0` 동시 전환을 KG 내부에 적용한 상태다. 아래 과거 이력의 버전은 당시 기록이다.
+기준 커밋 `e93d0d8`(PR #81을 포함한 dev 병합) + 이번 작업 트리 기준이다.
+팀 합의의 실행 계약 `0.3.0`을 유지하며 PR #81의 신규 공개 형태를 자기 fixture로
+검증했다. 이번에는 KG 실행 코드·모델·Schema를 변경하지 않았다.
 
 | 구분 | 현재 상태 |
 |---|---|
@@ -29,14 +30,15 @@ Neo4j 직접 접근과 Cypher 실행은 knowledge_graph 내부에서만 수행�
 | 검증 관계 | `source_account_id`를 같은 run/graph의 기존 User node_id로 변환·저장하는 구현 완료 |
 | 공개 계약 | 입력 3종과 `graph_query_result` 출력은 `0.3.0`만 지원; 일반 관계 source_id와 검증 관계 source_account_id 구분 유지 |
 | 직접 소비자 | Reporter 입력 사본 `0.3.0` 일치 확인; access_analyzer 입력 사본은 현재 `0.2.0`으로 담당자 전환 필요 |
-| 독립 회귀 | 기본 KG 테스트 `245 passed, 12 skipped` |
+| PR #81 형태 회귀 | 추론 Endpoint·Parameter·CALL·USE, observed OWNS, query/body 인스턴스·복합키를 자기 fixture와 저장소 대역으로 검증 |
+| 독립 회귀 | 기본 KG 테스트 `257 passed, 12 skipped`; PR #81 회귀 12건 추가 |
 | 실제 전체 연결 | 기존 단일 회차 Runner 호출 연결은 유지. 새 `0.3.0` 전체 실행은 외부 모듈 전환 후 재검증 필요 |
 
 semantic_analyzer·access_analyzer·verifier의 현재 출력은 아직 `0.2.0`이므로 새 KG
 입력에서 거절된다. 해당 담당자가 합의된 `0.3.0`으로 발행해야 한다. Verifier는
 아직 `graph_updates`를 빈 배열로 생성하며 KG가 검증 관계를 대신 생성하지 않는다.
 
-이번 KG·Safety Policy·Reporter 합동 회귀는 `1015 passed, 12 skipped`다.
+이번 KG·Safety Policy·Reporter 합동 회귀는 `1051 passed, 12 skipped`다.
 skip 12건은 실제 Neo4j opt-in 테스트이며 이번에는 활성화하지 않았다. 기존 실제 DB
 검증은 아래 이력에 보존하며 이번 재검증 결과로 표시하지 않는다. 공통 명세·Runner·
 local_web의 버전 수용은 각 담당자가 함께 전환한다.
@@ -297,7 +299,7 @@ NEO4J_DATABASE
 현재 기본 테스트 결과:
 
 ```text
-245 passed, 12 skipped
+257 passed, 12 skipped
 ```
 
 skip 12건은 실제 Neo4j가 필요한 opt-in 통합 테스트다.
@@ -1083,3 +1085,30 @@ KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph mo
 Reporter의 KG 입력 사본과 출력 Schema 일치는 확인했으며 외부 생산자·access_analyzer
 소비 사본·공통 명세·Web의 전환은 담당자 작업으로 남긴다. 구버전 완료 결과를
 덮어쓰거나 버전만 바꾸지 않고 생산자부터 새 산출물·새 KG를 생성해야 한다.
+
+## 2026-10-14 — PR #81 신규 형태의 독립 호환 회귀
+
+`tests/fixtures/semantic_analyzer_pr81/semantic_analysis.json`과
+`tests/test_pr81_semantic_compatibility.py`를 추가했다. fixture는 합의된 목표 버전
+0.3을 사용하는 합성 입력이며 다른 모듈 코드·Schema·실제 진단 산출물을 참조하지 않는다.
+
+- 발견만 한 Endpoint·Parameter·CALL·USE의 inferred basis와 unknown value_type 보존.
+- 발견만 한 Endpoint에 RequestObservation·ACCESS를 생성하지 않음.
+- observed OWNS의 source·instance target·basis를 변경 없이 보존.
+- query/body 식별자로 구성한 Resource instance, 복합 식별자의 문자열 값·순서·불투명 ID 보존.
+- 잘못된 관계 참조와 미지원 버전 거절.
+- ingest service→자기 저장소 대역 전달과 snapshot 직렬화 확인. 실제 Neo4j 검증은 아님.
+
+KG 실행 코드·모델·Schema·query_key·revision·의존성은 변경하지 않았다.
+마지막에 README와 m3 현재 상태·변경 이력을 갱신했다.
+
+```bash
+KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph -q --tb=short
+# 257 passed, 12 skipped
+
+KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph/tests/test_pr81_semantic_compatibility.py modules/reporter/tests/test_evaluation_service.py -q --tb=short
+# 68 passed
+```
+
+실제 semantic_analyzer 출력은 아직 0.2이므로 현재 KG 입력에서 거절된다.
+이 fixture 수용을 생산자 버전 전환·새 pipeline 연결·실제 DB 적재 완료로 해석하지 않는다.
