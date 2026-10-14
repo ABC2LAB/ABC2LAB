@@ -58,11 +58,35 @@ def test_sensitive_parameter_value_type_is_null(result):
     assert password["value_type"] == "null"
 
 
-def test_structural_edges_are_observed(result):
-    for relation in ("HAS_ROLE", "ACCESS", "CALL", "USE"):
+def test_structural_edges_from_observed_requests_are_observed(result):
+    # 관찰 요청에서 나온 구조 관계는 observed다. HAS_ROLE·ACCESS는 관찰 요청에서만 생긴다.
+    for relation in ("HAS_ROLE", "ACCESS"):
         edges = _edges_by_type(result, relation)
         assert edges, f"{relation} 관계가 없음"
         assert all(e["basis"] == "observed" for e in edges)
+    # CALL·USE는 관찰 요청(observed)과 discovered_endpoints(inferred)에서 모두 생길 수 있어, 관찰분 존재만 본다.
+    for relation in ("CALL", "USE"):
+        edges = _edges_by_type(result, relation)
+        assert any(e["basis"] == "observed" for e in edges), f"관찰 {relation}가 없음"
+
+
+def test_discovered_endpoint_adds_inferred_nodes_and_call(result):
+    # discovered_endpoints는 요청하지 않고 발견만 한 것이라 Endpoint·Parameter·CALL을 inferred로 만든다.
+    endpoint = next(n for n in _nodes_by_type(result, "Endpoint")
+                    if n["properties"] == {"method": "POST", "path_template": "/items/{id}"})
+    assert endpoint["basis"] == "inferred"
+    endpoint_id = endpoint["node_id"]
+    # Parameter 노드는 inferred, 값은 못 봤으니 value_type=unknown
+    params = [n for n in _nodes_by_type(result, "Parameter")
+              if n["node_id"].startswith(f"param:{endpoint_id}:")]
+    assert params and all(p["basis"] == "inferred" and p["properties"]["value_type"] == "unknown" for p in params)
+    # discovered_from의 Page·Action → Endpoint CALL은 inferred
+    calls_in = [e for e in _edges_by_type(result, "CALL") if e["target_id"] == endpoint_id]
+    assert {e["source_id"] for e in calls_in} == {"page:page_products", "action:act_add_cart"}
+    assert all(e["basis"] == "inferred" for e in calls_in)
+    # 접근을 관찰한 게 아니므로 ACCESS도 normalized_requests 항목도 없다
+    assert not any(e["target_id"] == endpoint_id for e in _edges_by_type(result, "ACCESS"))
+    assert not any(r["endpoint_id"] == endpoint_id for r in result["normalized_requests"])
 
 
 def test_access_edges_cover_role_and_account(result):
@@ -72,17 +96,19 @@ def test_access_edges_cover_role_and_account(result):
     assert "user:acc_alice" in sources, "계정 단위 ACCESS가 없음"
 
 
-def test_resource_nodes_and_owns_are_inferred(result):
+def test_resources_are_inferred_and_owns_is_observed(result):
     resources = _nodes_by_type(result, "Resource")
-    # 계약 0.2: Resource properties는 resource_key·resource_scope·match_key
+    # 계약 0.2: Resource properties는 resource_key·resource_scope·match_key. 자원 노드 자체는 LLM 추론.
     assert any(n["properties"]["resource_key"] == "order" for n in resources)
     assert all(n["basis"] == "inferred" for n in resources)
     assert all(n["properties"]["resource_scope"] in ("type", "instance") for n in resources)
     owns = _edges_by_type(result, "OWNS")
-    # alice·bob이 각자 경로 id로 주문에 접근 → 둘 다 order 인스턴스 자원 OWNS(추론)
-    owners = {e["source_id"] for e in owns}
-    assert "user:acc_alice" in owners and "user:acc_bob" in owners
-    assert all(e["basis"] == "inferred" for e in owns)
+    # OWNS는 관찰 근거로만: alice·bob이 각자 자기 주문을 접근하고 응답이 그 주문을 돌려줬다(단일 접근) → basis=observed.
+    assert owns and all(e["basis"] == "observed" for e in owns)
+    assert {e["source_id"] for e in owns} == {"user:acc_alice", "user:acc_bob"}
+    # 접근만으로 소유를 만들지 않는다: 공개(type) 자원에는 OWNS가 붙지 않는다(C1·C4 과대귀속 방지).
+    type_resource_ids = {n["node_id"] for n in resources if n["properties"]["resource_scope"] == "type"}
+    assert not any(e["target_id"] in type_resource_ids for e in owns)
 
 
 def test_instance_resource_has_match_key(result):

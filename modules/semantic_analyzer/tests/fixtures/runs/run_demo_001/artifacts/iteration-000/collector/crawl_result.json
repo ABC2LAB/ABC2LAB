@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "artifact_type": "crawl_result",
   "artifact_id": "crawl_result-run_demo_001-iter0",
   "run_id": "run_demo_001",
@@ -79,7 +79,7 @@
           { "name": "content-type", "value": "application/x-www-form-urlencoded", "redacted": false }
         ],
         "body_ref": null,
-        "response": { "status_code": 303, "content_type": "text/html", "headers": [], "body_ref": null },
+        "response": { "status_code": 303, "content_type": "text/html", "headers": [], "body_ref": null, "identifiers": null, "identifiers_truncated": false },
         "evidence_refs": [
           { "evidence_id": "ev_req_login_alice", "kind": "request", "path": "evidence/collector/req_login_alice.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000010", "redacted": true }
         ]
@@ -97,7 +97,7 @@
         "parameters": [],
         "headers": [],
         "body_ref": null,
-        "response": { "status_code": 200, "content_type": "text/html", "headers": [], "body_ref": null },
+        "response": { "status_code": 200, "content_type": "text/html", "headers": [], "body_ref": null, "identifiers": null, "identifiers_truncated": false },
         "evidence_refs": [
           { "evidence_id": "ev_req_products_alice", "kind": "request", "path": "evidence/collector/req_products_alice.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000011", "redacted": true }
         ]
@@ -118,7 +118,7 @@
         ],
         "headers": [],
         "body_ref": null,
-        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null },
+        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null, "identifiers": null, "identifiers_truncated": false },
         "evidence_refs": [
           { "evidence_id": "ev_req_cart_add_alice", "kind": "request", "path": "evidence/collector/req_cart_add_alice.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000012", "redacted": true }
         ]
@@ -138,7 +138,7 @@
         ],
         "headers": [],
         "body_ref": null,
-        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null },
+        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null, "identifiers": [{ "pointer": "/id", "value": 1 }], "identifiers_truncated": false },
         "evidence_refs": [
           { "evidence_id": "ev_req_order_detail_alice", "kind": "request", "path": "evidence/collector/req_order_detail_alice.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000013", "redacted": true }
         ]
@@ -158,7 +158,7 @@
         ],
         "headers": [],
         "body_ref": null,
-        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null },
+        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null, "identifiers": [{ "pointer": "/id", "value": 2 }], "identifiers_truncated": false },
         "evidence_refs": [
           { "evidence_id": "ev_req_order_detail_bob", "kind": "request", "path": "evidence/collector/req_order_detail_bob.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000014", "redacted": true }
         ]
@@ -176,9 +176,29 @@
         "parameters": [],
         "headers": [],
         "body_ref": null,
-        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null },
+        "response": { "status_code": 200, "content_type": "application/json", "headers": [], "body_ref": null, "identifiers": null, "identifiers_truncated": false },
         "evidence_refs": [
           { "evidence_id": "ev_req_admin_users", "kind": "request", "path": "evidence/collector/req_admin_users.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000015", "redacted": true }
+        ]
+      }
+    ],
+    "discovered_endpoints": [
+      {
+        "discovered_id": "discovered_1",
+        "method": "POST",
+        "url_template": "http://localhost:8001/items/{id}",
+        "parameters": [
+          { "name": "id", "location": "path", "is_sensitive": false },
+          { "name": "name", "location": "body", "is_sensitive": false },
+          { "name": "csrf_token", "location": "body", "is_sensitive": true }
+        ],
+        "source": "form",
+        "discovered_from": [
+          { "page_id": "page_products", "action_id": "act_add_cart" }
+        ],
+        "basis": "inferred",
+        "evidence_refs": [
+          { "evidence_id": "ev_dom_page_products", "kind": "dom", "path": "evidence/collector/dom/page_products.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000020", "redacted": true }
         ]
       }
     ]
