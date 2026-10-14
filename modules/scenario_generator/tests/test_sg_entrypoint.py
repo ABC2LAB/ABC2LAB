@@ -137,6 +137,25 @@ def test_partial_when_one_candidate_has_no_draft(workspace: Workspace, drafts: d
     assert len(document["data"]["scenarios"]) == len(drafts) - 1
 
 
+def test_candidate_without_reference_is_recorded_and_makes_the_result_partial(
+    workspace: Workspace, replay_drafter: ReplayScenarioDrafter
+) -> None:
+    # 재현 조건을 세울 수 없는 후보도 조용히 빠지지 않는다: 공개 envelope errors[]에 후보 ID로 남고 결과는 partial(규칙 9).
+    def drop_last_reference(document: dict[str, Any]) -> None:
+        document["data"]["candidates"][-1]["reference_account_id"] = None
+
+    workspace.rewrite("vulnerability_candidates", drop_last_reference)
+    candidates = json.loads(workspace.input_paths["vulnerability_candidates"].read_text(encoding="utf-8"))["data"]["candidates"]
+    response = workspace.run(replay_drafter)
+
+    document = workspace.read_output()
+    assert response["status"] == document["status"] == "partial"
+    assert [(e["code"], e["item_ref"]) for e in document["errors"]] == [
+        ("ASSERTION_BASELINE_UNAVAILABLE", candidates[-1]["candidate_id"])
+    ]
+    assert [s["candidate_id"] for s in document["data"]["scenarios"]] == [c["candidate_id"] for c in candidates[:-1]]
+
+
 def test_failed_when_no_candidate_yields_a_scenario(workspace: Workspace, drafts: dict[str, Any]) -> None:
     response = workspace.run(ReplayScenarioDrafter({}))
 
@@ -339,7 +358,6 @@ class _InvalidDrafter:
                 "request": {"url_template": "http://wrong.example/x", "parameters": []},
                 "bindings": [], "state_change": "none",
             }],
-            "assertions": [],
         })
 
 

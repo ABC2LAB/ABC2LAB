@@ -9,7 +9,6 @@ from modules.scenario_generator.candidate_matcher import CrawlIndex, MatchedCand
 from modules.scenario_generator.scenario_validator import (
     MAX_REPORTED_PROBLEMS,
     ValidationContext,
-    drop_non_json_response_checks,
     find_scenario_problems,
     summarize_problems,
 )
@@ -19,7 +18,7 @@ Mutation = Callable[[dict[str, Any], dict[str, Any]], None]
 
 
 def compose_scenario(matched: MatchedCandidate, index: CrawlIndex, drafts: dict[str, Any]) -> dict[str, Any]:
-    # 실제 서비스와 같은 방식으로 조립한다(식별자·method·body_ref·세션 사전조건은 프로그램이 채운다).
+    # 실제 서비스와 같은 방식으로 조립한다(식별자·method·body_ref·세션 사전조건·기준 단계·재현 조건은 프로그램이 채운다).
     scenario, problem = _compose_scenario(matched, copy.deepcopy(drafts[matched.candidate["candidate_id"]]), index)
     assert problem is None, problem
     return scenario
@@ -41,11 +40,17 @@ def chained_case(
         allowed.add(matched.reference_account["account_id"])
     other_account = next(a for a in crawl_index.accounts_by_id.values() if a["account_id"] not in allowed)
     other_role_id = next(r for r in crawl_index.roles_by_id if r != matched.actor_account["role_id"])
-    return context, compose_scenario(matched, crawl_index, drafts), {"other_account_id": other_account["account_id"], "other_role_id": other_role_id}
+    env = {"other_account_id": other_account["account_id"], "other_role_id": other_role_id, "reference_account": matched.reference_account}
+    return context, compose_scenario(matched, crawl_index, drafts), env
 
 
 def get_consumer(scenario: dict[str, Any]) -> dict[str, Any]:
-    return next(step for step in scenario["steps"] if step["bindings"])
+    # 바인딩을 쓰는 마지막 단계 = 실행 계정 재현 단계(그 앞의 기준 단계도 같은 바인딩을 복사해 쓴다).
+    return [step for step in scenario["steps"] if step["bindings"]][-1]
+
+
+def get_baseline_check(scenario: dict[str, Any], kind: str) -> dict[str, Any]:
+    return next(check for check in scenario["assertions"] if check["kind"] == kind)
 
 
 def get_producer(scenario: dict[str, Any]) -> dict[str, Any]:
@@ -206,8 +211,28 @@ def remove_assertions_of_kind(kind: str) -> Mutation:
 
 
 def mutate_response_check_unknown_step(s: dict[str, Any], env: dict[str, Any]) -> None:
-    content_check = next(check for check in s["assertions"] if check["kind"] == "response_json")
-    content_check["subject_ref"] = get_consumer(s)["account_id"]
+    get_baseline_check(s, "baseline_match")["subject_ref"] = get_consumer(s)["account_id"]
+
+
+def mutate_baseline_is_not_owner_replay(s: dict[str, Any], env: dict[str, Any]) -> None:
+    # 기준 계정 단계지만 다른 요청(목록)을 보낸 단계와 비교하면 소유자의 정상 응답과 비교한 게 아니다.
+    get_baseline_check(s, "baseline_match")["expected"] = get_producer(s)["step_id"]
+
+
+def mutate_baseline_on_same_account(s: dict[str, Any], env: dict[str, Any]) -> None:
+    get_baseline_check(s, "resource_owner")["expected"] = get_consumer(s)["step_id"]
+
+
+def mutate_baseline_unknown_step(s: dict[str, Any], env: dict[str, Any]) -> None:
+    get_baseline_check(s, "baseline_match")["expected"] = "no_such_step"
+
+
+def mutate_no_actor_replay(s: dict[str, Any], env: dict[str, Any]) -> None:
+    # 재현 단계를 기준 계정이 보내게 바꾸면 실행 계정이 후보 근거 요청을 재현하는 단계가 없다.
+    reference = env["reference_account"]
+    get_consumer(s).update(
+        {"account_id": reference["account_id"], "role_id": reference["role_id"], "session_ref": reference["session_ref"]}
+    )
 
 
 def mutate_actor_assertions_moved_to_reference_step(s: dict[str, Any], env: dict[str, Any]) -> None:
@@ -261,9 +286,14 @@ PROBLEM_CASES: list[tuple[str, Mutation, str]] = [
     ("response_json check has bad pointer", mutate_response_json_bad_selector, "JSON Pointer"),
     ("operator in needs a list", mutate_operator_in_without_list, "operator=in"),
     ("response check subject is not a step", mutate_response_check_unknown_step, "subject_ref가 steps의 step_id가 아니다"),
-    ("actor step has no response_json", remove_assertions_of_kind("response_json"), "실행 계정 단계에 response_status와 response_json"),
-    ("actor step has no response_status", remove_assertions_of_kind("response_status"), "실행 계정 단계에 response_status와 response_json"),
-    ("assertions only on reference step", mutate_actor_assertions_moved_to_reference_step, "실행 계정 단계에 response_status와 response_json"),
+    ("reproduction step has no response_status", remove_assertions_of_kind("response_status"), "response_status 판정 조건이 없다"),
+    ("reproduction step has no baseline_match", remove_assertions_of_kind("baseline_match"), "baseline_match 판정 조건이 없다"),
+    ("json reproduction step has no resource_owner", remove_assertions_of_kind("resource_owner"), "resource_owner 판정 조건이 없다"),
+    ("assertions only on reference step", mutate_actor_assertions_moved_to_reference_step, "판정 조건이 없다"),
+    ("baseline is not the owner's replay", mutate_baseline_is_not_owner_replay, "기준 계정이 같은 근거 요청"),
+    ("baseline check on the same account", mutate_baseline_on_same_account, "다른 계정이 실행한 기준 단계"),
+    ("baseline check on an unknown step", mutate_baseline_unknown_step, "다른 계정이 실행한 기준 단계"),
+    ("no actor step replays the candidate request", mutate_no_actor_replay, "후보 근거 요청을 재현하는 단계가 없다"),
     ("account used in steps has no session check", mutate_missing_reference_session, "session_valid 사전조건이 없다"),
     ("session check on account not in steps", mutate_session_check_unused_account, "steps에 쓰인 계정이 아니다"),
     ("session check uses exists", mutate_session_check_uses_exists, "operator=eq, expected=true"),
@@ -322,53 +352,12 @@ def with_non_json_source(context: ValidationContext, step: dict[str, Any]) -> Va
     return dataclasses.replace(context, index=dataclasses.replace(context.index, requests_by_id=requests))
 
 
-def content_checked_step(scenario: dict[str, Any]) -> dict[str, Any]:
-    content_check = next(check for check in scenario["assertions"] if check["kind"] == "response_json")
-    return next(step for step in scenario["steps"] if step["step_id"] == content_check["subject_ref"])
-
-
-def test_non_json_actor_step_passes_with_status_only(
+def test_non_json_reproduction_step_does_not_need_resource_owner(
     chained_case: tuple[ValidationContext, dict[str, Any], dict[str, Any]],
 ) -> None:
-    # HTML 응답 단계엔 response_json을 적용할 수 없으니 상태 조건만으로 통과한다(내용 확정은 verifier가 판단불가로 남김).
+    # 식별자 비교(resource_owner)는 JSON에만 적용된다. HTML 근거 응답이면 status·baseline_match만으로 통과한다.
     context, scenario, _ = chained_case
-    step = content_checked_step(scenario)
-    assert step["account_id"] == context.matched.actor_account["account_id"]
-    remove_assertions_of_kind("response_json")(scenario, {})
-    assert find_scenario_problems(scenario, with_non_json_source(context, step)) == []
-    # 같은 시나리오라도 그 단계 응답이 JSON이면 여전히 response_json을 요구한다.
-    assert any("response_json" in problem for problem in find_scenario_problems(scenario, context))
-
-
-def test_drop_removes_response_json_only_on_non_json_step(
-    chained_case: tuple[ValidationContext, dict[str, Any], dict[str, Any]],
-) -> None:
-    context, scenario, _ = chained_case
-    html_step = content_checked_step(scenario)
-    json_step = next(step for step in scenario["steps"] if step["step_id"] != html_step["step_id"])
-    kept_check = {**next(c for c in scenario["assertions"] if c["kind"] == "response_json"), "check_id": "kept_on_json_step", "subject_ref": json_step["step_id"]}
-    scenario["assertions"].append(kept_check)
-    original = copy.deepcopy(scenario)
-
-    pruned, dropped = drop_non_json_response_checks(scenario, with_non_json_source(context, html_step).index)
-
-    expected_dropped = [
-        check["check_id"] for check in original["preconditions"] + original["assertions"]
-        if check["kind"] == "response_json" and check["subject_ref"] == html_step["step_id"]
-    ]
-    assert dropped == expected_dropped and dropped
-    remaining = pruned["preconditions"] + pruned["assertions"]
-    assert all(check["check_id"] not in dropped for check in remaining)
-    assert kept_check in pruned["assertions"]
-    assert [c for c in remaining if c["kind"] != "response_json"] == [
-        c for c in original["preconditions"] + original["assertions"] if c["kind"] != "response_json"
-    ]
-    assert scenario == original  # 입력 시나리오는 바꾸지 않는다
-
-
-def test_drop_keeps_json_step_checks(
-    chained_case: tuple[ValidationContext, dict[str, Any], dict[str, Any]],
-) -> None:
-    context, scenario, _ = chained_case
-    pruned, dropped = drop_non_json_response_checks(scenario, context.index)
-    assert dropped == [] and pruned == scenario
+    remove_assertions_of_kind("resource_owner")(scenario, {})
+    assert find_scenario_problems(scenario, with_non_json_source(context, get_consumer(scenario))) == []
+    # 같은 시나리오라도 근거 응답이 JSON이면 여전히 resource_owner를 요구한다.
+    assert any("resource_owner" in problem for problem in find_scenario_problems(scenario, context))

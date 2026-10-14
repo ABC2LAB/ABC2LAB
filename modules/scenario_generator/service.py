@@ -1,4 +1,4 @@
-"""시나리오 생성 본체: 후보 대조 → 초안(LLM) → 초안 검증 → 시나리오 목록.
+"""시나리오 생성 본체: 후보 대조 → 초안(LLM, steps만) → 조립·기준 단계·재현 조건(프로그램) → 검증 → 시나리오 목록.
 
 후보 하나가 실패해도 나머지는 계속 처리하고, 실패는 candidate_id와 함께 오류로 남긴다
 (실패를 가짜 정상 계획으로 대체하지 않는다).
@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 from modules.scenario_generator.candidate_matcher import CrawlIndex, MatchedCandidate, build_crawl_index, match_candidates
 from modules.scenario_generator.draft_diagnostics import build_draft_invalid_record, build_drafter_failed_record
 from modules.scenario_generator.input_adapter import InputErrorCode, LoadedArtifact
+from modules.scenario_generator.reproduction_checks import ReproductionProblem, build_reproduction, find_baseline_blocker
 from modules.scenario_generator.scenario_drafter import (
     ACCOUNT_ROLE_ACTOR,
     ACCOUNT_ROLE_REFERENCE,
@@ -25,8 +26,8 @@ from modules.scenario_generator.scenario_drafter import (
 )
 from modules.scenario_generator.scenario_validator import (
     ValidationContext,
-    drop_non_json_response_checks,
     find_scenario_problems,
+    find_steps_schema_problem,
     summarize_problems,
 )
 
@@ -45,8 +46,14 @@ PATH_SEPARATOR = "/"
 class GenerationErrorCode(StrEnum):
     DRAFTER_FAILED = "DRAFTER_FAILED"
     DRAFT_INVALID = "DRAFT_INVALID"
-    # JSON이 아닌 응답 단계를 가리키는 response_json 조건을 버림(시나리오는 발행). 버린 check_id만 메시지에 적는다.
-    ASSERTION_NON_JSON_RESPONSE = "ASSERTION_NON_JSON_RESPONSE"
+    # 이 후보로는 기준 응답(기준 계정이 같은 요청을 보낸 응답)을 만들 수 없어 재현 조건을 세우지 못함. 시나리오를 만들지 않는다.
+    ASSERTION_BASELINE_UNAVAILABLE = "ASSERTION_BASELINE_UNAVAILABLE"
+
+
+@dataclass(frozen=True)
+class ComposeFailure:
+    code: GenerationErrorCode
+    message: str
 
 
 @dataclass(frozen=True)
@@ -178,64 +185,71 @@ def _build_session_preconditions(steps: list[dict[str, Any]]) -> list[dict[str, 
     return preconditions
 
 
-def _compose_scenario(matched: MatchedCandidate, draft_scenario: Any, index: CrawlIndex) -> tuple[dict[str, Any] | None, str | None]:
+def _compose_scenario(
+    matched: MatchedCandidate, draft_scenario: Any, index: CrawlIndex
+) -> tuple[dict[str, Any] | None, ComposeFailure | None]:
+    """초안 steps를 조립하고 기준 단계·재현 조건을 붙인다. 판정 조건은 초안이 아니라 프로그램이 만든다."""
     candidate = matched.candidate
     if not isinstance(draft_scenario, dict) or set(draft_scenario) != DRAFT_KEYS:
-        # candidate_id·resource_ids·preconditions 같은 키를 LLM이 직접 쓰면 원본과 어긋날 수 있어 받지 않는다.
-        return None, f"초안의 키는 {sorted(DRAFT_KEYS)}여야 한다"
+        # assertions·candidate_id·resource_ids·preconditions 같은 키를 LLM이 직접 쓰면 원본과 어긋날 수 있어 받지 않는다.
+        return None, _draft_invalid(f"초안의 키는 {sorted(DRAFT_KEYS)}여야 한다")
     draft_steps = draft_scenario["steps"]
     if not isinstance(draft_steps, list) or not draft_steps:
-        return None, "steps가 비어 있거나 배열이 아니다"
+        return None, _draft_invalid("steps가 비어 있거나 배열이 아니다")
     composed_steps: list[dict[str, Any]] = []
     for draft_step in draft_steps:
         step, problem = _compose_step(draft_step, matched, index)
         if problem is not None:
-            return None, problem
+            return None, _draft_invalid(problem)
         composed_steps.append(step)
+    # 기준 단계는 재현 단계를 복사해 만들므로 그 전에 단계 모양(타입)을 믿을 수 있어야 한다.
+    schema_problem = find_steps_schema_problem(composed_steps)
+    if schema_problem is not None:
+        return None, _draft_invalid(schema_problem)
+    reproduction = build_reproduction(matched, composed_steps, index)
+    if isinstance(reproduction, ReproductionProblem):
+        code = (
+            GenerationErrorCode.ASSERTION_BASELINE_UNAVAILABLE
+            if reproduction.is_baseline_unavailable
+            else GenerationErrorCode.DRAFT_INVALID
+        )
+        return None, ComposeFailure(code, reproduction.message)
     scenario = {
         "scenario_id": f"{SCENARIO_ID_PREFIX}{candidate['candidate_id']}",
         "candidate_id": candidate["candidate_id"],
         "expected_basis": candidate["expected_basis"],
         # KG Resource instance node_id. verifier가 검증 결과를 KG 자원 노드에 잇는 키라 후보 값을 그대로 옮긴다.
         "resource_ids": list(candidate["resource_ids"]),
-        "preconditions": _build_session_preconditions(composed_steps),
-        "steps": composed_steps,
-        "assertions": draft_scenario["assertions"],
+        "preconditions": _build_session_preconditions(reproduction.steps),
+        "steps": reproduction.steps,
+        "assertions": reproduction.assertions,
     }
     return scenario, None
+
+
+def _draft_invalid(message: str) -> ComposeFailure:
+    return ComposeFailure(GenerationErrorCode.DRAFT_INVALID, message)
 
 
 def _finalize_scenario(
     matched: MatchedCandidate, draft_scenario: Any, index: CrawlIndex, target_url: str
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[str]]:
-    """초안을 조립·검증하고, 통과하면 JSON이 아닌 응답 단계의 response_json 조건을 버린다.
+    """초안을 조립·검증한다. 돌려주는 것: (시나리오|None, 오류 항목, 초안 실패 문제 목록).
 
-    돌려주는 것: (시나리오|None, 오류 항목, 실패 문제 목록). 실패면 시나리오=None이고 문제 목록이 비어 있지 않다
-    (진단 기록용 전체 목록이며, 공개 오류 메시지는 요약본을 쓴다).
+    초안 실패(DRAFT_INVALID)면 문제 목록이 비어 있지 않다(진단 기록용 전체 목록이며, 공개 오류 메시지는 요약본을 쓴다).
+    기준 응답을 만들 수 없는 후보(ASSERTION_BASELINE_UNAVAILABLE)는 초안 탓이 아니라 문제 목록 없이 오류만 돌려준다.
     """
     candidate_id = matched.candidate["candidate_id"]
-    context = ValidationContext(matched, index, target_url)
-    scenario, problem = _compose_scenario(matched, draft_scenario, index)
-    problems = [problem] if scenario is None else find_scenario_problems(scenario, context)
-    dropped_check_ids: list[str] = []
-    if not problems:
-        scenario, dropped_check_ids = drop_non_json_response_checks(scenario, index)
-        # 버린 뒤에도 규칙(실행 계정 단계 판정 조건 등)을 만족하는지 다시 본다.
-        problems = find_scenario_problems(scenario, context) if dropped_check_ids else []
+    scenario, failure = _compose_scenario(matched, draft_scenario, index)
+    if failure is not None and failure.code is GenerationErrorCode.ASSERTION_BASELINE_UNAVAILABLE:
+        logger.warning("후보 %s는 기준 응답을 만들 수 없어 시나리오를 만들지 않는다", candidate_id)
+        return None, [_make_error_item(failure.code.value, failure.message, candidate_id, False)], []
+    problems = [failure.message] if failure is not None else find_scenario_problems(scenario, ValidationContext(matched, index, target_url))
     if problems:
         logger.warning("후보 %s의 초안이 검증을 통과하지 못했다 (%d건)", candidate_id, len(problems))
         error = _make_error_item(GenerationErrorCode.DRAFT_INVALID.value, summarize_problems(problems), candidate_id, False)
         return None, [error], problems
-    notes = [
-        _make_error_item(
-            GenerationErrorCode.ASSERTION_NON_JSON_RESPONSE.value,
-            f"JSON이 아닌 응답 단계를 가리키는 response_json 조건 {check_id}를 버렸다",
-            candidate_id,
-            False,
-        )
-        for check_id in dropped_check_ids
-    ]
-    return scenario, notes, []
+    return scenario, [], []
 
 
 def _upstream_partial_errors(artifacts: list[LoadedArtifact]) -> list[dict[str, Any]]:
@@ -272,6 +286,11 @@ def generate_scenarios(
 
     for matched in match_result.matched:
         candidate_id = matched.candidate["candidate_id"]
+        blocker = find_baseline_blocker(matched)
+        if blocker is not None:
+            # 재현 조건을 세울 수 없는 후보는 LLM을 부르지 않는다. 가짜 조건으로 시나리오를 만들지 않는다.
+            errors.append(_make_error_item(GenerationErrorCode.ASSERTION_BASELINE_UNAVAILABLE.value, blocker, candidate_id, False))
+            continue
         llm_calls += 1
         try:
             draft = drafter.draft(build_draft_request(matched, crawl_data["target_url"]))
@@ -289,7 +308,7 @@ def generate_scenarios(
         errors += scenario_errors
         if scenario is not None:
             scenarios.append(scenario)
-        else:
+        elif problems:
             diagnostics.append(build_draft_invalid_record(candidate_id, draft.scenario, problems, model_info))
 
     return GenerationOutcome(
