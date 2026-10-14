@@ -22,8 +22,8 @@ from jsonschema import Draft202012Validator, ValidationError
 from modules.collector.core.capture import (
     AUTHORIZATION_HEADERS,
     COOKIE_HEADER,
-    SENSITIVE_KEY_PARTS,
     SET_COOKIE_HEADER,
+    is_sensitive_key,
     list_secret_variants,
 )
 
@@ -248,7 +248,7 @@ class _DataChecker:
 
     def _check_parameters(self, location: str, parameters: list[Mapping[str, Any]]) -> None:
         for index, parameter in enumerate(parameters):
-            is_secret_parameter = parameter["location"] == COOKIE_LOCATION or _is_sensitive_name(parameter["name"])
+            is_secret_parameter = parameter["location"] == COOKIE_LOCATION or is_sensitive_key(parameter["name"])
             if is_secret_parameter and not parameter["is_sensitive"]:
                 self._report.add(
                     IssueCode.SECRET_NOT_REDACTED,
@@ -261,7 +261,7 @@ class _DataChecker:
             name = header["name"]
             if name != name.lower():
                 self._report.add(IssueCode.FORMAT_INVALID, f"{location}[{index}].name", "헤더 이름은 소문자여야 함")
-            if (name.lower() in SECRET_HEADER_NAMES or _is_sensitive_name(name)) and not header["redacted"]:
+            if (name.lower() in SECRET_HEADER_NAMES or is_sensitive_key(name)) and not header["redacted"]:
                 self._report.add(
                     IssueCode.SECRET_NOT_REDACTED, f"{location}[{index}]", f"값을 가려야 하는 헤더 ({name.lower()})"
                 )
@@ -480,11 +480,6 @@ def _is_utc_timestamp(text: str) -> bool:
     except ValueError:
         return False
     return True
-
-
-def _is_sensitive_name(name: str) -> bool:
-    lowered = name.lower().replace("-", "_")
-    return any(part in lowered for part in SENSITIVE_KEY_PARTS)
 
 
 def _expand_secret_variants(known_secrets: Iterable[str]) -> tuple[str, ...]:
