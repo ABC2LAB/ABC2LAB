@@ -239,18 +239,12 @@ def _add_semantic_observations(
 ) -> None:
     semantic_data = inputs.semantic_analysis.data
     if semantic_data is not None:
+        _add_endpoint_observations(semantic_data, observations)
         for request in semantic_data["normalized_requests"]:
             endpoint_properties = {
                 "method": request["method"],
                 "path_template": request["path_template"],
             }
-            observations["Endpoint"].append(
-                ObservedEntity(
-                    entity_id=request["endpoint_id"],
-                    entity_type="Endpoint",
-                    properties=endpoint_properties,
-                )
-            )
             for parameter in request["parameters"]:
                 parameter_properties = {
                     "endpoint": endpoint_properties,
@@ -273,6 +267,33 @@ def _add_semantic_observations(
     else:
         for entity_type in SEMANTIC_ENTITY_TYPES:
             measured_types[entity_type] = False
+
+
+def _add_endpoint_observations(
+    semantic_data: Mapping[str, Any],
+    observations: dict[str, list[ObservedEntity]],
+) -> None:
+    # Endpoint discovery includes inference, not proof of executed access.
+    for node in semantic_data["nodes"]:
+        if node["node_type"] == "Endpoint":
+            observations["Endpoint"].append(
+                ObservedEntity(
+                    entity_id=node["node_id"],
+                    entity_type="Endpoint",
+                    properties=node["properties"],
+                )
+            )
+    for request in semantic_data["normalized_requests"]:
+        observations["Endpoint"].append(
+            ObservedEntity(
+                entity_id=request["endpoint_id"],
+                entity_type="Endpoint",
+                properties={
+                    "method": request["method"],
+                    "path_template": request["path_template"],
+                },
+            )
+        )
 
 
 def _add_snapshot_observations(
@@ -612,10 +633,12 @@ def _build_notes(
 ) -> list[str]:
     notes = [
         (
-            f"{profile}: Page는 crawl_result, Endpoint·Parameter는 "
-            "semantic_analysis, User·Role·Action·Resource·관계·Flow는 "
+            f"{profile}: Page는 crawl_result, Endpoint는 semantic_analysis의 "
+            "Endpoint 노드와 normalized_requests, Parameter는 normalized_requests, "
+            "User·Role·Action·Resource·관계·Flow는 "
             "실제 KG snapshot의 정규화 키로 평가함"
         ),
+        "inferred Endpoint도 발견율에 포함하며 실제 요청·접근 성공·취약점 확정을 뜻하지 않음",
         "미검증 항목을 정답 양성 분모에서 제외하지 않음",
         (
             "workflow_recall은 정규화한 이름과 ordered_actions를 비교하며 "

@@ -61,7 +61,7 @@ def test_run_query_writes_valid_artifact(
     assert response["output_path"].endswith("graph_query_result.json")
     assert len(response["sha256"]) == 64
     assert artifact["artifact_type"] == "graph_query_result"
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact["input_refs"][0]["artifact_id"] == "graph_query_demo_001"
 
 
@@ -177,7 +177,7 @@ def _assert_query_output_matches_input(
     source = json.loads(input_path.read_text(encoding="utf-8"))
     artifact = json.loads(output_path.read_text(encoding="utf-8"))
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact["data"]["graph_id"] == source["data"]["graph_id"]
     assert artifact["input_refs"] == [
         {

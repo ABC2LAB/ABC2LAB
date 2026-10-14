@@ -12,27 +12,30 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-11
+## 현재 구현·연결 상태 — 2026-10-14
 
-기준 커밋 `30cb867`의 구현과 PR #59~#62의 단일 회차 Runner 연결·실제 실행 오류
-수정 내용을 반영했다.
+기준 커밋 `33421ef` + 이번 작업 트리 기준이다. 팀이 합의한 실행 산출물
+`0.3.0` 동시 전환을 자기 모듈에 적용했다. 문서 판 번호 v0.2는 변경하지 않는다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
 | 독립 구현 | `ingest`·`query`·`apply_verification`, 공개 함수·CLI, 원자 저장 구현 완료 |
 | 모델·질의 | Resource Type/Instance, 원본 계정·역할 ID, RequestObservation 및 요청 provenance 처리 완료 |
-| 공개 계약 | 입력 `semantic_analysis`·`graph_query`·`verification_results`, 출력 `graph_query_result` 모두 `0.2.0` |
-| 검증 관계 호환 | Verifier의 `source_account_id` 출력 전환 및 KG의 기존 User 조회·변환 구현 완료 |
-| 독립 회귀 | 2026-10-11 재확인: KG `243 passed, 12 skipped`; Runner 대역 테스트 `58 passed` |
-| 실제 전체 연결 | 단일 회차 Runner의 ingest→query→apply_verification 호출 연결 완료(PR #59). 실제 Verifier의 graph_updates는 아직 빈 배열이며, 비어 있지 않은 검증 관계의 수신·DB 반영은 별도 후속 항목 |
+| 공개 계약 | 입력 `semantic_analysis`·`graph_query`·`verification_results`, 출력 `graph_query_result` 모두 `0.3.0`만 지원 |
+| 검증 관계 호환 | source_account_id→기존 User 변환 유지; 외부 Verifier 출력은 현재 `0.2.0`으로 전환 필요 |
+| 독립 회귀 | KG `245 passed, 12 skipped`; 담당 3개 합동 `1015 passed, 12 skipped` |
+| 실제 전체 연결 | 기존 단일 회차 Runner 호출 연결 유지(PR #59). 새 0.3 전체 실행은 외부 모듈 전환 후 재검증 필요; 실제 비어 있지 않은 검증 관계 반영은 후속 항목 |
 
 skip 12건은 이번에 활성화하지 않은 실제 Neo4j 통합 테스트다. 기존 실제 DB 검증과
 상세 구현 이력은 [모듈 README](../../modules/knowledge_graph/README.md)를 따른다.
 Runner는 ingest의 graph_id·graph_revision·is_ready와 query의 graph_id·graph_revision을
 확인해 다음 단계에 전달한다. 현재 structure_snapshot은 검증 전 query 시점의 결과이며,
 apply_verification 후 snapshot 재조회와 다음 회차 실행은 아직 제공하지 않는다.
-Runner 58건은 모듈 대역을 사용한 호출·중단·세션 창구·요약 검증이며,
-실제 대상의 요청·응답 건수나 비어 있지 않은 검증 관계의 DB 반영 검증을 대체하지 않는다.
+이전 Runner 58건은 모듈 대역 검증이며 이번에 재실행하지 않았다.
+semantic_analyzer·access_analyzer·verifier 출력과 access_analyzer의 KG 입력 사본은
+현재 0.2다. Reporter KG 입력 사본은 0.3으로 일치 확인했다. 외부 모듈·공통 명세·
+Runner·local_web은 각 담당자가 합의된 버전으로 전환한다. 새 입력은 0.1·0.2 및
+미지원 버전을 거절하며 구버전 완료 산출물은 수정하지 않고 생산자가 다시 발행한다.
 
 ## 독립 동작·수정 책임
 
@@ -124,8 +127,9 @@ Runner 58건은 모듈 대역을 사용한 호출·중단·세션 창구·요약
 - 구조 평가의 snapshot은 실제 DB 적재 결과여야 한다. 적재 전 semantic_analysis.json만 반환하여 적재 정확도를 평가하지 않는다.
 - ingest·apply_verification의 준비 상태·revision은 공개 호출의 제어 응답이다. 추가 결과 JSON 파일명을 만들지 않는다.
 
-## Resource Type/Instance와 검증 반영 계약 — 0.2.0
+## Resource Type/Instance와 검증 반영 계약 — 0.3.0
 
+0.2에서 도입한 자원·검증 관계의 필드 의미는 유지한다.
 Resource는 종류와 인스턴스를 모두 표현한다. Resource `properties`는 아래 필수
 필드를 가지며 추가 속성은 허용한다. 상세 중첩 계약은
 [m2의 ResourceProperties·ResourceMatchKey](m2-semantic_analyzer.md)를 따른다.
@@ -140,8 +144,8 @@ Resource는 종류와 인스턴스를 모두 표현한다. Resource `properties`
   판단하며 같은 match_key를 서로 다른 node_id로 제시하면 ingest를 거절한다.
 - Resource node_id는 생산자가 생성한다. KG는 불투명 ID로 검증·저장하며
   종류명·URL·상품 번호로 ID를 추측하거나 재생성하지 않는다.
-- 민감 식별값으로 인스턴스를 만들지 않는다. 기존 Resource 속성 누락·0.1 산출물은
-  묵시 변환하지 않고 semantic_analysis 0.2 재생성과 새 KG ingest를 요구한다.
+- 민감 식별값으로 인스턴스를 만들지 않는다. 기존 Resource 속성 누락·0.1·0.2 산출물은
+  묵시 변환하지 않고 semantic_analysis 0.3 재생성과 새 KG ingest를 요구한다.
 - 원본 Resource 속성은 보존하고 조회용 속성을 함께 저장한다. `resource_ownership`은
   instance만 반환하며 `role_resource_access`는 type·instance·미연결을 구분한다.
 - RequestObservation은 내부 저장 구조이므로 structure_snapshot의 공개 노드에 포함하지 않는다.
@@ -163,13 +167,13 @@ Verifier의 신규 Resource 생성·Resource Type target은 허용하지 않는�
 revision 확인·계정 조회·참조 검증·저장은 하나의 쓰기 트랜잭션에서 처리한다.
 동일 검증의 재반영과 빈 갱신은 no-op이며, 실제 유효 변경에 대해서만 revision을
 증가시킨다. 입력 검증 관계의 이전 source_id·두 source 필드 동시 입력은 거절하고
-일반 관계의 source_id 계약은 유지한다. 버전은 `0.2.0`을 유지한다.
+일반 관계의 source_id 계약은 유지한다. 실행 계약 버전은 `0.3.0`이다.
 
 ## 입력·출력 JSON 필드
 
 ### graph_query_result.json
 
-- 고정 값: `artifact_type=graph_query_result`, `producer=knowledge_graph`, `schema_version=0.2.0`.
+- 고정 값: `artifact_type=graph_query_result`, `producer=knowledge_graph`, `schema_version=0.3.0`.
 - 예상 Schema 경로: `modules/knowledge_graph/schemas/output/graph_query_result.schema.json`.
 - 예상 출력 fixture 경로: `modules/knowledge_graph/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/knowledge_graph/graph_query_result.json`.
 
@@ -282,6 +286,7 @@ revision 확인·계정 조회·참조 검증·저장은 하나의 쓰기 트랜
 | --- | --- | --- |
 | 2026-10-10 | README의 Resource Type/Instance·요청 provenance·계정 source 변환을 명세에 반영하고 현재 구현·연결 상태와 완료 기준을 갱신 | `695b3c8`, PR #52·#53 반영. 기존 구현·0.2.0 계약을 기록하며 새 필드나 버전을 도입하지 않음 |
 | 2026-10-11 | Runner 연결 완료와 검증 관계 생성·검증 후 snapshot·다회차의 미구현 범위를 분리하고 상태 날짜·완료 기준을 갱신 | `30cb867`, PR #59~#62. KG 243 passed·12 skipped, Runner 대역 58 passed. 공개 JSON 0.2.0·문서 판 번호 유지 |
+| 2026-10-14 | 팀 합의로 실행 입력 3종·출력 1종을 0.3.0으로 동시 전환, 구버전 거절·fixture·현재 연결 상태 갱신 | `33421ef` + 작업 트리. KG 245 passed·12 skipped, 합동 1015 passed·12 skipped. Resource·ID·revision·제어 응답 의미 및 문서 판 v0.2 유지; 외부 모듈 전환 후 전체 재검증 필요 |
 
 기존 책임 경계·공개 operation·실패 처리 규칙은 유지한다. 상세 과거 구현·DB 검증
 이력은 모듈 README에 보존한다. 2026-10-10 합동 회귀 `897 passed, 12 skipped`는

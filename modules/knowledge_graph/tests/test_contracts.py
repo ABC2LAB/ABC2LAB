@@ -41,10 +41,10 @@ def test_contract_fixtures_are_valid(fixture_root: Path) -> None:
     assert len(semantic_graph.nodes) == 4
     assert len(semantic_graph.relationships) == 2
     assert len(semantic_graph.workflows) == 1
-    assert query_artifact["schema_version"] == "0.2.0"
+    assert query_artifact["schema_version"] == "0.3.0"
     assert len(query_artifact["data"]["queries"]) == 4
     assert len(verification_artifact["data"]["graph_updates"]["relationships"]) == 1
-    assert output_artifact["schema_version"] == "0.2.0"
+    assert output_artifact["schema_version"] == "0.3.0"
 
 
 def test_graph_query_accepts_current_access_analyzer_fixture() -> None:
@@ -57,11 +57,11 @@ def test_graph_query_accepts_current_access_analyzer_fixture() -> None:
 
     artifact = prepare_query(input_path)
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact == load_json(input_path)
 
 
-@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.2.0", "0.4.0"])
 def test_graph_query_rejects_unsupported_version(
     fixture_root: Path,
     tmp_path: Path,
@@ -180,7 +180,7 @@ def test_ingest_accepts_type_resource(fixture_root: Path, tmp_path: Path) -> Non
 
     artifact, _ = prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
 
 
 def test_ingest_accepts_composite_resource_match_key(
@@ -195,7 +195,7 @@ def test_ingest_accepts_composite_resource_match_key(
 
     artifact, _ = prepare_ingest(_write_test_json(tmp_path / "semantic.json", source))
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
 
 
 @pytest.mark.parametrize("property_name", ["resource_key", "resource_scope", "match_key"])

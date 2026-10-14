@@ -22,7 +22,7 @@ def test_verification_fixture_uses_account_source_without_version_bump(
 
     _validate(artifact)
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert all(
         "source_account_id" in relationship and "source_id" not in relationship
         for relationship in artifact["data"]["graph_updates"]["relationships"]
@@ -125,7 +125,7 @@ def test_account_source_still_requires_execution_evidence(
         _validate(artifact)
 
 
-@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.2.0", "0.4.0"])
 def test_account_source_does_not_enable_other_contract_versions(
     fixture_root: Path,
     schema_version: str,

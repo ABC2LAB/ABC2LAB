@@ -119,7 +119,7 @@ def test_execute_and_publish_completed_query(query_run_root: Path) -> None:
     response = publish_query_artifact(prepared, artifact)
 
     assert artifact["status"] == "completed"
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact["data"]["graph_revision"] == 1
     assert len(artifact["data"]["results"]) == 4
     assert response.output_path == OUTPUT_PATH

@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "artifact_type": "safety_decisions",
   "artifact_id": "decisions_demo_001",
   "run_id": "run_demo_001",
@@ -20,7 +20,7 @@
   "data": {
     "policy_id": "policy_demo",
     "policy_version": "1",
-    "scenarios_sha256": "818337018d87c28e712b08cdde2079429daf428bc24dff407b4145af5215cbf8",
+    "scenarios_sha256": "e31f1ef9052a0e135e92abd1090aa4b0b5115ef7e50a75995f6f8729b7ebd9ec",
     "decisions": [
       {
         "decision_id": "decision_idor_001",

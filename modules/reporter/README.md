@@ -2,19 +2,21 @@
 
 진단 결과를 정리해 `diagnosis_report.json`과 로컬 HTML을 생성하고, development 모드에서 Ground Truth 기반 평가 결과를 생성하는 모듈이다.
 
-## 현재 상태 — 2026-10-10
+## 현재 상태 — 2026-10-14
 
-기준 커밋은 `695b3c8`이다. PR #52·#53 병합 후 상태를 기록한다.
+기준 커밋 `33421ef`에서 팀이 합의한 실행 계약 `0.3.0` 동시 전환을 적용했다.
+Collector 0.3 입력 확장과 Endpoint 발견율 보완을 포함한다.
 
 | 구분 | 현재 상태 |
 |---|---|
 | 독립 구현 | 공개 `report`·`evaluate`·CLI, 결과 분류·개발 평가·로컬 HTML 생성 구현 완료 |
-| 공개 계약 | 실행 입력 7종·출력 2종 `0.2.0`, 정답 입력은 기존 `0.1.0` 유지 |
-| 소비자 호환 | 필수 `Scenario.resource_ids` 및 검증 관계 `source_account_id` 수용 완료 |
-| 독립 회귀 | `418 passed` |
-| 실제 전체 연결 | 미완료. 같은 run의 실제 후보·계획·판정·검증 결과로 연결 검증 필요 |
+| 공개 계약 | 실행 입력 7종·출력 2종 `0.3.0`만 지원; Ground Truth는 기존 `0.1.0` 유지 |
+| 입력 호환 | Collector 발견 엔드포인트·응답 식별자 필드 수용; KG·Safety 출력과 입력 사본 일치 확인 |
+| 평가 | Endpoint 노드(추론 포함)와 normalized_requests를 method·path_template으로 비교; 중복 분자 증가 없음 |
+| 독립 회귀 | `462 passed` |
+| 실제 전체 연결 | 기존 단일 회차 Runner 호출 연결은 유지. 새 `0.3.0` 전체 실행은 외부 모듈 전환 후 재검증 필요 |
 
-Verifier 계약 전환은 완료됐지만 실제 검증 관계 생성은 아직 미구현이다.
+Verifier의 계정 source 필드 전환은 완료됐지만 버전 0.3 수용과 실제 검증 관계 생성은 남아 있다.
 현재 리포트 렌더링은 HTML이며 PDF 출력은 구현하지 않았다. 현재 명세는
 [m8-reporter](../../docs/spec/m8-reporter.md)를 참고한다.
 
@@ -80,8 +82,8 @@ Ground Truth는 development 평가에서만 사용하며 다른 진단 모듈로
 
 ## 계약
 
-- 진단 실행 입력 7종: `0.2.0` (`crawl_result`, `semantic_analysis`, `graph_query_result`, `vulnerability_candidates`, `test_scenarios`, `safety_decisions`, `verification_results`)
-- reporter 출력 2종: `0.2.0` (`diagnosis_report`, `evaluation_results`)
+- 진단 실행 입력 7종: `0.3.0` (`crawl_result`, `semantic_analysis`, `graph_query_result`, `vulnerability_candidates`, `test_scenarios`, `safety_decisions`, `verification_results`)
+- reporter 출력 2종: `0.3.0` (`diagnosis_report`, `evaluation_results`)
 - development 평가 전용 `ground_truth` 입력: 기존 `0.1.0` 유지
 - 입력 Schema: `schemas/input/`
 - 출력 Schema: `schemas/output/`
@@ -97,45 +99,43 @@ Ground Truth는 development 평가에서만 사용하며 다른 진단 모듈로
 
 `verification_results.data.graph_updates.relationships`의 검증 관계는
 `source_account_id`에 실제 접근한 원본 계정 ID를 받고, `target_id`에 기존
-Resource instance node_id를 받는다. 버전 `0.2.0`을 유지하면서 필드를 동시
-전환하므로 이전 `source_id`, 두 source 필드의 동시 입력, source 필드 누락은 거절한다.
+Resource instance node_id를 받는다. `0.2.0`에서 합의한 필드 의미를 `0.3.0`에도
+유지한다. 이전 `source_id`, 두 source 필드의 동시 입력, source 필드 누락은 거절한다.
 
 검증 관계의 `source_account_id`를 User node_id로 해석해 DB에 반영하는 책임은 KG에 있다.
 reporter는 이 검증 관계를 변환·저장하거나 node_id를 접두사로 추측하지 않는다.
 semantic 및 KG snapshot의 일반 관계는 계속 `source_id`·`target_id`를 사용한다.
 개발 평가의 원본 계정·역할 ID 참조 검증은 아래 `GraphReferenceIndex`로 계속 수행한다.
 
-기준 커밋 `695b3c8`에서 Verifier 출력 Schema의 `source_account_id` 전환까지
-완료됐다. KG·Reporter의 입력 대응과 KG의 기존 실제 Neo4j 검증 이력은 유지한다.
-실제 동일 run 산출물 수신·전체 pipeline 검증은 후속 작업이다. 과거 단계별 이력과
-전달 체크리스트는 아래 변경 이력 및 [KG README](../knowledge_graph/README.md)에
-보존하며, 실제 연결 완료 여부는 현재 상태 절과 구분해 읽는다.
+진단 실행 입력의 `0.1.0`·`0.2.0` 및 미지원 버전은 거절하며 기존 산출물을
+묵시적으로 변환하지 않는다. 과거 단계별 이력은 아래 변경 이력에 보존한다.
 
-진단 실행 입력의 `0.1.0` 및 미지원 버전은 거절하며, 기존 산출물의 버전을 묵시적으로 변환하지 않는다. `graph_query_result`는 이미 0.2 계약이므로 이번 동기화에서 변경하지 않았다.
-
-현재 `test_scenarios` 입력은 SG의 `0.2.0` 출력과 필수
+현재 `test_scenarios` 입력은 합의된 `0.3.0` 계약과 필수
 `data.scenarios[].resource_ids`를 수용한다. 이 필드는 최소 1개의 비어 있지 않은
 문자열 배열이며, 원본 후보의 KG Resource instance node_id를 값·순서 그대로 담는다.
 ID의 형식을 해석·재계산하거나 정렬·중복 제거하지 않는다. 후보와의 값 일치는
 생산자가 보장하므로 소비자에서 다시 대조하는 로직은 추가하지 않는다.
 
-2026-10-10, 기준 커밋 `695b3c8`에서 최상위 `$id`·제목·설명을 제외한
-SG·Safety Policy·Verifier 출력과 Reporter 입력 Schema의 일치를 확인했다.
-SG 공개 시나리오 2개, Safety 판정 2개, KG 질의 결과 4개 및 Verifier 공개 결과
-2개가 Reporter 입력 Schema를 통과했다. 진단 분류·평가·내부 모델·출력 계약은 유지한다.
+2026-10-14 기준 Collector·KG·Safety Policy 출력 Schema와 Reporter 입력 사본은
+최상위 `$id`·제목·설명을 제외하면 일치한다. semantic_analyzer·access_analyzer·
+scenario_generator·verifier 출력은 현재 `0.2.0`이므로 담당자의 동시 전환이 필요하다.
+Verifier는 아직 검증 관계를 빈 배열로 생성한다. 새 버전의 실제 전체 실행은 미검증이다.
+공통 명세·Runner·local_web의 버전 수용도 각 담당자가 전환한다.
 
-Verifier 입력 3종은 `0.2.0`이며 검증 관계 출력은 `source_account_id`를 요구한다.
-다만 실행 코드는 아직 `graph_updates`를 빈 배열로 생성한다. 빈 관계의 Schema
-수용은 실제 검증 관계 수신의 증거가 아니며, 공개 fixture 수신·독립 회귀와
-동일 run 전체 pipeline 연결 완료는 구분한다.
+Ground Truth Schema·fixture·dataset 계약은 `0.1.0`으로 유지한다. 정답은 evaluate만 읽는다.
 
-`ground_truth`는 공통 계약의 11개 파일 0.2 안내와 `m8-reporter.md`의 정답 파일 0.1 표가 일치하지 않는다. 이번 단계에서는 기존 정답 Schema·fixture를 유지하고, 정답 계약 전환은 별도 검토 대상으로 남긴다.
+### Collector 0.3 입력
+
+`data.discovered_endpoints`, 각 response의 `identifiers`·`identifiers_truncated`를
+필수 필드로 수용한다. 발견 엔드포인트는 `basis=inferred`이며 실행된 요청이 아니다.
+식별자 값의 숫자·문자열 JSON 타입을 보존하며, 미관찰 `null`과 관찰한 빈 배열을
+구분한다. Reporter가 발견 레코드로 요청·접근 관계·취약점 후보를 만들지는 않는다.
 
 ---
 
 ## Knowledge Graph 입력
 
-development 평가에서 사용하는 `graph_query_result.json`은 현재 Knowledge Graph의 `schema_version=0.2.0` 계약을 따른다.
+development 평가에서 사용하는 `graph_query_result.json`은 현재 Knowledge Graph의 `schema_version=0.3.0` 계약을 따른다.
 
 ### AccessRow provenance
 
@@ -159,7 +159,7 @@ development 평가에서 사용하는 `graph_query_result.json`은 현재 Knowle
 
 ### Resource Type / Instance
 
-KG 0.2에서는 Resource 종류와 실제 Resource 인스턴스를 구분한다.
+KG는 Resource 종류와 실제 Resource 인스턴스를 구분한다. 0.2에서 도입한 모델을 0.3에서도 유지한다.
 
 Resource는 다음 필드를 사용한다.
 
@@ -228,7 +228,7 @@ Resource가 연결되지 않은 AccessRow는 네 필드가 모두 `null`일 수 
 
 reporter의 `evaluate`는 현재 KG 결과 중 `structure_snapshot`을 실제 구조 평가에 사용한다.
 
-다른 query 결과 역시 producer의 `graph_query_result 0.2.0` 계약에 따라 정상적으로 검증할 수 있어야 한다.
+다른 query 결과 역시 producer의 `graph_query_result 0.3.0` 계약에 따라 정상적으로 검증할 수 있어야 한다.
 
 ---
 
@@ -289,7 +289,7 @@ Ground Truth와 분석 결과는 내부 ID 문자열을 직접 비교하지 않�
 - Role 이름
 - Resource 종류와 원문 식별키·값
 
-### KG 0.2 Resource 정규화
+### Resource 정규화 — 0.2에서 도입, 0.3에서도 유지
 
 Ground Truth를 KG 내부 Resource 표현에 직접 종속시키지 않는다.
 
@@ -332,7 +332,7 @@ match_key.identifiers[]
               → identifier key/value 비교
 ```
 
-따라서 기존 Ground Truth의 표현을 유지하면서 최신 KG 0.2 Resource를 평가할 수 있다.
+따라서 기존 Ground Truth의 표현을 유지하면서 현재 KG Resource를 평가할 수 있다.
 
 실제 KG artifact 자체를 변환하거나 수정하지 않는다.
 
@@ -348,7 +348,17 @@ Resource의 정규화는 **비교용 표현을 맞추는 것**이며 문자열�
 
 구조·관계·후보/case 매칭에서 Resource 여부를 명시적으로 전달한다. 기존 Ground Truth의 `resource_type`, `name` 호환 표현은 유지한다.
 
-Role 이름·일반 엔티티 텍스트·HTTP Method·Page/Endpoint 경로·Workflow의 기존 정규화는 유지한다. matching profile은 계속 `default-v1`이며 입력·출력 Schema와 버전도 변경하지 않는다.
+Role 이름·일반 엔티티 텍스트·HTTP Method·Page/Endpoint 경로·Workflow의 기존 정규화와 `default-v1` matching profile은 유지한다. 실행 Schema 버전은 `0.3.0`이다.
+
+### Endpoint 발견율의 범위
+
+`endpoint_recall`은 semantic_analysis의 Endpoint 노드와 normalized_requests를
+함께 비교한다. 추론 노드도 method·path_template이 GT에 매칭되면 포함한다.
+같은 엔드포인트의 노드·요청이 반복돼도 정답 항목 하나당 한 번만 집계한다.
+필요한 매칭 키가 없거나 다르면 매칭하지 않는다. 의미 분석 실패 시에는 미측정이다.
+
+이 지표는 발견율이며 실제 요청·ACCESS·검증 성공·confirmed를 뜻하지 않는다.
+Parameter는 계속 normalized_requests로만 평가하며 후보·확정 집계·GT 분모 규칙은 유지한다.
 
 ### 평가 대상
 
@@ -448,19 +458,19 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-418 passed
+462 passed
 ```
 
 계약 테스트:
 
 ```bash
-.venv/bin/python -m pytest modules/reporter/tests/test_contracts.py modules/reporter/tests/test_contract_migration.py -q
+.venv/bin/python -m pytest modules/reporter/tests/test_contracts.py modules/reporter/tests/test_contract_migration.py modules/reporter/tests/test_crawl_0_3_contract.py -q
 ```
 
 현재 결과:
 
 ```text
-107 passed
+132 passed
 ```
 
 계정 source 전환 계약·공개 실행 테스트:
@@ -484,7 +494,7 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-21 passed
+32 passed
 ```
 
 원본 ID / 노드 ID 참조 회귀 테스트:
@@ -1040,3 +1050,32 @@ skip 12건은 이번에 활성화하지 않은 KG 실제 Neo4j 테스트다. Ver
 2개는 입력 Schema를 통과하지만 검증 관계는 0개다. 실제 관계 생성 후 같은 run의
 리포트·평가 연결을 별도로 검증해야 한다. 이번 변경은 문서만 갱신하며
 코드·Schema·fixture·테스트·의존성을 변경하지 않는다.
+
+### 2026-10-14 — 실행 산출물 0.3.0 및 Collector 입력·Endpoint 발견율 보완
+
+팀 합의에 따라 실행 입력 7종·출력 2종의 Schema와 출력 adapter·정상/부분/실패
+fixture를 `0.3.0`으로 맞췄다. Ground Truth 계약·fixture는 기존 `0.1.0`으로 유지한다.
+구버전 0.1·0.2 및 미지원 0.4 거절, 계획 해시·리포트 input_refs 실제 바이트 일치를 확인했다.
+같은 작업의 마지막에 m8 현재 상태·계약·변경 이력을 갱신했다.
+
+- Collector 독립 입력 사본에 discovered_endpoints, response.identifiers와
+  identifiers_truncated를 반영했다. 필수 필드·허용 식별값·JSON 타입·null/빈 배열을 검증한다.
+- endpoint_recall은 Endpoint 노드(추론 포함)와 normalized_requests를 함께 사용한다.
+  중복 노드·요청은 분자를 늘리지 않고 매칭 키 누락·불일치는 제외한다.
+- Endpoint 발견을 실제 접근·검증 성공으로 바꾸지 않는다. Parameter 출처·후보/확정
+  TP/FP/FN·GT 분모·default-v1·Resource 원문 식별값 비교·리포트 상태 분류는 유지한다.
+
+```bash
+.venv/bin/python -m pytest modules/reporter -q --tb=short
+# 462 passed
+
+.venv/bin/python -m pytest modules/reporter/tests/test_contracts.py modules/reporter/tests/test_contract_migration.py modules/reporter/tests/test_crawl_0_3_contract.py -q --tb=short
+# 132 passed
+
+.venv/bin/python -m pytest modules/reporter/tests/test_evaluation_service.py -q --tb=short
+# 32 passed
+```
+
+Collector·KG·Safety Policy 출력과 Reporter 입력 사본은 최상위 설명 메타데이터를
+제외하면 일치한다. 외부 생산자·공통 명세·Web 버전 수용은 각 담당자가 전환한다.
+새 버전의 실제 진단·성능 향상·전체 pipeline·Docker 검증은 아직 수행하지 않았다.

@@ -1,3 +1,4 @@
+from copy import deepcopy
 from dataclasses import replace
 from time import perf_counter
 from typing import Any
@@ -214,6 +215,126 @@ def test_parameter_matching_includes_normalized_endpoint_key(
         if item.metric_id == "parameter_recall"
     )
     assert metric.value == 1
+
+
+@pytest.mark.parametrize("basis", ["observed", "inferred"])
+@pytest.mark.parametrize("has_requests", [True, False])
+def test_endpoint_nodes_count_discovery_without_duplicate_matches(
+    prepared_evaluation: EvaluationInputs,
+    basis: str,
+    has_requests: bool,
+) -> None:
+    value = deepcopy(prepared_evaluation.semantic_analysis.value)
+    nodes = value["data"]["nodes"]
+    endpoint = next(node for node in nodes if node["node_type"] == "Endpoint")
+    duplicate = {
+        **deepcopy(endpoint),
+        "node_id": "endpoint:duplicate",
+        "basis": basis,
+    }
+    nodes.append(duplicate)
+    if not has_requests:
+        value["data"]["normalized_requests"] = []
+    changed = replace(
+        prepared_evaluation,
+        semantic_analysis=replace(prepared_evaluation.semantic_analysis, value=value),
+    )
+
+    result = build_evaluation_results(changed)
+
+    assert result.data is not None
+    metrics = {item.metric_id: item for item in result.data.metrics}
+    assert metrics["endpoint_recall"].numerator == 1
+    assert metrics["endpoint_recall"].denominator == 1
+    assert metrics["endpoint_recall"].value == 1
+    assert any("inferred Endpoint" in note for note in result.data.notes)
+
+
+def test_inferred_endpoint_without_request_changes_only_discovery(
+    prepared_evaluation: EvaluationInputs,
+) -> None:
+    baseline = build_evaluation_results(prepared_evaluation)
+    value = deepcopy(prepared_evaluation.semantic_analysis.value)
+    properties = {"method": "GET", "path_template": "/api/discovered/{id}"}
+    value["data"]["nodes"].append(
+        {
+            "node_id": "endpoint:discovered",
+            "node_type": "Endpoint",
+            "properties": properties,
+            "basis": "inferred",
+            "evidence_refs": [],
+        }
+    )
+    ground_truth = replace(
+        prepared_evaluation.ground_truth,
+        entities=(
+            *prepared_evaluation.ground_truth.entities,
+            {
+                "gt_id": "gt_discovered",
+                "entity_type": "Endpoint",
+                "match_key": properties,
+            },
+        ),
+    )
+    changed = replace(
+        prepared_evaluation,
+        ground_truth=ground_truth,
+        semantic_analysis=replace(prepared_evaluation.semantic_analysis, value=value),
+    )
+
+    result = build_evaluation_results(changed)
+
+    assert result.data is not None and baseline.data is not None
+    metrics = {item.metric_id: item for item in result.data.metrics}
+    assert metrics["endpoint_recall"].numerator == 2
+    assert metrics["endpoint_recall"].denominator == 2
+    assert result.data.candidate_counts == baseline.data.candidate_counts
+    assert result.data.confirmed_counts == baseline.data.confirmed_counts
+    assert changed.graph_snapshot == prepared_evaluation.graph_snapshot
+    assert len(value["data"]["normalized_requests"]) == len(
+        prepared_evaluation.semantic_analysis.data["normalized_requests"]
+    )
+
+
+@pytest.mark.parametrize(
+    "properties",
+    [
+        {},
+        {"method": "GET"},
+        {"path_template": "/api/orders/{order_id}"},
+        {"method": "DELETE", "path_template": "/api/orders/{order_id}"},
+        {"method": "GET", "path_template": "/api/unrelated/{id}"},
+    ],
+)
+def test_endpoint_nodes_need_matching_method_and_path(
+    prepared_evaluation: EvaluationInputs,
+    properties: dict[str, Any],
+) -> None:
+    value = deepcopy(prepared_evaluation.semantic_analysis.value)
+    value["data"]["normalized_requests"] = []
+    value["data"]["nodes"] = [
+        {
+            "node_id": "endpoint:unmatched",
+            "node_type": "Endpoint",
+            "properties": properties,
+            "basis": "inferred",
+            "evidence_refs": [],
+        },
+    ]
+    changed = replace(
+        prepared_evaluation,
+        semantic_analysis=replace(prepared_evaluation.semantic_analysis, value=value),
+    )
+
+    result = build_evaluation_results(changed)
+
+    assert result.data is not None
+    metric = next(
+        item for item in result.data.metrics if item.metric_id == "endpoint_recall"
+    )
+    assert metric.numerator == 0
+    assert metric.denominator == 1
+    assert metric.value == 0
 
 
 def test_relationship_matching_uses_matched_nodes_not_ground_truth_ids(
@@ -506,7 +627,7 @@ def test_build_evaluation_artifact_uses_all_runtime_inputs(
         timestamp_factory=lambda: FIXED_TIMESTAMP,
     )
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact["created_at"] == FIXED_TIMESTAMP
     assert (
         artifact["artifact_id"]
@@ -554,7 +675,7 @@ def test_failed_evaluation_artifact_satisfies_output_contract(
         timestamp_factory=lambda: FIXED_TIMESTAMP,
     )
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact["status"] == "failed"
     assert artifact["data"] is None
 
@@ -601,7 +722,7 @@ def test_publish_evaluation_artifact_validates_and_writes_atomically(
         )
 
 
-@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.2.0", "0.4.0"])
 def test_publish_evaluation_rejects_unsupported_output_version(
     prepared_evaluation: EvaluationInputs,
     schema_version: str,

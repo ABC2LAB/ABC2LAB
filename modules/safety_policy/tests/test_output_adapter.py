@@ -18,7 +18,7 @@ from modules.safety_policy.service import prepare_evaluation
 from modules.safety_policy.utils.hashing import calculate_sha256
 
 
-@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.2.0", "0.4.0"])
 def test_publication_rejects_unsupported_output_version(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     schema_version: str,

@@ -362,7 +362,7 @@ def test_public_evaluate_accepts_opaque_graph_ids(
     assert response["status"] == "completed"
     assert response["sha256"] == calculate_sha256(output_path)
     output = load_json(output_path)
-    assert output["schema_version"] == "0.2.0"
+    assert output["schema_version"] == "0.3.0"
     references_by_type = {
         item["artifact_type"]: item for item in output["input_refs"]
     }

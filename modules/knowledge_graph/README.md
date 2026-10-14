@@ -16,10 +16,10 @@ Neo4j 직접 접근과 Cypher 실행은 knowledge_graph 내부에서만 수행�
 
 ---
 
-## 현재 상태 — 2026-10-10
+## 현재 상태 — 2026-10-14
 
-기준 커밋은 `695b3c8`이다. Verifier 계약 갱신 PR #52와 Safety Policy·Reporter
-시나리오 자원 ID 호환 PR #53이 병합된 상태를 기록한다.
+기준 커밋 `33421ef`(dev·feature/dongchan 동일)에서 팀이 합의한 실행 계약
+`0.3.0` 동시 전환을 KG 내부에 적용한 상태다. 아래 과거 이력의 버전은 당시 기록이다.
 
 | 구분 | 현재 상태 |
 |---|---|
@@ -27,18 +27,19 @@ Neo4j 직접 접근과 Cypher 실행은 knowledge_graph 내부에서만 수행�
 | 자원 모델 | Resource Type/Instance, 복합 `match_key`, 불투명 node_id 처리 완료 |
 | 접근 조회 | 원본 계정·역할 ID 및 `AccessRow.request_ids` provenance 제공 완료 |
 | 검증 관계 | `source_account_id`를 같은 run/graph의 기존 User node_id로 변환·저장하는 구현 완료 |
-| 공개 계약 | 입력 3종과 `graph_query_result` 출력은 `0.2.0`; Verifier 출력의 계정 source 전환 완료 |
-| 독립 회귀 | 기본 KG 테스트 `243 passed, 12 skipped` |
-| 실제 전체 연결 | 미완료. 같은 run의 실제 검증 관계 수신·반영과 전체 pipeline 검증 필요 |
+| 공개 계약 | 입력 3종과 `graph_query_result` 출력은 `0.3.0`만 지원; 일반 관계 source_id와 검증 관계 source_account_id 구분 유지 |
+| 직접 소비자 | Reporter 입력 사본 `0.3.0` 일치 확인; access_analyzer 입력 사본은 현재 `0.2.0`으로 담당자 전환 필요 |
+| 독립 회귀 | 기본 KG 테스트 `245 passed, 12 skipped` |
+| 실제 전체 연결 | 기존 단일 회차 Runner 호출 연결은 유지. 새 `0.3.0` 전체 실행은 외부 모듈 전환 후 재검증 필요 |
 
-Verifier의 입력 3종은 `0.2.0`이며 검증 관계 출력 Schema는 `source_account_id`를
-요구한다. 이전의 입력 버전·source 필드 불일치는 해소됐다. 다만 Verifier 실행
-코드는 아직 `graph_updates`를 빈 배열로 생성한다. Schema 전환과 실제 관계 생성은
-별개이며, KG가 이를 대신 생성하지 않는다.
+semantic_analyzer·access_analyzer·verifier의 현재 출력은 아직 `0.2.0`이므로 새 KG
+입력에서 거절된다. 해당 담당자가 합의된 `0.3.0`으로 발행해야 한다. Verifier는
+아직 `graph_updates`를 빈 배열로 생성하며 KG가 검증 관계를 대신 생성하지 않는다.
 
-KG·Safety Policy·Reporter·Verifier 합동 회귀는 `897 passed, 12 skipped`다.
-skip 12건은 이번에 활성화하지 않은 실제 Neo4j 통합 테스트다. 기존 실제 DB 검증은
-아래 계정 source 전환 4단계 기록을 따르며 이번에 재실행한 결과로 표시하지 않는다.
+이번 KG·Safety Policy·Reporter 합동 회귀는 `1015 passed, 12 skipped`다.
+skip 12건은 실제 Neo4j opt-in 테스트이며 이번에는 활성화하지 않았다. 기존 실제 DB
+검증은 아래 이력에 보존하며 이번 재검증 결과로 표시하지 않는다. 공통 명세·Runner·
+local_web의 버전 수용은 각 담당자가 함께 전환한다.
 
 현재 계약의 명세는 [m3-knowledge_graph](../../docs/spec/m3-knowledge_graph.md)를
 참고한다. 아래 변경 이력의 상태·테스트 수치·다음 작업은 각 기록 당시 기준이다.
@@ -99,7 +100,7 @@ Neo4j
 access_analyzer/graph_query.json
 ```
 
-입력 `graph_query.json`은 `schema_version=0.2.0`만 지원한다. `0.1.0`과
+입력 3종과 출력은 `schema_version=0.3.0`만 지원한다. `0.1.0`·`0.2.0`과
 미지원 버전은 거절하며 입력을 묵시적으로 변환하지 않는다.
 
 출력:
@@ -131,7 +132,7 @@ verifier/verification_results.json
 
 검증 관계 입력의 source는 원본 계정 ID인 `source_account_id`다.
 `target_id`는 기존 Resource instance의 KG node_id를 사용한다.
-`schema_version=0.2.0`을 유지하며 기존 검증 관계의 `source_id`는 거절한다.
+`schema_version=0.3.0`을 사용하며 기존 검증 관계의 `source_id`는 거절한다.
 일반 그래프 관계·snapshot의 `source_id` 계약은 변경하지 않는다.
 
 계정 source 전환의 User 조회·관계 저장과 실제 Neo4j 통합 검증을 완료했다.
@@ -296,7 +297,7 @@ NEO4J_DATABASE
 현재 기본 테스트 결과:
 
 ```text
-243 passed, 12 skipped
+245 passed, 12 skipped
 ```
 
 skip 12건은 실제 Neo4j가 필요한 opt-in 통합 테스트다.
@@ -1061,3 +1062,24 @@ skip 12건은 opt-in 실제 Neo4j 통합 테스트이며 이번 단계에서는 
 skip 12건은 opt-in 실제 Neo4j 테스트이며 이번에는 실행하지 않았다. Verifier 공개
 fixture는 KG 입력 Schema를 통과하지만 검증 관계가 0개이므로, 실제 관계 생성 후
 같은 run의 계정 변환·instance 연결·revision·snapshot·중복 반영을 별도로 확인해야 한다.
+
+## 2026-10-14 — 실행 산출물 0.3.0 동시 전환
+
+팀 합의에 따라 입력 semantic_analysis·graph_query·verification_results와 출력
+graph_query_result의 Schema·출력 코드·독립 fixture를 `0.3.0`으로 맞췄다.
+구버전 `0.1.0`·`0.2.0` 및 미지원 `0.4.0` 거절 회귀를 확인했다.
+Resource Type/Instance, 계정→User 변환, query_key·revision·제어 응답 의미는 유지한다.
+같은 작업의 마지막에 m3 현재 상태·계약·변경 이력을 갱신했다.
+
+```bash
+KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph -q --tb=short
+# 245 passed, 12 skipped
+
+KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter -q --tb=short
+# 1015 passed, 12 skipped
+```
+
+실제 Neo4j 12건과 새 버전 전체 pipeline은 이번에 실행하지 않았다.
+Reporter의 KG 입력 사본과 출력 Schema 일치는 확인했으며 외부 생산자·access_analyzer
+소비 사본·공통 명세·Web의 전환은 담당자 작업으로 남긴다. 구버전 완료 결과를
+덮어쓰거나 버전만 바꾸지 않고 생산자부터 새 산출물·새 KG를 생성해야 한다.
