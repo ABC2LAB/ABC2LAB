@@ -4,9 +4,9 @@
 
 ## 현재 상태 — 2026-10-14
 
-기준 커밋 `e93d0d8`(PR #81을 포함한 dev 병합) + 이번 작업 트리 기준이다.
-실행 계약 `0.3.0`과 Collector 입력 사본을 유지하며 Endpoint에 이어 Parameter의
-노드 기반 발견율을 보완했다. 공개 Schema·다른 모듈은 변경하지 않았다.
+기준 커밋 `913a0df`(PR #82 병합) + 이번 작업 트리 기준이다.
+실행 계약 `0.3.0`·GT `0.1.0`·Endpoint/Parameter 발견율을 유지하며 개발 평가의
+계정 매핑과 Precision 계산을 보완했다. 기존 산출물 Schema·다른 모듈·원본 GT는 변경하지 않았다.
 
 | 구분 | 현재 상태 |
 |---|---|
@@ -14,7 +14,9 @@
 | 공개 계약 | 실행 입력 7종·출력 2종 `0.3.0`만 지원; Ground Truth는 기존 `0.1.0` 유지 |
 | 입력 호환 | Collector 발견 엔드포인트·응답 식별자 필드 수용; KG·Safety 출력과 입력 사본 일치 확인 |
 | 평가 | Endpoint 노드·Endpoint→USE→Parameter(추론 포함)와 normalized_requests를 정규화 키로 비교; 중복 분자 증가 없음 |
-| 독립 회귀 | `486 passed`; Parameter 회귀 24건 추가 |
+| 계정 매핑 | 선택적 Reporter 전용 설정으로 논리 actor→원본 account_id 연결; Candidate·User·관계에 동일하게 적용 |
+| Precision | 양성 GT 최대 일대일 매칭 후 FP=prediction 수−TP; 음성·미매칭·중복 prediction 포함 |
+| 독립 회귀 | `533 passed`; 계정/FP 회귀 47건 추가, 담당 3개 합동 `1098 passed, 12 skipped` |
 | 실제 전체 연결 | 기존 단일 회차 Runner 호출 연결은 유지. 새 `0.3.0` 전체 실행은 외부 모듈 전환 후 재검증 필요 |
 
 Verifier의 계정 source 필드 전환은 완료됐지만 버전 0.3 수용과 실제 검증 관계 생성은 남아 있다.
@@ -88,6 +90,7 @@ Ground Truth는 development 평가에서만 사용하며 다른 진단 모듈로
 - development 평가 전용 `ground_truth` 입력: 기존 `0.1.0` 유지
 - 입력 Schema: `schemas/input/`
 - 출력 Schema: `schemas/output/`
+- 선택적 평가 설정 Schema: `schemas/config/evaluation.schema.json` (Reporter 내부 설정, 산출물 계약 아님)
 - 실행 산출물: `runs/<run_id>/artifacts/iteration-<NNN>/reporter/`
 - HTML 리포트: `runs/<run_id>/reports/`
 - Ground Truth: `datasets/<dataset_id>/ground_truth.json`
@@ -396,6 +399,79 @@ Resource 정규화는 다음 평가 경로에 공통으로 적용된다.
 
 분모가 0이거나 측정할 수 없는 지표는 `value=null`로 기록한다.
 
+### 평가 계정 매핑 — GT와 실행 환경 분리
+
+GT의 논리 actor(`actor_alias`, User `match_key.alias`)를 실행 계정 이름으로
+덮어쓰지 않는다. 선택적 `REPORTER_EVALUATION_CONFIG_PATH` 환경변수로 별도
+JSON 설정을 지정한다. 경로는 evaluate의 `project_root` 기준 상대 경로이며
+절대 경로·`..`·루트 밖 symlink·없는 파일은 거절한다. 예시는
+`configs/shop_demo.evaluation.example.json`이고 자동 적용하지 않는다.
+
+```json
+{
+  "schema_version": "0.1.0",
+  "dataset_id": "example_dataset",
+  "dataset_version": "1",
+  "actor_bindings": [
+    {"actor_alias": "logical_actor", "account_id": "execution_account_id"}
+  ]
+}
+```
+
+- 설정의 dataset_id·dataset_version은 GT와 정확히 같아야 한다. 설정 0.1.0은
+  별도의 내부 설정 버전이며 GT/실행 산출물 버전을 변경하지 않는다.
+- actor alias는 기존 텍스트 정규화 후 중복을 거절하고 account_id는 원문으로
+  비교한다. 같은 account_id의 중복 매핑도 거절한다.
+- 명시된 binding은 candidate.actor_account_id 및 KG User properties.account_id와
+  정확히 비교한다. User를 source/target으로 삼는 관계 평가도 같은 기준을 사용한다.
+- 명시된 binding 불일치·account_id 누락은 미매칭이다. alias가 같다는 이유로
+  binding을 무시하지 않는다. 매핑이 없는 actor와 설정 없는 기존 실행은 alias 비교를 유지한다.
+- User의 나머지 match_key 조건은 유지한다. Role·Page·Action·Endpoint·Parameter·
+  Resource의 기존 비교 방식은 바꾸지 않는다. 미관찰 계정을 임의 생성하지 않는다.
+- 비밀번호·세션·쿠키·토큰 필드는 설정 Schema에서 거절한다. GT·LLM·진단 모듈에
+  매핑을 전달하지 않는다. report는 이 설정을 읽지 않는다.
+- 준비 시 설정 Schema·SHA-256을 검증하고 저장 직전 같은 파일 해시를 재확인한다.
+  notes에는 설정 경로·해시·binding 수만 남기며 기존 input_refs·GT 참조·원자 저장은 유지한다.
+  설정이 없으면 notes에 기존 alias 기준임을 명시한다.
+
+기존 run()/CLI 인자는 그대로다. evaluate 실행 시 환경변수만 선택적으로 지정한다.
+
+```bash
+REPORTER_EVALUATION_CONFIG_PATH=modules/reporter/configs/shop_demo.evaluation.example.json \
+  .venv/bin/python -m modules.reporter.entrypoint evaluate \
+  --run-root runs/<run_id> --run-id <run_id> --iteration 0 \
+  --mode development --target-url http://target.internal \
+  --project-root . --dataset-id shop_demo --matching-profile default-v1
+```
+
+예시의 dataset 버전·계정 ID는 실제 평가 환경과 대조해야 한다. GT 원본에
+실행별 account_id를 추가하거나 GT 계약 버전을 올리지 않는다.
+
+### Candidate·confirmed TP/FP/FN
+
+이 evaluate는 **GT가 대상의 완전한 정답 집합인 benchmark**를 가정한다.
+GT가 불완전한 실제 웹의 탐지 결과 전체에 이 Precision 의미를 그대로 적용하지 않는다.
+
+```text
+TP = 양성 GT와 최대 일대일 매칭된 prediction 수
+FP = 전체 prediction 수 − TP
+FN = 양성 GT 수 − TP
+Precision = TP / 전체 prediction 수
+```
+
+양성 GT부터 최대 일대일 매칭한 뒤 남은 prediction의 명시적 음성 매칭을
+별도 진단 정보로 계산한다. 하나의 양성 GT를 중복 TP로 소비하지 않으며,
+음성 GT 매칭·어느 GT에도 일대일 배정되지 않은 prediction·중복 양성 예측은 FP다.
+prediction 0개면 Precision은 null, prediction이 있지만 TP가 0이면 0.0이다.
+
+candidate는 고유 후보 전체, confirmed는 report가 이미 confirmed로 분류한
+고유 candidate_id만 평가한다. 여러 confirmed 시나리오가 같은 후보를 중복 집계하지 않는다.
+정책 차단·승인 대기·판단불가 분류는 바꾸지 않으며, 이 FP는 benchmark 매칭 집계이지
+미실행 후보의 실제 취약/정상 판정이 아니다. 미검증 양성 GT는 FN 분모에서 제외하지 않는다.
+
+notes는 양성·명시적 음성·일대일 미매칭 수와 기존 미매칭 설명을 유지한다.
+Resource 이름 동의어(user/id, product/products, order/orders)는 보정하지 않는다.
+
 ---
 
 ## 로컬 HTML
@@ -472,7 +548,7 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-486 passed
+533 passed
 ```
 
 계약 테스트:
@@ -1118,3 +1194,32 @@ KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph mo
 
 실제 Neo4j 12건과 새 pipeline·Docker·실모델 진단은 미실행이다.
 semantic_analyzer 출력 등 외부 계약의 0.3 전환은 해당 담당자의 후속 작업이다.
+
+### 2026-10-14 — 실행별 계정 매핑 분리·benchmark Precision 수정
+
+기준 `913a0df`에서 Reporter development 평가만 보완했다. GT 입력·원본 dataset을
+변경하지 않고 `evaluation_config.py`와 선택적 환경변수로 dataset 범위의 actor binding을
+받는다. Candidate·User·관계에 같은 원본 account_id 비교를 적용하고 기존 alias fallback을
+유지한다. 설정 누락·오류·중복·경로 이탈·해시 변경을 정상 입력으로 숨기지 않는다.
+
+FP를 전체 prediction−양성 일대일 TP로 수정했다. 양성 우선 최대 매칭과 별도 음성
+진단을 유지하며 후보·확정의 0/null·중복 예측을 검증했다. 기존 fixture의 후보 3개는
+TP=1·명시적 음성=1·미매칭=1이므로 FP 기대값을 1에서 2로 수정했다.
+기존 테스트를 삭제하지 않고 계정/평가 회귀 47건을 추가했다.
+
+```bash
+.venv/bin/python -m pytest modules/reporter -q --tb=short
+# 533 passed
+
+.venv/bin/python -m pytest modules/reporter/tests/test_evaluation_actor_bindings.py modules/reporter/tests/test_evaluation_scoring.py -q --tb=short
+# 47 passed
+
+KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter -q --tb=short
+# 1098 passed, 12 skipped
+```
+
+수정 전 scoring 회귀는 4 failed·2 passed였고 수정 후 통과했다. 공개 evaluate 저장에서
+기존 출력 Schema·GT/실행 입력 해시·설정 해시·원자 저장 검증을 확인했다. 공개 run()/CLI,
+report/HTML·진단 분류, 실행 산출물 0.3.0·GT 0.1.0·default-v1·의존성은 유지한다.
+마지막에 m8 현재 상태·계산식·설정·변경 이력을 갱신했다. 새 pipeline·Docker·실제 진단
+성능은 미검증이며 Resource canonicalization·non-JSON assertion·Policy 판단은 수정하지 않았다.

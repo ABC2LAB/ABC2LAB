@@ -9,6 +9,7 @@ from typing import Any
 
 from modules.reporter.exceptions import ContractValidationError
 from modules.reporter.matching import (
+    ActorMatcher,
     ObservedEntity,
     case_signature,
     mapping_signature,
@@ -49,6 +50,21 @@ SNAPSHOT_ENTITY_TYPES = frozenset({"User", "Role", "Action", "Resource"})
 class _CaseScore:
     counts: CountTriple
     unmatched_prediction_count: int
+    matched_negative_count: int
+
+
+def _actor_matcher(inputs: EvaluationInputs) -> ActorMatcher:
+    crawl_data = inputs.crawl_result.data
+    return ActorMatcher(
+        account_id_by_actor_alias={
+            normalize_text(item.actor_alias): item.account_id
+            for item in inputs.settings.actor_bindings
+        },
+        alias_by_account_id={
+            item["account_id"]: item["alias"]
+            for item in (crawl_data["accounts"] if crawl_data is not None else ())
+        },
+    )
 
 
 def build_evaluation_results(inputs: EvaluationInputs) -> EvaluationBuildResult:
@@ -380,6 +396,7 @@ def _build_structure_metrics(
     measured_types: Mapping[str, bool],
 ) -> list[Metric]:
     metrics: list[Metric] = []
+    actor_matcher = _actor_matcher(inputs)
     for entity_type in ENTITY_TYPES:
         expected = [
             item
@@ -388,8 +405,8 @@ def _build_structure_metrics(
         ]
         matched_count = sum(
             any(
-                matches_key(
-                    item["match_key"], observed.properties, entity_type=entity_type,
+                actor_matcher.matches_entity(
+                    entity_type, item["match_key"], observed.properties,
                 )
                 for observed in observations[entity_type]
             )
@@ -418,14 +435,14 @@ def _relationship_metric(inputs: EvaluationInputs) -> Metric:
             measured=False,
         )
     matched_node_ids: dict[str, set[str]] = {}
+    actor_matcher = _actor_matcher(inputs)
     for entity in inputs.ground_truth.entities:
         matched_node_ids[entity["gt_id"]] = {
             node["node_id"]
             for node in snapshot.nodes
             if node["node_type"] == entity["entity_type"]
-            and matches_key(
-                entity["match_key"], node["properties"],
-                entity_type=entity["entity_type"],
+            and actor_matcher.matches_entity(
+                entity["entity_type"], entity["match_key"], node["properties"],
             )
         }
     matched_count = 0
@@ -479,47 +496,59 @@ def _score_candidates(
     snapshot = inputs.graph_snapshot
     if crawl_data is None or snapshot is None:
         raise ContractValidationError("후보 평가에 필요한 입력이 없음")
-    alias_by_account_id = {
-        item["account_id"]: item["alias"] for item in crawl_data["accounts"]
-    }
+    actor_matcher = _actor_matcher(inputs)
     node_by_id = {item["node_id"]: item for item in snapshot.nodes}
     cases = inputs.ground_truth.cases
     compatible_cases = [
         _compatible_case_indexes(
             candidate,
             cases,
-            alias_by_account_id,
+            actor_matcher,
             node_by_id,
         )
         for candidate in candidates
     ]
 
-    matched_case_by_candidate = _maximum_matching(compatible_cases)
-    matched_case_ids = set(matched_case_by_candidate.values())
-    tp = sum(cases[index]["is_vulnerable"] for index in matched_case_ids)
-    fp = sum(not cases[index]["is_vulnerable"] for index in matched_case_ids)
+    return _score_compatible_cases(compatible_cases, cases)
+
+
+def _score_compatible_cases(
+    compatible_cases: Sequence[Sequence[int]],
+    cases: tuple[Mapping[str, Any], ...],
+) -> _CaseScore:
+    # Maximize positive TP first; negative diagnostics must not consume a prediction.
+    positive_matches = _maximum_matching([
+        [index for index in indexes if cases[index]["is_vulnerable"]]
+        for indexes in compatible_cases
+    ])
+    negative_matches = _maximum_matching([
+        [index for index in indexes if not cases[index]["is_vulnerable"]]
+        for candidate_index, indexes in enumerate(compatible_cases)
+        if candidate_index not in positive_matches
+    ])
+    tp = len(positive_matches)
     positive_case_ids = {
         index for index, case in enumerate(cases) if case["is_vulnerable"]
     }
     return _CaseScore(
         counts=CountTriple(
             tp=tp,
-            fp=fp,
-            fn=len(positive_case_ids - matched_case_ids),
+            fp=len(compatible_cases) - tp,
+            fn=len(positive_case_ids) - tp,
         ),
         unmatched_prediction_count=(
-            len(candidates) - len(matched_case_by_candidate)
+            len(compatible_cases) - tp - len(negative_matches)
         ),
+        matched_negative_count=len(negative_matches),
     )
 
 
 def _compatible_case_indexes(
     candidate: Candidate,
     cases: tuple[Mapping[str, Any], ...],
-    alias_by_account_id: Mapping[str, str],
+    actor_matcher: ActorMatcher,
     node_by_id: Mapping[str, Mapping[str, Any]],
 ) -> list[int]:
-    actor_alias = alias_by_account_id.get(candidate.actor_account_id)
     resources = [
         node_by_id[resource_id]["properties"]
         for resource_id in candidate.resource_ids
@@ -529,11 +558,10 @@ def _compatible_case_indexes(
     indexes = [
         index
         for index, case in enumerate(cases)
-        if actor_alias is not None
-        and normalize_text(candidate.category) == normalize_text(case["category"])
+        if normalize_text(candidate.category) == normalize_text(case["category"])
         and normalize_text(candidate.vulnerability_type)
         == normalize_text(case["vulnerability_type"])
-        and normalize_text(actor_alias) == normalize_text(case["actor_alias"])
+        and actor_matcher.matches_actor(case["actor_alias"], candidate.actor_account_id)
         and any(
             matches_key(case["resource_match_key"], resource, entity_type="Resource")
             for resource in resources
@@ -708,6 +736,19 @@ def _build_notes(
             "최댓값, 하나라도 미측정이면 해당 값은 null임"
         ),
     ]
+    notes.append("완전한 정답 집합 benchmark 가정: FP는 전체 prediction 수−양성 GT 일대일 TP 수")
+    for label, score in (("후보", candidate_score), ("확정 후보", confirmed_score)):
+        notes.append(
+            f"{label} 매칭: 양성 {score.counts.tp}개, 명시적 음성 "
+            f"{score.matched_negative_count}개, 일대일 미매칭 {score.unmatched_prediction_count}개"
+        )
+    if inputs.settings.relative_path is not None:
+        notes.append(
+            f"평가 계정 매핑 설정: {inputs.settings.relative_path}, "
+            f"SHA-256={inputs.settings.sha256}, binding {len(inputs.settings.actor_bindings)}개"
+        )
+    elif not inputs.settings.actor_bindings:
+        notes.append("평가 계정 매핑 설정 없음: 기존 alias 기준으로 비교함")
     if candidate_score.unmatched_prediction_count:
         notes.append(
             "Ground Truth 평가 범위에 일대일 매칭되지 않은 후보: "

@@ -84,7 +84,7 @@
     ],
     "candidate_counts": {
       "tp": 1,
-      "fp": 1,
+      "fp": 2,
       "fn": 0
     },
     "confirmed_counts": {

@@ -33,6 +33,45 @@ class ObservedEntity:
     properties: Mapping[str, Any]
 
 
+@dataclass(frozen=True)
+class ActorMatcher:
+    account_id_by_actor_alias: Mapping[str, str]
+    alias_by_account_id: Mapping[str, str]
+
+    def matches_actor(self, actor_alias: str, account_id: str) -> bool:
+        expected_account_id = self.account_id_by_actor_alias.get(
+            normalize_text(actor_alias)
+        )
+        if expected_account_id is not None:
+            return account_id == expected_account_id
+        alias = self.alias_by_account_id.get(account_id)
+        return alias is not None and normalize_text(alias) == normalize_text(actor_alias)
+
+    def matches_entity(
+        self,
+        entity_type: str,
+        expected: Mapping[str, Any],
+        observed: Mapping[str, Any],
+    ) -> bool:
+        alias = expected.get("alias")
+        account_id = (
+            self.account_id_by_actor_alias.get(normalize_text(alias))
+            if entity_type == "User" and isinstance(alias, str) else None
+        )
+        if account_id is None:
+            return matches_key(expected, observed, entity_type=entity_type)
+        # Account IDs are opaque identities, not normalized human-readable names.
+        if observed.get("account_id") != account_id:
+            return False
+        if "account_id" in expected and expected["account_id"] != account_id:
+            return False
+        remaining = {
+            key: value for key, value in expected.items()
+            if key not in {"alias", "account_id"}
+        }
+        return not remaining or matches_key(remaining, observed, entity_type="User")
+
+
 def require_supported_profile(profile: str | None) -> str:
     if profile != DEFAULT_MATCHING_PROFILE:
         raise ContractValidationError(

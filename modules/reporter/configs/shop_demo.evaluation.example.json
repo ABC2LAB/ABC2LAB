@@ -1,0 +1,11 @@
+{
+  "schema_version": "0.1.0",
+  "dataset_id": "shop_demo",
+  "dataset_version": "1.0.0",
+  "actor_bindings": [
+    {"actor_alias": "alice", "account_id": "account:user_a"},
+    {"actor_alias": "bob", "account_id": "account:user_b"},
+    {"actor_alias": "admin", "account_id": "account:admin_a"},
+    {"actor_alias": "guest", "account_id": "account:guest"}
+  ]
+}
