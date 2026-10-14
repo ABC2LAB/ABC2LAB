@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "artifact_type": "diagnosis_report",
   "artifact_id": "diagnosis_demo_001",
   "run_id": "run_demo_001",
@@ -14,28 +14,28 @@
       "artifact_type": "vulnerability_candidates",
       "iteration": 0,
       "path": "artifacts/iteration-000/access_analyzer/vulnerability_candidates.json",
-      "sha256": "98fad01d2f671a922237e067e9421be312253fde1970192273ea030333e97703"
+      "sha256": "7a6c85de8c616f4d5657dc69ba37445ec2ecd718c4654d12873e386915ebc11e"
     },
     {
       "artifact_id": "scenarios_demo_001",
       "artifact_type": "test_scenarios",
       "iteration": 0,
       "path": "artifacts/iteration-000/scenario_generator/test_scenarios.json",
-      "sha256": "818337018d87c28e712b08cdde2079429daf428bc24dff407b4145af5215cbf8"
+      "sha256": "e31f1ef9052a0e135e92abd1090aa4b0b5115ef7e50a75995f6f8729b7ebd9ec"
     },
     {
       "artifact_id": "decisions_demo_001",
       "artifact_type": "safety_decisions",
       "iteration": 0,
       "path": "artifacts/iteration-000/safety_policy/safety_decisions.json",
-      "sha256": "5adad1d6b430f4d8d5647349d00f9f61a74a83a79597f96d31041cf90113db1e"
+      "sha256": "0b1c099d6c62847582971a06531413e4f74d671c0878384f6aa02351b4c71140"
     },
     {
       "artifact_id": "verification_demo_001",
       "artifact_type": "verification_results",
       "iteration": 0,
       "path": "artifacts/iteration-000/verifier/verification_results.json",
-      "sha256": "45c1eda6fd199421858f13d35d380496ae1db133014fc2fc4f1447e8481bfbb1"
+      "sha256": "a591baf6677b6cea3792046824948d19cc9c17102d992ea5675dca923480f77a"
     }
   ],
   "errors": [],

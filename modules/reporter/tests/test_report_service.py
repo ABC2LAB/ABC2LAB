@@ -218,7 +218,7 @@ def test_build_diagnosis_report_propagates_partial_upstream_error(
     assert result.errors[0].code.endswith("CANDIDATE_SKIPPED")
     assert any("일부 후보 생성 실패" in item for item in result.data.limitations)
     artifact = build_diagnosis_artifact(changed, perf_counter())
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact["status"] == "partial"
     validate_schema(artifact, DIAGNOSIS_REPORT_SCHEMA)
 
@@ -251,7 +251,7 @@ def test_build_diagnosis_report_fails_without_candidate_data(
     assert result.errors
 
     artifact = build_diagnosis_artifact(changed, perf_counter())
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact["status"] == "failed"
     assert artifact["data"] is None
     validate_schema(artifact, DIAGNOSIS_REPORT_SCHEMA)
@@ -266,7 +266,7 @@ def test_build_diagnosis_artifact_uses_actual_input_references(
         timestamp_factory=lambda: FIXED_TIMESTAMP,
     )
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact["created_at"] == FIXED_TIMESTAMP
     assert artifact["artifact_id"] == "diagnosis_report_run_demo_001_000"
     assert artifact["data"]["summary"]["candidate_count"] == 3
@@ -303,7 +303,7 @@ def test_publish_diagnosis_artifact_validates_and_writes_atomically(
         publish_diagnosis_artifact(prepared_report, artifact)
 
 
-@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.2.0", "0.4.0"])
 def test_publish_diagnosis_rejects_unsupported_output_version(
     prepared_report: ReportInputs,
     schema_version: str,

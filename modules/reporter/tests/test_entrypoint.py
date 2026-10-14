@@ -129,7 +129,7 @@ def test_run_rejects_invalid_resource_ids_without_outputs(
     "artifact_type",
     tuple(name for name in INPUT_SCHEMA_BY_NAME if name != "ground_truth"),
 )
-@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.2.0", "0.4.0"])
 def test_run_evaluate_rejects_unsupported_runtime_contract_versions(
     evaluate_arguments: Arguments,
     artifact_type: str,
@@ -364,7 +364,7 @@ def _assert_output_integrity(
 ) -> None:
     output_path = context["run_root"] / response["output_path"]
     artifact = load_json(output_path)
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert response["sha256"] == calculate_sha256(output_path)
     references_by_type = {
         item["artifact_type"]: item for item in artifact["input_refs"]

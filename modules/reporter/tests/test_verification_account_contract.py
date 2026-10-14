@@ -31,7 +31,7 @@ def test_fixture_uses_original_account_source_with_version_0_2(fixture_root: Pat
         and node["properties"]["account_id"] == relationship["source_account_id"]
     )
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert relationship["source_account_id"] != user["node_id"]
     assert "source_id" not in relationship
     validate_schema(artifact, INPUT_SCHEMA_BY_NAME["verification_results"])
@@ -169,7 +169,7 @@ def test_public_operations_preserve_account_source_without_node_resolution(
         if reference["artifact_type"] == "verification_results"
     )
     assert reference["sha256"] == input_sha256
-    assert output["schema_version"] == "0.2.0"
+    assert output["schema_version"] == "0.3.0"
     assert calculate_sha256(input_path) == input_sha256
     assert load_json(input_path) == artifact
 

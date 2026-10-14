@@ -60,7 +60,7 @@ def test_load_approval_record_rejects_legacy_scenario_bytes(
     )
     source_bytes = input_path.read_bytes()
     legacy_bytes = source_bytes.replace(
-        b'"schema_version": "0.2.0"',
+        b'"schema_version": "0.3.0"',
         b'"schema_version": "0.1.0"',
         1,
     )

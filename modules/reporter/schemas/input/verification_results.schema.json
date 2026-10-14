@@ -10,7 +10,7 @@
     "mode", "created_at", "status", "input_refs", "errors", "runtime_metrics", "data"
   ],
   "properties": {
-    "schema_version": { "const": "0.2.0" },
+    "schema_version": { "const": "0.3.0" },
     "artifact_type": { "const": "verification_results" },
     "artifact_id": { "$ref": "#/$defs/nonEmptyString" },
     "run_id": { "$ref": "#/$defs/nonEmptyString" },

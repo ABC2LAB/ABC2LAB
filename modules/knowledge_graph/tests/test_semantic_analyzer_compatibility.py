@@ -28,7 +28,7 @@ def test_agreed_resource_model_matches_kg_json_schema() -> None:
         SCHEMA_DIRECTORY / "input" / "semantic_analysis.schema.json",
     )
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact["producer"] == "semantic_analyzer"
 
 
