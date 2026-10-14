@@ -256,6 +256,7 @@ ID는 불투명 문자열로 다룬다. 소비자는 형식을 파싱하지 말�
 - 계정 비밀번호와 같은 값은 지운다.
 - `pointer`는 RFC 6901 JSON Pointer다(`~` → `~0`, `/` → `~1`).
 - 상한: 깊이는 shape와 같은 6, 개수는 1000. 넘으면 그때까지 찾은 것만 남기고 `identifiers_truncated=true`로 둔다.
+- verifier `utils/identifiers.py`가 같은 키·값 기준과 상한을 다시 구현해 `resource_owner` Check에 쓴다(import 안 함). 기준을 바꾸면 같이 바꾼다.
 
 그 밖의 값(이름·이메일·주소·전화·금액·문자열)과 HTML 응답 본문은 남기지 않는다.
 

@@ -4,7 +4,7 @@
 검사하며 따라가고 max_requests에 센다. limits·state_change·body_ref·세션/통신 오류는 요청을 보내지 않거나 중단하고
 indeterminate로 남긴다. 미실행·판단불가를 '취약점 없음'으로 합치지 않는다(명세 m7).
 
-Check 평가(success/failure 판정)는 step4다. 이 모듈은 실행·근거까지 하고, classify_scenario가 결과를 정한다.
+Check 평가(success/failure 판정)는 classify_scenario가 한다. 판정 Check 6종의 규약은 README "Check 평가와 result 분류".
 """
 
 from dataclasses import dataclass, field
@@ -22,12 +22,16 @@ from modules.verifier.executor import (
 from modules.verifier.utils.config import ReplayConfig
 from modules.verifier.utils.envelope import ErrorCode, make_error_item
 from modules.verifier.utils.evidence import SECRET_MASK, EvidenceWriter, is_sensitive_key, redact_value
+from modules.verifier.utils.identifiers import extract_identifiers
+from modules.verifier.utils.text_content import coverage, visible_lines
 
 LOCATION_HEADER = "location"
 PLACEHOLDER_PREFIX = "{"
 PLACEHOLDER_SUFFIX = "}"
-# PR2에서 완전 평가하는 Check 종류. 나머지는 observed=null → passed=null(판단불가).
-EVALUATED_CHECK_KINDS = frozenset({"session_valid", "response_status", "response_json"})
+# 평가하는 Check 종류(test_scenarios Check.kind enum 전부). 그 밖의 값은 passed=null(판단불가).
+EVALUATED_CHECK_KINDS = frozenset(
+    {"session_valid", "response_status", "response_json", "resource_state", "resource_owner", "baseline_match"}
+)
 # 응답 내용을 보지 않는 Check 종류. 이것만으로는 위반을 확정하지 않는다(명세 m7 51행: HTTP 200만으로 확정 금지).
 STATUS_ONLY_CHECK_KINDS = frozenset({"response_status", "session_valid"})
 # 접근 거부로 읽는 상태 코드. 상태 Check가 이 값으로 거짓이면 적용 불가 Check보다 앞서 failure(거부 근거)다.
@@ -35,6 +39,18 @@ STATUS_ONLY_CHECK_KINDS = frozenset({"response_status", "session_valid"})
 DENIAL_STATUS_CODES = frozenset({401, 403, 404})
 # 이 값 이상은 서버 오류. 거부도 허용도 관찰하지 못한 것이라 상태 Check를 판단불가로 둔다.
 SERVER_ERROR_STATUS_MIN = 500
+# 정상 기준(baseline)으로 쓸 수 있는 응답 상태 범위. 기준 계정이 정상으로 받은 응답이어야 비교 의미가 있다.
+SUCCESS_STATUS_MIN = 200
+SUCCESS_STATUS_MAX = 299
+# 같은 시나리오의 기준 단계 응답과 비교하는 Check. expected가 기준 단계 step_id다.
+BASELINE_CHECK_KINDS = frozenset({"baseline_match", "resource_owner"})
+# 기준 비교 Check에서 뜻이 있는 operator: 일치(eq)·불일치(ne).
+BASELINE_OPERATORS = frozenset({"eq", "ne"})
+# 텍스트 응답의 resource_state가 받는 operator. 텍스트에는 JSON Pointer 위치가 없어 포함 여부만 본다.
+TEXT_STATE_OPERATOR = "contains"
+# selector로 JSON 값을 뽑아 observed에 남기는 Check. 민감 키 selector면 값을 가린다.
+JSON_POINTER_VALUE_KINDS = frozenset({"response_json", "resource_state"})
+COVERAGE_DECIMALS = 4
 
 
 class _Missing:
@@ -126,17 +142,19 @@ def _classify_by_checks(scenario: dict[str, Any], outcome: ExecutionOutcome) -> 
     precondition이 하나라도 거짓/판단불가 → indeterminate. 모두 참이면 assertions가 하나라도 판단불가 → indeterminate,
     하나 이상 거짓 → failure, 모두 참이면 → success. 단, 참인 assertion이 상태 코드·세션 유효성뿐이면(응답 내용 미확인)
     success 대신 indeterminate로 둔다(m7 51행: HTTP 200만으로 확정 금지).
-    응답에 적용할 수 없었던 Check(CHECK_NOT_APPLICABLE·SELECTOR_ROOT_MISSING·SERVER_ERROR_RESPONSE)는 판단불가이고,
-    그 사유를 Check마다 errors에 남긴다. 단 상태 Check가 거부 코드(DENIAL_STATUS_CODES)로 거짓이면 거부 근거라서
-    판단불가 Check가 있어도 failure다(거부 응답엔 내용 Check를 적용할 값이 없는 게 보통이다).
+    응답에 적용할 수 없었던 Check(CHECK_NOT_APPLICABLE·SELECTOR_ROOT_MISSING·SERVER_ERROR_RESPONSE·BASELINE_UNAVAILABLE)와
+    기록만 하는 텍스트 Check(ASSERTION_TEXT_ONLY)는 판단불가이고, 그 사유를 Check마다 errors에 남긴다.
+    단 상태 Check가 거부 코드(DENIAL_STATUS_CODES)로 거짓이면 거부 근거라서 판단불가 Check가 있어도 failure다
+    (거부 응답엔 내용 Check를 적용할 값이 없는 게 보통이다).
     """
-    preconditions = [_run_check(check, outcome) for check in scenario["preconditions"]]
+    account_by_step = {step["step_id"]: step["account_id"] for step in scenario["steps"]}
+    preconditions = [_run_check(check, outcome, account_by_step) for check in scenario["preconditions"]]
     errors = _not_applicable_errors(preconditions)
     if any(evaluation.passed is None for evaluation in preconditions):
         return "indeterminate", "사전조건을 판단할 수 없어 재현 여부를 판정하지 않음", errors
     if any(evaluation.passed is False for evaluation in preconditions):
         return "indeterminate", "사전조건이 성립하지 않아 재현 여부를 판정하지 않음", errors
-    assertions = [(check, _run_check(check, outcome)) for check in scenario["assertions"]]
+    assertions = [(check, _run_check(check, outcome, account_by_step)) for check in scenario["assertions"]]
     errors += _not_applicable_errors([evaluation for _, evaluation in assertions])
     if not assertions:
         return "indeterminate", "판정 조건이 없어 재현 여부를 판정할 수 없음", errors
@@ -169,9 +187,9 @@ def _is_denied(check: dict[str, Any], evaluation: _CheckOutcome) -> bool:
     )
 
 
-def _run_check(check: dict[str, Any], outcome: ExecutionOutcome) -> _CheckOutcome:
+def _run_check(check: dict[str, Any], outcome: ExecutionOutcome, account_by_step: dict[str, str]) -> _CheckOutcome:
     """Check 하나를 평가하고 CheckResult를 대상 단계에 붙인다. 평가 결과(passed·적용 불가 사유)를 돌려준다."""
-    evaluation = _evaluate_check(check, outcome)
+    evaluation = _evaluate_check(check, outcome, account_by_step)
     check_result = {
         "check_id": check["check_id"],
         "passed": evaluation.passed,
@@ -182,10 +200,9 @@ def _run_check(check: dict[str, Any], outcome: ExecutionOutcome) -> _CheckOutcom
     return evaluation
 
 
-def _evaluate_check(check: dict[str, Any], outcome: ExecutionOutcome) -> _CheckOutcome:
+def _evaluate_check(check: dict[str, Any], outcome: ExecutionOutcome, account_by_step: dict[str, str]) -> _CheckOutcome:
     kind = check["kind"]
     if kind not in EVALUATED_CHECK_KINDS:
-        # resource_state·resource_owner·baseline_match는 PR2에서 평가하지 않는다(판단불가).
         return _CheckOutcome(None, MISSING)
     if kind == "session_valid":
         valid = outcome.session_valid_by_account.get(check["subject_ref"], MISSING)
@@ -202,7 +219,11 @@ def _evaluate_check(check: dict[str, Any], outcome: ExecutionOutcome) -> _CheckO
                 check, ErrorCode.SERVER_ERROR_RESPONSE, "서버 오류 응답이라 거부·허용을 관찰하지 못함", observed=observed
             )
         return _CheckOutcome(_apply_operator(check["operator"], observed, check["expected"]), observed)
-    return _evaluate_response_json(check, response["body"])
+    if kind == "response_json":
+        return _evaluate_response_json(check, response["body"])
+    if kind == "resource_state":
+        return _evaluate_resource_state(check, response["body"])
+    return _evaluate_against_baseline(check, response, outcome, account_by_step)
 
 
 def _evaluate_response_json(check: dict[str, Any], body: Any) -> _CheckOutcome:
@@ -222,6 +243,131 @@ def _evaluate_response_json(check: dict[str, Any], body: Any) -> _CheckOutcome:
         )
     observed = _json_pointer(body, selector)
     return _CheckOutcome(_apply_operator(check["operator"], observed, check["expected"]), observed)
+
+
+def _evaluate_resource_state(check: dict[str, Any], body: Any) -> _CheckOutcome:
+    """판정 단계에서 본 자원 상태. JSON은 response_json과 같은 규칙으로 평가한다.
+
+    텍스트(HTML 등)는 selector 없이 contains(문자열)일 때 포함 여부만 기록하고 판정하지 않는다(ASSERTION_TEXT_ONLY).
+    control 응답 없이 텍스트로 낸 참·거짓은 확정 근거가 아니다(README "텍스트 응답").
+    """
+    if _is_json_document(body):
+        return _evaluate_response_json(check, body)
+    if not isinstance(body, str):
+        return _not_applicable(check, ErrorCode.CHECK_NOT_APPLICABLE, "응답이 JSON 객체·배열도 텍스트도 아니라 resource_state를 적용할 수 없음")
+    expected = check["expected"]
+    if check["selector"] or check["operator"] != TEXT_STATE_OPERATOR or not isinstance(expected, str) or not expected.strip():
+        return _not_applicable(
+            check, ErrorCode.CHECK_NOT_APPLICABLE, "텍스트 응답의 resource_state는 selector 없이 contains(빈 문자열 아님)만 쓸 수 있음"
+        )
+    text = " ".join(visible_lines(body))
+    observed = {"contains": " ".join(expected.split()) in text}
+    return _not_applicable(check, ErrorCode.ASSERTION_TEXT_ONLY, "텍스트 응답이라 포함 여부만 기록하고 판정하지 않음", observed=observed)
+
+
+def _evaluate_against_baseline(
+    check: dict[str, Any], response: dict[str, Any], outcome: ExecutionOutcome, account_by_step: dict[str, str]
+) -> _CheckOutcome:
+    """baseline_match·resource_owner: 판정 단계 응답을 같은 시나리오의 기준 단계(expected) 응답과 비교한다.
+
+    JSON끼리면 판정한다(baseline_match는 selector 위치 값, resource_owner는 식별자). 텍스트끼리 baseline_match는
+    coverage만 기록하고 판정하지 않는다(ASSERTION_TEXT_ONLY). 그 밖의 조합은 적용 불가다.
+    """
+    baseline, problem = _find_baseline_response(check, outcome, account_by_step)
+    if baseline is None:
+        return _not_applicable(check, ErrorCode.BASELINE_UNAVAILABLE, problem)
+    if check["operator"] not in BASELINE_OPERATORS:
+        return _not_applicable(check, ErrorCode.CHECK_NOT_APPLICABLE, "기준 비교 Check의 operator는 eq·ne만 쓸 수 있음")
+    if response["status_code"] >= SERVER_ERROR_STATUS_MIN:
+        return _not_applicable(check, ErrorCode.SERVER_ERROR_RESPONSE, "서버 오류 응답이라 기준 응답과 비교하지 않음")
+    subject_body, baseline_body = response["body"], baseline["body"]
+    if _is_json_document(subject_body) and _is_json_document(baseline_body):
+        if check["kind"] == "baseline_match":
+            return _compare_json_values(check, subject_body, baseline_body)
+        return _compare_identifiers(check, subject_body, baseline_body)
+    if check["kind"] == "baseline_match" and isinstance(subject_body, str) and isinstance(baseline_body, str):
+        return _record_text_coverage(check, subject_body, baseline_body)
+    return _not_applicable(
+        check, ErrorCode.CHECK_NOT_APPLICABLE,
+        "두 응답이 모두 JSON이 아니어서(baseline_match는 둘 다 텍스트도 가능) 기준 응답과 비교할 수 없음",
+    )
+
+
+def _find_baseline_response(
+    check: dict[str, Any], outcome: ExecutionOutcome, account_by_step: dict[str, str]
+) -> tuple[dict[str, Any] | None, str]:
+    """expected가 가리키는 기준 단계 응답. 쓸 수 없으면 (None, 사유)."""
+    baseline_step_id = check["expected"]
+    if not isinstance(baseline_step_id, str) or baseline_step_id not in outcome.responses_by_step:
+        return None, "기준 단계(expected)가 이 시나리오에서 응답을 받은 단계가 아님"
+    if account_by_step.get(baseline_step_id) == account_by_step.get(check["subject_ref"]):
+        # 같은 계정의 두 응답은 서로 다른 권한을 비교한 게 아니다.
+        return None, "기준 단계가 판정 단계와 같은 계정으로 실행돼 비교할 수 없음"
+    baseline = outcome.responses_by_step[baseline_step_id]
+    if not SUCCESS_STATUS_MIN <= baseline["status_code"] <= SUCCESS_STATUS_MAX:
+        return None, "기준 응답이 2xx가 아니라 정상 기준으로 쓸 수 없음"
+    return baseline, ""
+
+
+def _compare_json_values(check: dict[str, Any], subject_body: Any, baseline_body: Any) -> _CheckOutcome:
+    """selector 위치(null·""이면 전체)의 값이 기준 응답과 같은지 본다."""
+    pointer = check["selector"] or ""
+    if pointer and _json_pointer(baseline_body, _root_pointer(pointer)) is MISSING:
+        return _not_applicable(check, ErrorCode.SELECTOR_ROOT_MISSING, "selector 첫 키가 기준 응답에 없어 비교할 위치를 알 수 없음")
+    baseline_value = _json_pointer(baseline_body, pointer)
+    if baseline_value is MISSING:
+        return _not_applicable(check, ErrorCode.CHECK_NOT_APPLICABLE, "기준 응답에 selector 위치 값이 없어 비교할 수 없음")
+    is_matched = _json_pointer(subject_body, pointer) == baseline_value
+    observed = {"baseline_step_id": check["expected"], "matched": is_matched}
+    return _CheckOutcome(_match_verdict(check["operator"], is_matched), observed)
+
+
+def _compare_identifiers(check: dict[str, Any], subject_body: Any, baseline_body: Any) -> _CheckOutcome:
+    """기준 응답의 식별자(pointer·값)가 판정 응답에 전부 같은 값으로 있으면 같은 자원으로 본다."""
+    pointer = check["selector"] or ""
+    baseline_part = _json_pointer(baseline_body, pointer)
+    if baseline_part is MISSING:
+        return _not_applicable(check, ErrorCode.SELECTOR_ROOT_MISSING, "selector 위치가 기준 응답에 없어 식별자를 비교할 수 없음")
+    baseline_identifiers = extract_identifiers(baseline_part, is_sensitive_key)
+    if not baseline_identifiers:
+        return _not_applicable(check, ErrorCode.CHECK_NOT_APPLICABLE, "기준 응답에 식별자가 없어 자원 동일성을 볼 수 없음")
+    subject_part = _json_pointer(subject_body, pointer)
+    subject_identifiers = {} if subject_part is MISSING else extract_identifiers(subject_part, is_sensitive_key)
+    matched_count = sum(
+        1 for identifier_pointer, value in baseline_identifiers.items()
+        if identifier_pointer in subject_identifiers and subject_identifiers[identifier_pointer] == value
+    )
+    is_matched = matched_count == len(baseline_identifiers)
+    observed = {
+        "baseline_step_id": check["expected"],
+        "matched_count": matched_count,
+        "baseline_count": len(baseline_identifiers),
+    }
+    return _CheckOutcome(_match_verdict(check["operator"], is_matched), observed)
+
+
+def _record_text_coverage(check: dict[str, Any], subject_body: str, baseline_body: str) -> _CheckOutcome:
+    """텍스트 응답 비교. 기준 줄이 실행 응답에 나타난 비율만 기록하고 판정하지 않는다.
+
+    control 응답(실행 계정 자기 자원)이 없으면 높은 coverage가 위반인지 틀 겹침인지, 낮은 coverage가 거부인지
+    사용자별 장식 차이인지 가를 수 없다. 판정은 control 단계가 들어오는 다음 단계에서 한다.
+    """
+    if check["selector"]:
+        return _not_applicable(check, ErrorCode.CHECK_NOT_APPLICABLE, "텍스트 응답에는 selector를 쓸 수 없음")
+    baseline_lines = visible_lines(baseline_body)
+    if not baseline_lines:
+        return _not_applicable(check, ErrorCode.CHECK_NOT_APPLICABLE, "기준 응답에 보이는 텍스트가 없어 비교할 수 없음")
+    ratio = coverage(baseline_lines, visible_lines(subject_body))
+    observed = {"baseline_step_id": check["expected"], "coverage": round(ratio, COVERAGE_DECIMALS)}
+    return _not_applicable(check, ErrorCode.ASSERTION_TEXT_ONLY, "텍스트 응답이라 coverage만 기록하고 판정하지 않음", observed=observed)
+
+
+def _match_verdict(operator: str, is_matched: bool) -> bool:
+    return is_matched if operator == "eq" else not is_matched
+
+
+def _is_json_document(body: Any) -> bool:
+    return isinstance(body, (dict, list))
 
 
 def _root_pointer(selector: str) -> str:
@@ -281,7 +427,7 @@ def _redact_observed(check: dict[str, Any], observed: Any) -> Any:
     if observed is MISSING:
         return None
     selector = check.get("selector")
-    if check["kind"] == "response_json" and selector:
+    if check["kind"] in JSON_POINTER_VALUE_KINDS and selector:
         last_token = selector.rstrip("/").rsplit("/", 1)[-1].replace("~1", "/").replace("~0", "~")
         if last_token and is_sensitive_key(last_token) and not isinstance(observed, (dict, list)):
             return SECRET_MASK
