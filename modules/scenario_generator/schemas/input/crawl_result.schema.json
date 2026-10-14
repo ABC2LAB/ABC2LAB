@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:abc2lab:collector:crawl_result:0.2.0",
+  "$id": "urn:abc2lab:collector:crawl_result:0.3.0",
   "title": "crawl_result.json",
   "description": "collector collect 출력. 필드는 명세 v0.1 m1-collector·02-common-contract 표를 따른다. 일반 객체는 미정의 키를 거절한다.",
   "type": "object",
@@ -21,7 +21,7 @@
     "data"
   ],
   "properties": {
-    "schema_version": { "const": "0.2.0" },
+    "schema_version": { "const": "0.3.0" },
     "artifact_type": { "const": "crawl_result" },
     "artifact_id": { "type": "string" },
     "run_id": { "type": "string" },
@@ -72,14 +72,15 @@
     "CrawlResultData": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["target_url", "roles", "accounts", "pages", "actions", "requests"],
+      "required": ["target_url", "roles", "accounts", "pages", "actions", "requests", "discovered_endpoints"],
       "properties": {
         "target_url": { "type": "string" },
         "roles": { "type": "array", "items": { "$ref": "#/$defs/Role" } },
         "accounts": { "type": "array", "items": { "$ref": "#/$defs/Account" } },
         "pages": { "type": "array", "items": { "$ref": "#/$defs/Page" } },
         "actions": { "type": "array", "items": { "$ref": "#/$defs/Action" } },
-        "requests": { "type": "array", "items": { "$ref": "#/$defs/ObservedRequest" } }
+        "requests": { "type": "array", "items": { "$ref": "#/$defs/ObservedRequest" } },
+        "discovered_endpoints": { "type": "array", "items": { "$ref": "#/$defs/DiscoveredEndpoint" } }
       }
     },
     "Role": {
@@ -127,6 +128,49 @@
         "kind": { "enum": ["navigate", "click", "submit", "input", "other"] },
         "label": { "type": ["string", "null"] },
         "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }
+      }
+    },
+    "DiscoveredEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "discovered_id",
+        "method",
+        "url_template",
+        "parameters",
+        "source",
+        "discovered_from",
+        "basis",
+        "evidence_refs"
+      ],
+      "properties": {
+        "discovered_id": { "type": "string" },
+        "method": { "type": "string" },
+        "url_template": { "type": "string" },
+        "parameters": { "type": "array", "items": { "$ref": "#/$defs/DiscoveredParameter" } },
+        "source": { "enum": ["form", "link", "js", "spec"] },
+        "discovered_from": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/DiscoverySite" } },
+        "basis": { "const": "inferred" },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }
+      }
+    },
+    "DiscoveredParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "location", "is_sensitive"],
+      "properties": {
+        "name": { "type": "string" },
+        "location": { "enum": ["path", "query", "body"] },
+        "is_sensitive": { "type": "boolean" }
+      }
+    },
+    "DiscoverySite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page_id", "action_id"],
+      "properties": {
+        "page_id": { "type": "string" },
+        "action_id": { "type": "string" }
       }
     },
     "ObservedParameter": {

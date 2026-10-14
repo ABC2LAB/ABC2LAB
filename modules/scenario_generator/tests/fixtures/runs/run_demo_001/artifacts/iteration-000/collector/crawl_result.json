@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "artifact_type": "crawl_result",
   "artifact_id": "crawl_result_demo_001",
   "run_id": "run_demo_001",
@@ -99,6 +99,7 @@
         },
         "evidence_refs": []
       }
-    ]
+    ],
+    "discovered_endpoints": []
   }
 }

@@ -66,6 +66,7 @@ def build_data(config: CrawlerConfig, outcome: CollectOutcome, evidence_writer: 
         "pages": builder.pages,
         "actions": builder.actions,
         "requests": builder.requests,
+        "discovered_endpoints": [],
     }
 
 

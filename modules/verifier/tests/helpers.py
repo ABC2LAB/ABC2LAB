@@ -143,9 +143,13 @@ def copy_committed_triple(run_root: Path) -> list[str]:
     return list(INPUT_RELS.values())
 
 
+# 입력마다 생산자 계약 버전이 따로 올라간다(crawl_result 0.3.0: discovered_endpoints 추가).
+SCHEMA_VERSION_BY_ARTIFACT = {"test_scenarios": "0.2.0", "safety_decisions": "0.2.0", "crawl_result": "0.3.0"}
+
+
 def _envelope(artifact_type: str, producer: str, data: Any, status: str = "completed") -> dict[str, Any]:
     return {
-        "schema_version": "0.2.0", "artifact_type": artifact_type, "artifact_id": f"{artifact_type}_1",
+        "schema_version": SCHEMA_VERSION_BY_ARTIFACT[artifact_type], "artifact_type": artifact_type, "artifact_id": f"{artifact_type}_1",
         "run_id": RUN_ID, "iteration": 0, "producer": producer, "mode": "development",
         "created_at": "2026-10-07T00:00:00.000000Z", "status": status, "input_refs": [], "errors": [],
         "runtime_metrics": None, "data": data,
@@ -217,7 +221,7 @@ def write_triple(
     dec_path.write_text(json.dumps(dec_doc, ensure_ascii=False), encoding="utf-8")
     crawl_doc = _envelope("crawl_result", "collector", {
         "target_url": "http://127.0.0.1:8001", "roles": [{"role_id": "role_user", "name": "user"}],
-        "accounts": accounts, "pages": [], "actions": [], "requests": [],
+        "accounts": accounts, "pages": [], "actions": [], "requests": [], "discovered_endpoints": [],
     })
     crawl_path = run_root / INPUT_RELS["crawl_result"]
     crawl_path.parent.mkdir(parents=True, exist_ok=True)

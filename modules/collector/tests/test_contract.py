@@ -181,7 +181,29 @@ def _add_own_response_to_request_evidence(document: Document) -> None:
     request["evidence_refs"] = [request["response"]["body_ref"]]
 
 
+def _add_discovery(document: Document) -> Document:
+    """page:2의 상태 변경 폼(action:3, 실행 안 함)을 발견 엔드포인트로 하나 붙이고 그 레코드를 돌려준다."""
+    record = {
+        "discovered_id": "discovered:1",
+        "method": "POST",
+        "url_template": "http://localhost:8080/items/{id}/delete",
+        "parameters": [
+            {"name": "path:1", "location": "path", "is_sensitive": False},
+            {"name": "csrf_token", "location": "body", "is_sensitive": True},
+            {"name": "reason", "location": "body", "is_sensitive": False},
+        ],
+        "source": "form",
+        "discovered_from": [{"page_id": "page:2", "action_id": "action:3"}],
+        "basis": "inferred",
+        "evidence_refs": _find(document, "pages", "page_id", "page:2")["evidence_refs"],
+    }
+    document["data"]["discovered_endpoints"].append(record)
+    return record
+
+
 ACCEPTED_DOCUMENT_VARIATIONS: list[tuple[str, Mutation]] = [
+    # 0.3.0: 발견만 하고 요청하지 않은 엔드포인트(값 없이 이름·위치만)
+    ("discovered_endpoint", _add_discovery),
     # action↔page 일치는 둘 다 있을 때만 본다.
     ("action_without_page", lambda document: _assign(_request(document, MEMBER_A_LINK_REQUEST), "page_id", None)),
     # 요청 evidence_refs에는 request·response 근거가 올 수 있다.
@@ -237,6 +259,21 @@ DOCUMENT_MUTATIONS: list[tuple[str, Mutation, IssueCode]] = [
     ("partial_without_errors", lambda document: _assign(document, "status", "partial"), IssueCode.SCHEMA_INVALID),
     ("failed_with_data", _set_failed_with_data, IssueCode.SCHEMA_INVALID),
     ("completed_without_data", _set_completed_without_data, IssueCode.SCHEMA_INVALID),
+    # 0.3.0 discovered_endpoints: 필수 배열, 값 없음, 위치는 path·query·body, basis는 inferred, 발견 위치 1개 이상
+    ("discovered_endpoints_missing", lambda document: document["data"].pop("discovered_endpoints"), IssueCode.SCHEMA_INVALID),
+    (
+        "discovered_parameter_with_value",
+        lambda document: _assign(_add_discovery(document)["parameters"][2], "value", "x"),
+        IssueCode.SCHEMA_INVALID,
+    ),
+    (
+        "discovered_parameter_header_location",
+        lambda document: _assign(_add_discovery(document)["parameters"][2], "location", "header"),
+        IssueCode.SCHEMA_INVALID,
+    ),
+    ("discovered_basis_observed", lambda document: _assign(_add_discovery(document), "basis", "observed"), IssueCode.SCHEMA_INVALID),
+    ("discovered_from_empty", lambda document: _assign(_add_discovery(document), "discovered_from", []), IssueCode.SCHEMA_INVALID),
+    ("discovered_unknown_source", lambda document: _assign(_add_discovery(document), "source", "guess"), IssueCode.SCHEMA_INVALID),
     (
         "sensitive_parameter_with_value",
         lambda document: _assign(_request(document, MEMBER_A_API_REQUEST)["parameters"][1], "value", "abc"),
