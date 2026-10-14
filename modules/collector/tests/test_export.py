@@ -476,3 +476,30 @@ def test_exported_data_passes_contract(tmp_path: Path, writer: EvidenceWriter) -
     raw = json.dumps(document, ensure_ascii=False).encode("utf-8")
 
     assert validate_crawl_result_bytes(raw, run_root) == []
+
+
+def test_unsent_form_is_exported_as_discovered_endpoint_and_passes_contract(tmp_path: Path, writer: EvidenceWriter) -> None:
+    # user_a 화면의 상태 변경 폼(보내지 않음) → discovered_endpoints. user_b가 실제로 요청한 엔드포인트는 빠진다.
+    unsent = PageAction(
+        action_id="form:0", kind="form", label="Delete", method="POST", target_url=f"{PAGE_A}/7/delete",
+        fields=[FormField(name="csrf_token", type="hidden")], is_state_changing=True, outcome="not_executed_state_changing",
+    )
+    observed_elsewhere = PageAction(
+        action_id="form:1", kind="form", label="Save", method="POST", target_url=f"{PAGE_A}/7",
+        fields=[], is_state_changing=True, outcome="not_executed_state_changing",
+    )
+    page = make_page("user_a", PAGE_A, actions=[unsent, observed_elsewhere])
+    sent_by_b = make_record("user_b", f"{PAGE_A}/9", 1, method="POST", status=None)
+    outcome = make_outcome(
+        make_crawl("user_a", (page,), (), role=USER_ROLE), make_crawl("user_b", (), (sent_by_b,), role=USER_ROLE)
+    )
+    data = build_data(writer, outcome)
+
+    assert [(r["method"], r["url_template"], r["discovered_from"]) for r in data["discovered_endpoints"]] == [
+        ("POST", "http://127.0.0.1:1/a/{id}/delete", [{"page_id": "page:1", "action_id": "action:1"}])
+    ]
+    assert data["discovered_endpoints"][0]["evidence_refs"] == data["pages"][0]["evidence_refs"]
+    run_root = tmp_path / RUN_ID
+    run_context = RunContext(RUN_ID, 0, Mode.DEVELOPMENT, run_root, Path("collector.toml"), Path(".env"))
+    document = build_envelope(run_context, WorkResult(Status.COMPLETED, [], data, 10))
+    assert validate_crawl_result_bytes(json.dumps(document, ensure_ascii=False).encode("utf-8"), run_root) == []

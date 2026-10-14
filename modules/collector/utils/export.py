@@ -2,6 +2,7 @@
 
 공개 계약(schemas/output/crawl_result.schema.json·README)과 내부 모델의 대응은 이 파일에서만 맞춘다.
 - 계정마다 따로 탐색한 결과를 계정 순서대로 잇는다. 같은 역할에 계정이 여럿일 수 있다.
+- 발견했지만 요청하지 않은 엔드포인트는 utils/discovery.py가 모은다(discovered_endpoints, 0.3.0).
 - 근거 파일은 EvidenceWriter가 쓴다. JSON 응답은 응답 근거(response.body_ref), 링크·폼·버튼이 있는 페이지는
   DOM 근거(Page·그 페이지 Action의 evidence_refs). 요청 근거는 만들지 않는다(body_ref=null, evidence_refs=[]).
 - ID는 실행 전체에서 1부터 붙인다. 요청은 계정 안에서 나간 순서대로 정렬한 뒤 번호를 매긴다.
@@ -28,6 +29,7 @@ from modules.collector.core.explorer import BUTTON_KIND, FORM_KIND, LOAD_ACTION,
 from modules.collector.core.models import CapturedRequest, DiscoveredPage
 from modules.collector.core.normalize import ID_SEGMENT_PATTERNS, PATH_SEPARATOR
 from modules.collector.service import AccountCrawl, CollectOutcome
+from modules.collector.utils.discovery import DiscoveryCollector
 from modules.collector.utils.envelope import ErrorCode, format_utc, make_error_item
 from modules.collector.utils.evidence import EvidenceWriter
 
@@ -56,7 +58,7 @@ def role_id_of(role: str) -> str:
 
 def build_data(config: CrawlerConfig, outcome: CollectOutcome, evidence_writer: EvidenceWriter) -> dict[str, Any]:
     """근거 파일을 먼저 쓰고 그 참조를 담은 data를 돌려준다. 근거를 못 쓰면 storage 예외·OSError가 그대로 난다."""
-    builder = _DataBuilder(evidence_writer)
+    builder = _DataBuilder(evidence_writer, DiscoveryCollector(config))
     for account_crawl in outcome.account_crawls:
         builder.add_account(account_crawl)
     return {
@@ -66,7 +68,8 @@ def build_data(config: CrawlerConfig, outcome: CollectOutcome, evidence_writer: 
         "pages": builder.pages,
         "actions": builder.actions,
         "requests": builder.requests,
-        "discovered_endpoints": [],
+        # 요청을 다 만든 뒤에 만든다. 어느 계정이든 관찰한 엔드포인트는 발견 목록에서 뺀다.
+        "discovered_endpoints": builder.discovery.build(builder.requests),
     }
 
 
@@ -116,6 +119,7 @@ class _AccountLinks:
 @dataclass
 class _DataBuilder:
     evidence_writer: EvidenceWriter
+    discovery: DiscoveryCollector
     accounts: list[dict[str, Any]] = field(default_factory=list)
     pages: list[dict[str, Any]] = field(default_factory=list)
     actions: list[dict[str, Any]] = field(default_factory=list)
@@ -168,6 +172,7 @@ class _DataBuilder:
             page_record["evidence_refs"] = [dict(dom_ref)]
             for _, action_record in page_actions:
                 action_record["evidence_refs"] = [dict(dom_ref)]
+        self.discovery.add_page(page, page_id, action_id_by_local, dom_ref)
 
     def _add_action(
         self, page_id: str, local_action_id: str, kind: str, label: str | None, links: _AccountLinks

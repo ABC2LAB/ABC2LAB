@@ -155,6 +155,10 @@ def test_fixture_covers_contract_cases() -> None:
         accounts_by_url.setdefault(page["url"], set()).add(page["account_id"])
     assert max(len(accounts) for accounts in accounts_by_url.values()) >= 2
     assert any(action["evidence_refs"] for action in data["actions"])
+    # 0.3.0: 발견 엔드포인트(path·민감 body 파라미터 포함)
+    discovered_parameters = [p for record in data["discovered_endpoints"] for p in record["parameters"]]
+    assert {"path", "body"} <= {p["location"] for p in discovered_parameters}
+    assert any(p["is_sensitive"] for p in discovered_parameters)
 
 
 def test_partial_with_errors_passes(fixture_run: FixtureRun) -> None:
@@ -181,29 +185,26 @@ def _add_own_response_to_request_evidence(document: Document) -> None:
     request["evidence_refs"] = [request["response"]["body_ref"]]
 
 
-def _add_discovery(document: Document) -> Document:
-    """page:2의 상태 변경 폼(action:3, 실행 안 함)을 발견 엔드포인트로 하나 붙이고 그 레코드를 돌려준다."""
-    record = {
-        "discovered_id": "discovered:1",
-        "method": "POST",
-        "url_template": "http://localhost:8080/items/{id}/delete",
-        "parameters": [
-            {"name": "path:1", "location": "path", "is_sensitive": False},
-            {"name": "csrf_token", "location": "body", "is_sensitive": True},
-            {"name": "reason", "location": "body", "is_sensitive": False},
-        ],
-        "source": "form",
-        "discovered_from": [{"page_id": "page:2", "action_id": "action:3"}],
-        "basis": "inferred",
-        "evidence_refs": _find(document, "pages", "page_id", "page:2")["evidence_refs"],
-    }
+def _discovery(document: Document) -> Document:
+    """fixture의 발견 엔드포인트: page:2의 상태 변경 폼(action:3, 실행 안 함) → POST /items/{id}/delete."""
+    return document["data"]["discovered_endpoints"][0]
+
+
+def _duplicate_discovery(document: Document) -> None:
+    record = dict(_discovery(document), discovered_id="discovered:2")
     document["data"]["discovered_endpoints"].append(record)
-    return record
+
+
+def _discovery_already_observed(document: Document) -> None:
+    # member_a가 실제로 요청한 엔드포인트(GET /items/{id})를 발견 목록에 넣는다.
+    record = _discovery(document)
+    record.update({"method": "GET", "url_template": "http://localhost:8080/items/{id}"})
+    record["parameters"] = [{"name": "path:1", "location": "path", "is_sensitive": False}]
 
 
 ACCEPTED_DOCUMENT_VARIATIONS: list[tuple[str, Mutation]] = [
-    # 0.3.0: 발견만 하고 요청하지 않은 엔드포인트(값 없이 이름·위치만)
-    ("discovered_endpoint", _add_discovery),
+    # 0.3.0: 발견 엔드포인트가 없어도 된다(빈 배열)
+    ("no_discovered_endpoints", lambda document: _assign(document["data"], "discovered_endpoints", [])),
     # action↔page 일치는 둘 다 있을 때만 본다.
     ("action_without_page", lambda document: _assign(_request(document, MEMBER_A_LINK_REQUEST), "page_id", None)),
     # 요청 evidence_refs에는 request·response 근거가 올 수 있다.
@@ -263,17 +264,64 @@ DOCUMENT_MUTATIONS: list[tuple[str, Mutation, IssueCode]] = [
     ("discovered_endpoints_missing", lambda document: document["data"].pop("discovered_endpoints"), IssueCode.SCHEMA_INVALID),
     (
         "discovered_parameter_with_value",
-        lambda document: _assign(_add_discovery(document)["parameters"][2], "value", "x"),
+        lambda document: _assign(_discovery(document)["parameters"][2], "value", "x"),
         IssueCode.SCHEMA_INVALID,
     ),
     (
         "discovered_parameter_header_location",
-        lambda document: _assign(_add_discovery(document)["parameters"][2], "location", "header"),
+        lambda document: _assign(_discovery(document)["parameters"][2], "location", "header"),
         IssueCode.SCHEMA_INVALID,
     ),
-    ("discovered_basis_observed", lambda document: _assign(_add_discovery(document), "basis", "observed"), IssueCode.SCHEMA_INVALID),
-    ("discovered_from_empty", lambda document: _assign(_add_discovery(document), "discovered_from", []), IssueCode.SCHEMA_INVALID),
-    ("discovered_unknown_source", lambda document: _assign(_add_discovery(document), "source", "guess"), IssueCode.SCHEMA_INVALID),
+    ("discovered_basis_observed", lambda document: _assign(_discovery(document), "basis", "observed"), IssueCode.SCHEMA_INVALID),
+    ("discovered_from_empty", lambda document: _assign(_discovery(document), "discovered_from", []), IssueCode.SCHEMA_INVALID),
+    ("discovered_unknown_source", lambda document: _assign(_discovery(document), "source", "guess"), IssueCode.SCHEMA_INVALID),
+    # 의미 검증
+    ("discovered_id_duplicate", lambda document: document["data"]["discovered_endpoints"].append(dict(_discovery(document))), IssueCode.DUPLICATE_ID),
+    ("discovered_endpoint_duplicate", _duplicate_discovery, IssueCode.DUPLICATE_ENDPOINT),
+    ("discovered_already_observed", _discovery_already_observed, IssueCode.ALREADY_OBSERVED),
+    (
+        "discovered_raw_id_in_template",
+        lambda document: _assign(_discovery(document), "url_template", "http://localhost:8080/items/7/delete"),
+        IssueCode.FORMAT_INVALID,
+    ),
+    (
+        "discovered_query_in_template",
+        lambda document: _assign(_discovery(document), "url_template", "http://localhost:8080/items/{id}/delete?x=1"),
+        IssueCode.FORMAT_INVALID,
+    ),
+    ("discovered_lowercase_method", lambda document: _assign(_discovery(document), "method", "post"), IssueCode.FORMAT_INVALID),
+    (
+        "discovered_path_parameter_mismatch",
+        lambda document: _assign(_discovery(document)["parameters"][0], "name", "path:0"),
+        IssueCode.FORMAT_INVALID,
+    ),
+    (
+        "discovered_sensitive_parameter_not_marked",
+        lambda document: _assign(_discovery(document)["parameters"][1], "is_sensitive", False),
+        IssueCode.SECRET_NOT_REDACTED,
+    ),
+    (
+        "discovered_from_unknown_action",
+        lambda document: _assign(_discovery(document)["discovered_from"][0], "action_id", "action:99"),
+        IssueCode.REFERENCE_MISSING,
+    ),
+    (
+        "discovered_from_action_of_other_page",
+        lambda document: _assign(_discovery(document)["discovered_from"][0], "action_id", "action:1"),
+        IssueCode.REFERENCE_MISMATCH,
+    ),
+    (
+        "discovered_source_does_not_match_action",
+        lambda document: _assign(_discovery(document), "source", "link"),
+        IssueCode.REFERENCE_MISMATCH,
+    ),
+    (
+        "discovered_evidence_of_other_page",
+        lambda document: _assign(
+            _discovery(document), "evidence_refs", _find(document, "pages", "page_id", "page:1")["evidence_refs"]
+        ),
+        IssueCode.EVIDENCE_MISMATCH,
+    ),
     (
         "sensitive_parameter_with_value",
         lambda document: _assign(_request(document, MEMBER_A_API_REQUEST)["parameters"][1], "value", "abc"),

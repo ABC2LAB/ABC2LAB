@@ -290,6 +290,21 @@
         "evidence_refs": []
       }
     ],
-    "discovered_endpoints": []
+    "discovered_endpoints": [
+      {
+        "discovered_id": "discovered:1",
+        "method": "POST",
+        "url_template": "http://localhost:8080/items/{id}/delete",
+        "parameters": [
+          {"name": "path:1", "location": "path", "is_sensitive": false},
+          {"name": "csrf_token", "location": "body", "is_sensitive": true},
+          {"name": "reason", "location": "body", "is_sensitive": false}
+        ],
+        "source": "form",
+        "discovered_from": [{"page_id": "page:2", "action_id": "action:3"}],
+        "basis": "inferred",
+        "evidence_refs": [{"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "a1589b112d94f3b520304e99bd66574e97f80df8d8ee849fab02b797f28f1039", "redacted": true}]
+      }
+    ]
   }
 }
