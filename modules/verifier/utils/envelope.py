@@ -53,8 +53,12 @@ class ErrorCode(StrEnum):
     SESSION_UNAVAILABLE = "SESSION_UNAVAILABLE"
     # 참인 assertion이 상태 코드·세션 유효성뿐이라 응답 내용 확인 없이 success로 올리지 않음(m7 51행).
     ASSERTION_STATUS_ONLY = "ASSERTION_STATUS_ONLY"
-    # response_json Check를 그 응답에 적용할 수 없음(비JSON 본문·selector 없음). 미재현이 아니라 판단불가(절대 규칙 9).
+    # Check를 그 응답에 적용할 수 없음(비JSON 본문·selector 없음·허용 안 된 operator 등). 미재현이 아니라 판단불가(절대 규칙 9).
     CHECK_NOT_APPLICABLE = "CHECK_NOT_APPLICABLE"
+    # 기준 비교 Check(baseline_match·resource_owner)의 기준 단계를 쓸 수 없음(응답 없음·같은 계정·2xx 아님). 판단불가.
+    BASELINE_UNAVAILABLE = "BASELINE_UNAVAILABLE"
+    # 텍스트 응답의 baseline_match·resource_state는 control 응답이 생기기 전까지 기록만 하고 판정하지 않음. 판단불가.
+    ASSERTION_TEXT_ONLY = "ASSERTION_TEXT_ONLY"
     # JSON 응답에 selector 첫 키가 없음. selector 오류인지 자원 부재인지 구분할 수 없어 판단불가.
     SELECTOR_ROOT_MISSING = "SELECTOR_ROOT_MISSING"
     # 서버 오류(5xx) 응답이라 거부·허용을 관찰하지 못함. 상태 Check를 판단불가로 둔다.

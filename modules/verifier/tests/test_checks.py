@@ -53,11 +53,12 @@ def test_status_matches_but_other_assertion_false_is_not_success(tmp_path: Path)
     assert item["result"] == "failure"
 
 
-def test_unevaluated_kind_is_indeterminate_not_failure(tmp_path: Path) -> None:
-    # resource_owner는 PR2 미평가(passed=null) → 상태가 맞아도 success/failure가 아니라 indeterminate.
+def test_baseline_check_without_baseline_step_is_indeterminate_not_failure(tmp_path: Path) -> None:
+    # resource_owner의 expected가 기준 단계 step_id가 아니면(여기선 계정 ID) 비교할 기준이 없다 → 판단불가.
     scn = _one(assertions=[check("a1", "response_status", "st1", "eq", 200), check("a2", "resource_owner", "st1", "eq", "acc_user")])
     item, _ = _run(scn, RESP, tmp_path / "run_demo_001")
     assert item["result"] == "indeterminate"
+    assert _error_refs(item) == [("BASELINE_UNAVAILABLE", "a2")]
 
 
 def _error_refs(item: dict) -> list[tuple[str, str | None]]:

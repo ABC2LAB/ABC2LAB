@@ -49,13 +49,14 @@ class ScriptedExecutor:
     """프로그래머블 세션 창구 대역.
 
     (method, url)별 응답 또는 예외를 정하고, 무효 세션 계정을 지정하고, 실제로 보낸 요청을 모두 기록한다.
-    정하지 않은 (method, url)은 UnscriptedRequestError로 터진다(404가 필요하면 명시적으로 지정).
+    계정마다 다른 응답이 필요하면 (account_id, method, url) 키를 쓴다(이 키가 (method, url)보다 먼저다).
+    정하지 않은 요청은 UnscriptedRequestError로 터진다(404가 필요하면 명시적으로 지정).
     clock을 주면 send마다 latency_ms만큼 시계를 진행시킨다(max_duration 테스트용).
     """
 
     def __init__(
         self,
-        responses: dict[tuple[str, str], ReplayResponse | Exception] | None = None,
+        responses: dict[tuple[str, ...], ReplayResponse | Exception] | None = None,
         invalid_accounts: tuple[str, ...] = (),
         clock: FakeClock | None = None,
         latency_ms: int = 0,
@@ -93,7 +94,8 @@ class ScriptedLease:
         self._parent.sent.append((self._account_id, request))
         if self._parent.clock is not None:
             self._parent.clock.advance(self._parent.latency_ms)
-        key = (request.method, request.url)
+        account_key = (self._account_id, request.method, request.url)
+        key = account_key if account_key in self._parent.responses else (request.method, request.url)
         if key not in self._parent.responses:
             raise UnscriptedRequestError(f"대역에 정하지 않은 요청: {request.method} {request.url}")
         outcome = self._parent.responses[key]
