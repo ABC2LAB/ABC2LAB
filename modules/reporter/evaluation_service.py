@@ -240,28 +240,22 @@ def _add_semantic_observations(
     semantic_data = inputs.semantic_analysis.data
     if semantic_data is not None:
         _add_endpoint_observations(semantic_data, observations)
+        _add_parameter_node_observations(semantic_data, observations)
         for request in semantic_data["normalized_requests"]:
             endpoint_properties = {
                 "method": request["method"],
                 "path_template": request["path_template"],
             }
             for parameter in request["parameters"]:
-                parameter_properties = {
-                    "endpoint": endpoint_properties,
-                    "endpoint_method": request["method"],
-                    "endpoint_path_template": request["path_template"],
-                    "method": request["method"],
-                    "path_template": request["path_template"],
-                    "name": parameter["name"],
-                    "location": parameter["location"],
-                }
                 observations["Parameter"].append(
                     ObservedEntity(
                         entity_id=(
                             f"{request['endpoint_id']}:{parameter['parameter_id']}"
                         ),
                         entity_type="Parameter",
-                        properties=parameter_properties,
+                        properties=_parameter_comparison_properties(
+                            endpoint_properties, parameter,
+                        ),
                     )
                 )
     else:
@@ -294,6 +288,70 @@ def _add_endpoint_observations(
                 },
             )
         )
+
+
+def _add_parameter_node_observations(
+    semantic_data: Mapping[str, Any],
+    observations: dict[str, list[ObservedEntity]],
+) -> None:
+    node_by_id = {node["node_id"]: node for node in semantic_data["nodes"]}
+    # USE supplies endpoint context; opaque Parameter IDs are never decoded.
+    for relationship in semantic_data["relationships"]:
+        if relationship["relation_type"] != "USE":
+            continue
+        endpoint = node_by_id.get(relationship["source_id"])
+        parameter = node_by_id.get(relationship["target_id"])
+        if (
+            endpoint is None
+            or endpoint["node_type"] != "Endpoint"
+            or parameter is None
+            or parameter["node_type"] != "Parameter"
+        ):
+            continue
+        if not _has_parameter_match_fields(
+            endpoint["properties"], parameter["properties"],
+        ):
+            continue
+        observations["Parameter"].append(
+            ObservedEntity(
+                entity_id=parameter["node_id"],
+                entity_type="Parameter",
+                properties=_parameter_comparison_properties(
+                    endpoint["properties"], parameter["properties"],
+                ),
+            )
+        )
+
+
+def _has_parameter_match_fields(
+    endpoint: Mapping[str, Any],
+    parameter: Mapping[str, Any],
+) -> bool:
+    values = (
+        endpoint.get("method"),
+        endpoint.get("path_template"),
+        parameter.get("name"),
+        parameter.get("location"),
+    )
+    return all(isinstance(value, str) and bool(value.strip()) for value in values)
+
+
+def _parameter_comparison_properties(
+    endpoint: Mapping[str, Any],
+    parameter: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "endpoint": {
+            "method": endpoint["method"],
+            "path_template": endpoint["path_template"],
+        },
+        "endpoint_method": endpoint["method"],
+        "endpoint_path_template": endpoint["path_template"],
+        "method": endpoint["method"],
+        "path_template": endpoint["path_template"],
+        "name": parameter["name"],
+        "location": parameter["location"],
+    }
 
 
 def _add_snapshot_observations(
@@ -634,11 +692,12 @@ def _build_notes(
     notes = [
         (
             f"{profile}: Page는 crawl_result, Endpoint는 semantic_analysis의 "
-            "Endpoint 노드와 normalized_requests, Parameter는 normalized_requests, "
+            "Endpoint 노드와 normalized_requests, Parameter는 Endpoint→USE→Parameter "
+            "노드와 normalized_requests, "
             "User·Role·Action·Resource·관계·Flow는 "
             "실제 KG snapshot의 정규화 키로 평가함"
         ),
-        "inferred Endpoint도 발견율에 포함하며 실제 요청·접근 성공·취약점 확정을 뜻하지 않음",
+        "inferred Endpoint·Parameter도 발견율에 포함하며 실제 요청·접근 성공·취약점 확정을 뜻하지 않음",
         "미검증 항목을 정답 양성 분모에서 제외하지 않음",
         (
             "workflow_recall은 정규화한 이름과 ordered_actions를 비교하며 "

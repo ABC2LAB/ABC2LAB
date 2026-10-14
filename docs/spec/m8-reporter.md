@@ -14,9 +14,9 @@
 
 ## 현재 구현·연결 상태 — 2026-10-14
 
-기준 커밋 `33421ef` + 이번 작업 트리 기준이다. 팀이 합의한 실행 산출물
-`0.3.0` 동시 전환과 Collector 신규 필드 수용·Endpoint 발견율 보완을 반영했다.
-문서 판 번호 v0.2는 변경하지 않는다.
+기준 커밋 `e93d0d8`(PR #81을 포함한 dev 병합) + 이번 작업 트리 기준이다.
+실행 계약 0.3.0과 Collector 입력을 유지하며 추론 Parameter의 노드 기반 발견율을
+보완했다. 공개 Schema·GT·default-v1·문서 판 v0.2는 변경하지 않는다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
@@ -24,11 +24,11 @@
 | 리포트 화면 | 로컬 HTML 생성 구현 완료. PDF 출력은 미구현 |
 | 공개 계약 | 실행 입력 7종·출력 2종 `0.3.0`만 지원; Ground Truth는 기존 `0.1.0` 유지 |
 | 입력 호환 | Collector discovered_endpoints·응답 식별자 수용, KG·Safety 출력과 입력 사본 일치; 기존 Resource·source_account_id 의미 유지 |
-| 평가 범위 | Endpoint 노드(추론 포함)·normalized_requests로 Endpoint 발견율 계산; Parameter는 normalized_requests 유지 |
-| 독립 회귀 | Reporter `462 passed`; 담당 3개 합동 `1015 passed, 12 skipped` |
+| 평가 범위 | Endpoint 노드·Endpoint→USE→Parameter(추론 포함)·normalized_requests로 발견율 계산; 진단 집계 유지 |
+| 독립 회귀 | Reporter `486 passed`; 담당 3개 합동 `1051 passed, 12 skipped` |
 | 실제 전체 연결 | 기존 단일 회차 Runner의 report·evaluate 연결 유지(PR #59). 새 0.3 전체 실행은 외부 생산자·Web 수용 전환 후 재검증 필요 |
 
-이번 462건은 독립 회귀이며 이전 Runner 58건은 재실행하지 않았다.
+이번 486건은 독립 회귀이며 이전 Runner 58건은 재실행하지 않았다.
 이 결과를 실제 대상의 성능 수치나 확정 취약점 건수로 사용하지 않는다.
 Verifier의 graph_updates 관계는 아직 0개이며 실제 검증 관계 수신과 구분한다.
 PR #61의 적용 불가 JSON 체크·5xx 결과는 indeterminate로 보존하며 미재현이나
@@ -165,8 +165,14 @@ local_web은 해당 담당자가 전환하며 이번에는 수정하지 않았�
 - Endpoint는 semantic_analysis Endpoint 노드와 normalized_requests를 함께 비교한다.
   inferred 노드도 발견율에 포함하며 같은 정답 엔드포인트는 중복 집계하지 않는다.
   필수 매칭 키 누락·불일치는 미매칭, 의미 분석 실패는 미측정으로 처리한다.
-  발견은 실제 요청·ACCESS·검증 성공·confirmed를 의미하지 않는다. Parameter 평가와
-  후보·확정 TP/FP/FN 및 GT 분모 규칙은 유지한다.
+  발견은 실제 요청·ACCESS·검증 성공·confirmed를 의미하지 않는다.
+- Parameter는 기존 normalized_requests와 semantic_analysis의 Endpoint→USE→Parameter를
+  함께 비교한다. Endpoint method·path_template과 Parameter name·location을 사용하고
+  inferred도 포함한다. node_id 해석·엔드포인트 추측·입력값 비교는 하지 않는다.
+  USE가 없거나 방향·노드 종류가 맞지 않으면 그 노드는 평가 관찰에서 제외한다.
+  매칭 필드 누락·빈 값·비문자열·불일치는 미매칭, 의미 분석 실패는 미측정이며
+  노드·요청 중복으로 정답 분자를 늘리지 않는다. 잘못된 참조는 기존 입력 검증에서 거절한다.
+  관계·후보·확정 TP/FP/FN 및 GT 분모 규칙은 유지하며 입력·KG snapshot을 수정하지 않는다.
 - 같은 테스트 웹·dataset_version·초기 상태·계정·매칭 규칙·Policy 조건으로 모델을 비교한다. model_version·prompt_version·생성 설정·호출량·시간·자원을 기록한다.
 - 후보 발견율과 검증 확정 발견율을 분리한다. 전체 정답 양성 분모와 차단·승인 대기·판단불가 수를 함께 공개하고 미검증을 분모에서 빼서 발견율을 부풀리지 않는다.
 - 비율의 분모가 0이면 value=null이다. 미측정을 0·1로 기록하지 않는다. 정상 대조 사례도 포함해 정밀도를 평가한다.
@@ -344,6 +350,7 @@ local_web은 해당 담당자가 전환하며 이번에는 수정하지 않았�
 | 2026-10-11 | Runner의 report·development evaluate 연결과 Verifier 판단불가 처리 반영 범위를 기록하고 현재 상태·완료 기준을 갱신 | `30cb867`, PR #59·#61·#62. Reporter 418 passed, Runner 대역 58 passed. 결과 분류·평가 계산·출력 0.2.0·Ground Truth 0.1.0·문서 판 번호 유지 |
 | 2026-10-12 | GroundTruthRef path 설명의 `<dataset_id>` 누락 복구, Ground Truth 버전 "불일치" 문장을 02 공통 계약(0.1.0 유지)에 맞춤 | 문서만. 계약·코드·Schema 변경 없음. 이동찬 요청으로 최민준 수정 |
 | 2026-10-14 | 팀 합의로 실행 입력 7종·출력 2종을 0.3.0 전환, Collector 발견·식별자 필드 수용과 Endpoint 노드 기반 발견율 보완 | `33421ef` + 작업 트리. 462 passed, 합동 1015 passed·12 skipped. Ground Truth 0.1.0·default-v1·후보/확정 집계·문서 판 v0.2 유지; 외부 생산자·Web 전환 후 전체 재검증 필요 |
+| 2026-10-14 | PR #81의 추론 Parameter를 Endpoint→USE→Parameter로 평가에 포함하고 회귀 24건·공개 evaluate 저장을 검증 | `e93d0d8` + 작업 트리. 평가 56 passed, Reporter 486 passed, 합동 1051 passed·12 skipped. Schema·버전·GT·default-v1·관계/후보/확정 집계 불변; 실제 성능·새 pipeline 검증은 별도 |
 
 기존 책임 경계·미검증 후보 보존·평가 분모 규칙과 정답 필드 표는 유지하며 상세
 과거 구현 이력은 모듈 README에 보존한다. 2026-10-10 합동 회귀

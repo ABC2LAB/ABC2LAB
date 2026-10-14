@@ -4,16 +4,17 @@
 
 ## 현재 상태 — 2026-10-14
 
-기준 커밋 `33421ef`에서 팀이 합의한 실행 계약 `0.3.0` 동시 전환을 적용했다.
-Collector 0.3 입력 확장과 Endpoint 발견율 보완을 포함한다.
+기준 커밋 `e93d0d8`(PR #81을 포함한 dev 병합) + 이번 작업 트리 기준이다.
+실행 계약 `0.3.0`과 Collector 입력 사본을 유지하며 Endpoint에 이어 Parameter의
+노드 기반 발견율을 보완했다. 공개 Schema·다른 모듈은 변경하지 않았다.
 
 | 구분 | 현재 상태 |
 |---|---|
 | 독립 구현 | 공개 `report`·`evaluate`·CLI, 결과 분류·개발 평가·로컬 HTML 생성 구현 완료 |
 | 공개 계약 | 실행 입력 7종·출력 2종 `0.3.0`만 지원; Ground Truth는 기존 `0.1.0` 유지 |
 | 입력 호환 | Collector 발견 엔드포인트·응답 식별자 필드 수용; KG·Safety 출력과 입력 사본 일치 확인 |
-| 평가 | Endpoint 노드(추론 포함)와 normalized_requests를 method·path_template으로 비교; 중복 분자 증가 없음 |
-| 독립 회귀 | `462 passed` |
+| 평가 | Endpoint 노드·Endpoint→USE→Parameter(추론 포함)와 normalized_requests를 정규화 키로 비교; 중복 분자 증가 없음 |
+| 독립 회귀 | `486 passed`; Parameter 회귀 24건 추가 |
 | 실제 전체 연결 | 기존 단일 회차 Runner 호출 연결은 유지. 새 `0.3.0` 전체 실행은 외부 모듈 전환 후 재검증 필요 |
 
 Verifier의 계정 source 필드 전환은 완료됐지만 버전 0.3 수용과 실제 검증 관계 생성은 남아 있다.
@@ -350,7 +351,7 @@ Resource의 정규화는 **비교용 표현을 맞추는 것**이며 문자열�
 
 Role 이름·일반 엔티티 텍스트·HTTP Method·Page/Endpoint 경로·Workflow의 기존 정규화와 `default-v1` matching profile은 유지한다. 실행 Schema 버전은 `0.3.0`이다.
 
-### Endpoint 발견율의 범위
+### Endpoint·Parameter 발견율의 범위
 
 `endpoint_recall`은 semantic_analysis의 Endpoint 노드와 normalized_requests를
 함께 비교한다. 추론 노드도 method·path_template이 GT에 매칭되면 포함한다.
@@ -358,7 +359,20 @@ Role 이름·일반 엔티티 텍스트·HTTP Method·Page/Endpoint 경로·Work
 필요한 매칭 키가 없거나 다르면 매칭하지 않는다. 의미 분석 실패 시에는 미측정이다.
 
 이 지표는 발견율이며 실제 요청·ACCESS·검증 성공·confirmed를 뜻하지 않는다.
-Parameter는 계속 normalized_requests로만 평가하며 후보·확정 집계·GT 분모 규칙은 유지한다.
+
+`parameter_recall`은 기존 normalized_requests와 함께 semantic_analysis의
+`Endpoint → USE → Parameter`를 비교한다. Endpoint의 method·path_template과
+Parameter의 name·location으로 비교용 키를 구성하며 inferred 노드도 포함한다.
+node_id를 해석하거나 값을 읽어 엔드포인트를 추측하지 않는다.
+
+USE가 없거나 방향·노드 종류가 맞지 않으면 해당 노드를 평가 관찰에 넣지 않는다.
+매칭 필드 누락·빈 값·비문자열·불일치는 매칭하지 않는다. 기존 정규화 요청의
+평가 방식은 유지하고 노드·요청 중복으로 분자를 늘리지 않는다. 의미 분석 실패는
+미측정, GT 분모 0은 null이다. 민감 Parameter도 값 없이 이름·위치만 비교한다.
+
+입력·KG snapshot은 변경하지 않는다. 관계·후보·확정 집계·GT 분모 규칙과
+default-v1, 공개 출력 필드·버전은 유지한다. 발견율 변화 자체를 탐지 모델의 성능
+향상이나 실제 검증 성공으로 판단하지 않는다.
 
 ### 평가 대상
 
@@ -458,7 +472,7 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-462 passed
+486 passed
 ```
 
 계약 테스트:
@@ -494,7 +508,7 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-32 passed
+56 passed
 ```
 
 원본 ID / 노드 ID 참조 회귀 테스트:
@@ -1079,3 +1093,28 @@ fixture를 `0.3.0`으로 맞췄다. Ground Truth 계약·fixture는 기존 `0.1.
 Collector·KG·Safety Policy 출력과 Reporter 입력 사본은 최상위 설명 메타데이터를
 제외하면 일치한다. 외부 생산자·공통 명세·Web 버전 수용은 각 담당자가 전환한다.
 새 버전의 실제 진단·성능 향상·전체 pipeline·Docker 검증은 아직 수행하지 않았다.
+
+### 2026-10-14 — PR #81 추론 Parameter 발견율 보완
+
+Endpoint→USE→Parameter를 따라 method·path_template·name·location을 구성하고
+parameter_recall에 포함하도록 evaluation_service를 보완했다. 기존 normalized_requests
+평가를 유지하며 입력과 snapshot을 수정하거나 요청·ACCESS·후보를 만들지 않는다.
+
+평가 회귀 24건으로 observed/inferred·매칭 키·잘못된 연결·누락/타입·중복·민감
+Parameter 메타데이터·실패 입력의 null·다른 지표/진단 집계 유지·공개 evaluate 저장을
+검증했다. 수정 전 누락 재현은 5 failed·51 passed였고 수정 후 모두 통과했다.
+공개 Schema·default-v1·정답·판정 의미·의존성은 유지하며 마지막에 m8을 갱신했다.
+
+```bash
+.venv/bin/python -m pytest modules/reporter/tests/test_evaluation_service.py -q --tb=short
+# 56 passed
+
+.venv/bin/python -m pytest modules/reporter -q --tb=short
+# 486 passed
+
+KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter -q --tb=short
+# 1051 passed, 12 skipped
+```
+
+실제 Neo4j 12건과 새 pipeline·Docker·실모델 진단은 미실행이다.
+semantic_analyzer 출력 등 외부 계약의 0.3 전환은 해당 담당자의 후속 작업이다.
