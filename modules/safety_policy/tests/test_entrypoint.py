@@ -191,7 +191,7 @@ def test_run_evaluate_rejects_failed_source_without_output(
     assert not _output_path(evaluate_run_root).exists()
 
 
-@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.2.0", "0.4.0"])
 def test_run_evaluate_rejects_unsupported_version_without_output(
     evaluate_arguments: tuple[dict[str, Any], str, dict[str, Any]],
     evaluate_run_root: Path,
@@ -773,7 +773,7 @@ def _assert_output_integrity(
     source = load_json(input_path)
     source_sha256 = calculate_sha256(input_path)
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact["input_refs"] == [
         {
             "artifact_id": source["artifact_id"],

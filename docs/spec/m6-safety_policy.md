@@ -12,25 +12,29 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-11
+## 현재 구현·연결 상태 — 2026-10-14
 
-기준 커밋 `30cb867`의 구현과 PR #59~#62의 단일 회차 Runner 연결·실제 실행 오류
-수정 내용을 반영했다.
+기준 커밋 `33421ef` + 이번 작업 트리 기준이다. 팀이 합의한 실행 산출물
+`0.3.0` 동시 전환을 자기 모듈에 적용했다. 문서 판 번호 v0.2는 변경하지 않는다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
 | 독립 구현 | 공개 `evaluate`·CLI, 외부 정책 검증·private 사본 자동 배치·동일 정책 재사용, 6개 assessment, 승인 기록 재평가·원자 저장 구현 완료 |
-| 공개 계약 | `test_scenarios` 입력·`safety_decisions` 출력 `0.2.0`, 필수 Scenario.resource_ids 수용 완료 |
+| 공개 계약 | `test_scenarios` 입력·`safety_decisions` 출력 `0.3.0`만 지원; Scenario.resource_ids 의미 유지 |
 | 내부 설정 계약 | policy_config·approval_record는 각각 `0.1.0`; policy_version은 별도 안전 규칙 버전 |
-| 소비자 호환 | Verifier·Reporter의 safety_decisions 입력 사본 `0.2.0` 동기화 및 공개 fixture Schema 수용 확인 |
+| 소비자 호환 | Reporter 입력 사본 `0.3.0` 일치 확인; Verifier 입력 사본 `0.2.0`은 담당자 전환 필요 |
 | 실행 설정 | 필수 `SAFETY_POLICY_CONFIG_PATH`; 호출자의 `context.policy_config`는 거절 |
 | 운영 안내 | `.env.example`·README에 원본 준비·사본 유지·오류 대응·승인 재평가 절차 정리 완료 |
-| 독립 회귀 | 2026-10-11 재확인: Safety Policy `304 passed`; Runner 대역 테스트 `58 passed` |
-| 실제 전체 연결 | 단일 회차 Runner의 계획→판정→검증→리포트 호출 연결 및 context 4개 전달 완료(PR #59). 실제 사용자 승인 수집·진위 확인·승인 후 재실행은 별도 후속 항목 |
+| 독립 회귀 | Safety Policy `308 passed`; 담당 3개 합동 `1015 passed, 12 skipped` |
+| 실제 전체 연결 | 기존 단일 회차 Runner 호출 연결 유지(PR #59). 새 0.3 전체 실행은 외부 모듈 전환 후 재검증 필요; 실제 사용자 승인 창구·승인 후 재실행은 후속 항목 |
 
 skip 12건은 이번에 활성화하지 않은 KG 실제 Neo4j 테스트다. 상세 구현 이력은
 [모듈 README](../../modules/safety_policy/README.md)를 따른다. 계약 호환 확인과
 독립 승인 fixture 검증을 실제 사용자 승인 수집·진위 확인 완료로 표시하지 않는다.
+
+scenario_generator 출력은 현재 0.2로 새 입력에서 거절된다. 해당 생산자와 Verifier·
+공통 명세·Runner·local_web의 버전 수용은 각 담당자가 전환한다. 과거 Runner 58건은
+이번에 재실행하지 않았다. 승인 fixture 해시 재계산은 독립 테스트 데이터에만 적용했다.
 
 ## 독립 동작·수정 책임
 
@@ -99,8 +103,10 @@ skip 12건은 이번에 활성화하지 않은 KG 실제 Neo4j 테스트다. 상
 - 승인 입력은 run_id·iteration·정확한 계획 해시·Policy ID/버전·승인 대상·승인자·승인/만료 시각에 바인딩한다.
   block·unknown은 승인 기록만으로 allow로 바꾸지 않는다. 기록 생성·사용자 진위
   확인을 연결하는 runner·UI 통합은 후속 작업이다.
-- 공개 실행 산출물 `0.1.0`과 미지원 버전은 거절한다. 구버전 계획을 묵시적으로
+- 공개 실행 산출물은 `0.3.0`만 지원하고 `0.1.0`·`0.2.0`과 미지원 버전은 거절한다. 구버전 계획을 묵시적으로
   변환하지 않으며 완료된 산출물·실제 승인 기록을 수정하지 않는다.
+- 버전 변경도 계획 바이트를 바꾸므로 0.2 계획 해시에 묶인 승인은 0.3 계획에
+  재사용할 수 없다. 새 계획에 대한 판정과 필요한 승인을 다시 받아야 한다.
 
 ## 정책 설정 준비·공개 호출 규약
 
@@ -251,7 +257,7 @@ run_id·iteration·mode·run_root 4개만 context에 전달하고 context.policy
 
 ### safety_decisions.json
 
-- 고정 값: `artifact_type=safety_decisions`, `producer=safety_policy`, `schema_version=0.2.0`.
+- 고정 값: `artifact_type=safety_decisions`, `producer=safety_policy`, `schema_version=0.3.0`.
 - 예상 Schema 경로: `modules/safety_policy/schemas/output/safety_decisions.schema.json`.
 - 예상 출력 fixture 경로: `modules/safety_policy/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/safety_policy/safety_decisions.json`.
 
@@ -322,6 +328,7 @@ run_id·iteration·mode·run_root 4개만 context에 전달하고 context.policy
 | 2026-10-10 | 정책 설정 준비 5단계: .env.example·README 운영 안내·승인 재평가 예시·변경 이력 정리 | 구현 기준 `b040ba7` + 작업 트리 문서. 기본 정책·비밀값·자동 .env 로딩 없음 |
 | 2026-10-10 | 1~5단계 종료 후 본 명세에 현재 구현·호출 설정·사본 책임·재사용·오류·미완료 연결을 일괄 반영 | 명세 문서만 갱신. 공개 JSON 0.2.0, 정책/승인 Schema 0.1.0, 6개 assessment·안전 판단 의미 유지 |
 | 2026-10-11 | Runner의 새 정책 설정·context 전달 적용과 계획→판정→검증→리포트 연결 완료를 반영하고 실제 사용자 승인 후속 항목을 분리 | `30cb867`, PR #58·#59. Safety Policy 304 passed, Runner 대역 58 passed. 6개 규칙·공개 JSON 0.2.0·정책/승인 0.1.0·문서 판 번호 유지 |
+| 2026-10-14 | 팀 합의로 시나리오 입력·판정 출력을 0.3.0 전환, fixture 계획·승인·참조 해시 재계산 및 구버전 거절 확인 | `33421ef` + 작업 트리. 308 passed, 합동 1015 passed·12 skipped. 6개 assessment·규칙·policy_config/approval_record 0.1.0·문서 판 v0.2 유지; SG·Verifier 전환 후 전체 재검증 필요 |
 
 기존 책임 경계와 독립 안전 판정 원칙은 유지하고 상세 과거 이력은 모듈 README에
 보존한다. 최초 `695b3c8` 문서 동기화 때의 합동 회귀 `897 passed, 12 skipped`는

@@ -56,8 +56,8 @@ def test_completed_contract_fixtures_are_valid(
 
     assert scenarios is not None
     assert decisions is not None
-    assert scenarios_artifact["schema_version"] == "0.2.0"
-    assert decisions_artifact["schema_version"] == "0.2.0"
+    assert scenarios_artifact["schema_version"] == "0.3.0"
+    assert decisions_artifact["schema_version"] == "0.3.0"
     assert len(scenarios.scenarios) == 2
     assert len(decisions.decisions) == 2
 
@@ -79,12 +79,12 @@ def test_partial_and_failed_contract_fixtures_are_valid(
 ) -> None:
     artifact, model = loader(fixture_root / "status" / filename)
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert artifact["status"] == expected_status
     assert (model is None) is (expected_status == "failed")
 
 
-@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.2.0", "0.4.0"])
 @pytest.mark.parametrize("filename", ["test_scenarios.json", "safety_decisions.json"])
 def test_contract_loaders_reject_unsupported_versions(
     fixture_root: Path,
@@ -161,7 +161,7 @@ def test_scenarios_accept_opaque_resource_ids_without_rewriting(
     loaded_artifact, scenarios = load_test_scenarios(input_path)
 
     assert scenarios is not None
-    assert loaded_artifact["schema_version"] == "0.2.0"
+    assert loaded_artifact["schema_version"] == "0.3.0"
     assert all(
         scenario["resource_ids"] == resource_ids
         for scenario in loaded_artifact["data"]["scenarios"]

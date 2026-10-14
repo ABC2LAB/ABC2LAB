@@ -1,0 +1,513 @@
+{
+  "schema_version": "0.3.0",
+  "artifact_type": "semantic_analysis",
+  "artifact_id": "semantic_pr81_compatibility_001",
+  "run_id": "run_compatibility_001",
+  "iteration": 0,
+  "producer": "semantic_analyzer",
+  "mode": "development",
+  "created_at": "2026-10-14T00:00:00Z",
+  "status": "completed",
+  "input_refs": [
+    {
+      "artifact_id": "crawl_compatibility_001",
+      "artifact_type": "crawl_result",
+      "iteration": 0,
+      "path": "artifacts/iteration-000/collector/crawl_result.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "errors": [],
+  "runtime_metrics": null,
+  "data": {
+    "normalized_requests": [
+      {
+        "request_id": "request_order_alice",
+        "endpoint_id": "endpoint:GET:/orders/{id}",
+        "method": "GET",
+        "path_template": "/orders/{id}",
+        "account_id": "acc_alice",
+        "role_id": "role_user",
+        "action_meaning": "read_order",
+        "resource_ids": [
+          "resource:order"
+        ],
+        "parameters": [
+          {
+            "parameter_id": "param:endpoint:GET:/orders/{id}:path:id",
+            "name": "id",
+            "location": "path",
+            "value_type": "string",
+            "is_sensitive": false
+          }
+        ],
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "request_id": "request-query-fixture",
+        "endpoint_id": "opaque-query-endpoint",
+        "method": "GET",
+        "path_template": "/catalog/item",
+        "account_id": "acc_alice",
+        "role_id": "role_user",
+        "action_meaning": "read_item",
+        "resource_ids": [
+          "opaque-query-resource"
+        ],
+        "parameters": [
+          {
+            "parameter_id": "opaque-query-parameter-item_id",
+            "name": "item_id",
+            "location": "query",
+            "value_type": "string",
+            "is_sensitive": false
+          }
+        ],
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "request_id": "request-body-fixture",
+        "endpoint_id": "opaque-body-endpoint",
+        "method": "POST",
+        "path_template": "/catalog/resolve",
+        "account_id": "acc_alice",
+        "role_id": "role_user",
+        "action_meaning": "resolve_item",
+        "resource_ids": [
+          "opaque-body-resource"
+        ],
+        "parameters": [
+          {
+            "parameter_id": "opaque-body-parameter-item_id",
+            "name": "item_id",
+            "location": "body",
+            "value_type": "string",
+            "is_sensitive": false
+          },
+          {
+            "parameter_id": "opaque-body-parameter-tenant_id",
+            "name": "tenant_id",
+            "location": "body",
+            "value_type": "string",
+            "is_sensitive": false
+          }
+        ],
+        "basis": "observed",
+        "evidence_refs": []
+      }
+    ],
+    "nodes": [
+      {
+        "node_id": "user:acc_alice",
+        "node_type": "User",
+        "properties": {
+          "account_id": "acc_alice",
+          "alias": "alice",
+          "role_id": "role_user"
+        },
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "role:role_user",
+        "node_type": "Role",
+        "properties": {
+          "name": "user",
+          "role_id": "role_user"
+        },
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "endpoint:GET:/orders/{id}",
+        "node_type": "Endpoint",
+        "properties": {
+          "method": "GET",
+          "path_template": "/orders/{id}"
+        },
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "param:endpoint:GET:/orders/{id}:path:id",
+        "node_type": "Parameter",
+        "properties": {
+          "name": "id",
+          "location": "path",
+          "value_type": "string",
+          "is_sensitive": false
+        },
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "resource:order",
+        "node_type": "Resource",
+        "properties": {
+          "resource_key": "order",
+          "resource_scope": "instance",
+          "match_key": {
+            "resource_key": "order",
+            "identifiers": [
+              {
+                "key": "order_id",
+                "value": "example-order"
+              }
+            ]
+          }
+        },
+        "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "opaque-fixture-page",
+        "node_type": "Page",
+        "properties": {
+          "page_id": "fixture-page",
+          "url": "/catalog",
+          "title": "Fixture"
+        },
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "opaque-fixture-action",
+        "node_type": "Action",
+        "properties": {
+          "kind": "submit",
+          "label": "Inspect",
+          "page_id": "fixture-page"
+        },
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "opaque-discovered-endpoint",
+        "node_type": "Endpoint",
+        "properties": {
+          "method": "POST",
+          "path_template": "/catalog/search"
+        },
+        "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "opaque-discovered-parameter",
+        "node_type": "Parameter",
+        "properties": {
+          "name": "item_id",
+          "location": "body",
+          "value_type": "unknown",
+          "is_sensitive": false
+        },
+        "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "opaque-query-endpoint",
+        "node_type": "Endpoint",
+        "properties": {
+          "method": "GET",
+          "path_template": "/catalog/item"
+        },
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "opaque-query-resource",
+        "node_type": "Resource",
+        "properties": {
+          "resource_key": "item",
+          "resource_scope": "instance",
+          "match_key": {
+            "resource_key": "item",
+            "identifiers": [
+              {
+                "key": "item_id",
+                "value": "101"
+              }
+            ]
+          }
+        },
+        "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "opaque-query-parameter-item_id",
+        "node_type": "Parameter",
+        "properties": {
+          "name": "item_id",
+          "location": "query",
+          "value_type": "string",
+          "is_sensitive": false
+        },
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "opaque-body-endpoint",
+        "node_type": "Endpoint",
+        "properties": {
+          "method": "POST",
+          "path_template": "/catalog/resolve"
+        },
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "opaque-body-resource",
+        "node_type": "Resource",
+        "properties": {
+          "resource_key": "item",
+          "resource_scope": "instance",
+          "match_key": {
+            "resource_key": "item",
+            "identifiers": [
+              {
+                "key": "item_id",
+                "value": "202"
+              },
+              {
+                "key": "tenant_id",
+                "value": "7"
+              }
+            ]
+          }
+        },
+        "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "opaque-body-parameter-item_id",
+        "node_type": "Parameter",
+        "properties": {
+          "name": "item_id",
+          "location": "body",
+          "value_type": "string",
+          "is_sensitive": false
+        },
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "node_id": "opaque-body-parameter-tenant_id",
+        "node_type": "Parameter",
+        "properties": {
+          "name": "tenant_id",
+          "location": "body",
+          "value_type": "string",
+          "is_sensitive": false
+        },
+        "basis": "observed",
+        "evidence_refs": []
+      }
+    ],
+    "relationships": [
+      {
+        "relationship_id": "rel:user:acc_alice|HAS_ROLE|role:role_user",
+        "source_id": "user:acc_alice",
+        "target_id": "role:role_user",
+        "relation_type": "HAS_ROLE",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "rel:role:role_user|ACCESS|endpoint:GET:/orders/{id}",
+        "source_id": "role:role_user",
+        "target_id": "endpoint:GET:/orders/{id}",
+        "relation_type": "ACCESS",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "rel:user:acc_alice|ACCESS|endpoint:GET:/orders/{id}",
+        "source_id": "user:acc_alice",
+        "target_id": "endpoint:GET:/orders/{id}",
+        "relation_type": "ACCESS",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "rel:endpoint:GET:/orders/{id}|USE|param:endpoint:GET:/orders/{id}:path:id",
+        "source_id": "endpoint:GET:/orders/{id}",
+        "target_id": "param:endpoint:GET:/orders/{id}:path:id",
+        "relation_type": "USE",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "rel:endpoint:GET:/orders/{id}|REFERENCE|resource:order",
+        "source_id": "endpoint:GET:/orders/{id}",
+        "target_id": "resource:order",
+        "relation_type": "REFERENCE",
+        "properties": {},
+        "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "rel:user:acc_alice|OWNS|resource:order",
+        "source_id": "user:acc_alice",
+        "target_id": "resource:order",
+        "relation_type": "OWNS",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "discovered-page-call",
+        "source_id": "opaque-fixture-page",
+        "target_id": "opaque-discovered-endpoint",
+        "relation_type": "CALL",
+        "properties": {},
+        "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "discovered-action-call",
+        "source_id": "opaque-fixture-action",
+        "target_id": "opaque-discovered-endpoint",
+        "relation_type": "CALL",
+        "properties": {},
+        "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "discovered-use",
+        "source_id": "opaque-discovered-endpoint",
+        "target_id": "opaque-discovered-parameter",
+        "relation_type": "USE",
+        "properties": {},
+        "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "query-use-item_id",
+        "source_id": "opaque-query-endpoint",
+        "target_id": "opaque-query-parameter-item_id",
+        "relation_type": "USE",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "query-user-access",
+        "source_id": "user:acc_alice",
+        "target_id": "opaque-query-endpoint",
+        "relation_type": "ACCESS",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "query-role-access",
+        "source_id": "role:role_user",
+        "target_id": "opaque-query-endpoint",
+        "relation_type": "ACCESS",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "query-reference",
+        "source_id": "opaque-query-endpoint",
+        "target_id": "opaque-query-resource",
+        "relation_type": "REFERENCE",
+        "properties": {},
+        "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "query-ownership",
+        "source_id": "user:acc_alice",
+        "target_id": "opaque-query-resource",
+        "relation_type": "OWNS",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "body-use-item_id",
+        "source_id": "opaque-body-endpoint",
+        "target_id": "opaque-body-parameter-item_id",
+        "relation_type": "USE",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "body-use-tenant_id",
+        "source_id": "opaque-body-endpoint",
+        "target_id": "opaque-body-parameter-tenant_id",
+        "relation_type": "USE",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "body-user-access",
+        "source_id": "user:acc_alice",
+        "target_id": "opaque-body-endpoint",
+        "relation_type": "ACCESS",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "body-role-access",
+        "source_id": "role:role_user",
+        "target_id": "opaque-body-endpoint",
+        "relation_type": "ACCESS",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "body-reference",
+        "source_id": "opaque-body-endpoint",
+        "target_id": "opaque-body-resource",
+        "relation_type": "REFERENCE",
+        "properties": {},
+        "basis": "inferred",
+        "evidence_refs": []
+      },
+      {
+        "relationship_id": "body-ownership",
+        "source_id": "user:acc_alice",
+        "target_id": "opaque-body-resource",
+        "relation_type": "OWNS",
+        "properties": {},
+        "basis": "observed",
+        "evidence_refs": []
+      }
+    ],
+    "workflows": [
+      {
+        "workflow_id": "workflow:acc_alice",
+        "name": "observed_flow_acc_alice",
+        "role_ids": [
+          "role_user"
+        ],
+        "steps": [
+          {
+            "step_id": "step:acc_alice:0",
+            "order": 0,
+            "action": "read_order",
+            "request_ids": [
+              "request_order_alice"
+            ]
+          }
+        ],
+        "dependencies": [],
+        "basis": "inferred",
+        "evidence_refs": []
+      }
+    ],
+    "model_info": null
+  }
+}

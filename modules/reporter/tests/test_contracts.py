@@ -136,7 +136,7 @@ def test_scenario_contract_accepts_opaque_resource_ids(
 
     validate_fixture(artifact, schema_root)
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
     assert all(
         scenario["resource_ids"] == resource_ids
         for scenario in artifact["data"]["scenarios"]
@@ -375,7 +375,7 @@ def test_finding_rejects_unknown_status(
         validate_fixture(artifact, schema_root)
 
 
-def test_graph_query_fixture_uses_schema_version_0_2(
+def test_graph_query_fixture_uses_schema_version_0_3(
     fixture_root: Path,
     schema_root: Path,
 ) -> None:
@@ -383,7 +383,7 @@ def test_graph_query_fixture_uses_schema_version_0_2(
 
     validate_fixture(artifact, schema_root)
 
-    assert artifact["schema_version"] == "0.2.0"
+    assert artifact["schema_version"] == "0.3.0"
 
 
 def test_graph_query_resource_instance_is_valid(

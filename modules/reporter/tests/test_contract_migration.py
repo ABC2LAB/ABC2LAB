@@ -1,4 +1,4 @@
-"""Independent regression checks for the public 0.2.0 contract migration."""
+"""Independent regression checks for the public 0.3.0 contract migration."""
 
 import copy
 from pathlib import Path
@@ -64,20 +64,20 @@ def _graph_update_record(
 
 
 @pytest.mark.parametrize("artifact_type", RUNTIME_ARTIFACT_TYPES)
-def test_runtime_contracts_and_fixtures_use_0_2(
+def test_runtime_contracts_and_fixtures_use_0_3(
     fixture_root: Path,
     artifact_type: str,
 ) -> None:
     schema = load_json(SCHEMA_BY_ARTIFACT[artifact_type])
     artifact = load_json(_fixture_path(fixture_root, artifact_type))
 
-    assert schema["properties"]["schema_version"]["const"] == "0.2.0"
-    assert artifact["schema_version"] == "0.2.0"
+    assert schema["properties"]["schema_version"]["const"] == "0.3.0"
+    assert artifact["schema_version"] == "0.3.0"
     validate_schema(artifact, SCHEMA_BY_ARTIFACT[artifact_type])
 
 
 @pytest.mark.parametrize("artifact_type", RUNTIME_ARTIFACT_TYPES)
-@pytest.mark.parametrize("schema_version", ["0.1.0", "0.3.0"])
+@pytest.mark.parametrize("schema_version", ["0.1.0", "0.2.0", "0.4.0"])
 def test_runtime_contracts_reject_unsupported_versions(
     fixture_root: Path,
     artifact_type: str,

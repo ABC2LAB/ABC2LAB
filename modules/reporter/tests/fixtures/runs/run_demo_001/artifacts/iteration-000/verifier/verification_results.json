@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "artifact_type": "verification_results",
   "artifact_id": "verification_demo_001",
   "run_id": "run_demo_001",
@@ -19,7 +19,7 @@
   },
   "data": {
     "source_graph_revision": 1,
-    "scenarios_sha256": "818337018d87c28e712b08cdde2079429daf428bc24dff407b4145af5215cbf8",
+    "scenarios_sha256": "e31f1ef9052a0e135e92abd1090aa4b0b5115ef7e50a75995f6f8729b7ebd9ec",
     "results": [
       {
         "verification_id": "verification_idor_001",

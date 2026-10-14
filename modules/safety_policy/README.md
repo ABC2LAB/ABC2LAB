@@ -3,23 +3,20 @@
 `test_scenarios.json`을 LLM과 독립된 규칙으로 평가해
 `safety_decisions.json`을 생성하는 모듈이다.
 
-## 현재 상태 — 2026-10-10
+## 현재 상태 — 2026-10-14
 
-구현 기준 커밋은 `b040ba7`이다. PR #52·#53 계약 호환과 정책 설정 개선
-1~5단계·최종 명세 동기화까지의 작업 상태를 기록한다. 정책 준비 기능은 공개
-`run()`·CLI에 연결됐으며,
-같은 run에서는 원본과 SHA-256이 같은 정책 사본만 재사용한다. 설정 준비 실패와
-재사용 이후의 입력·평가·출력 처리도 두 공개 실행 창구의 회귀 테스트로 검증했다.
+기준 커밋 `33421ef`에서 팀이 합의한 실행 계약 `0.3.0` 동시 전환을 적용했다.
+정책 준비·사본 재사용·6개 assessment·승인 재평가 로직은 유지한다.
 
 | 구분 | 현재 상태 |
 |---|---|
 | 독립 구현 | 공개 `evaluate`·CLI, 외부 정책 설정 검증·private 자동 배치·동일 정책 재사용, 6개 assessment, 승인 기록 재평가·원자 저장 구현 완료 |
-| 공개 계약 | `test_scenarios` 입력·`safety_decisions` 출력 `0.2.0`, 필수 `Scenario.resource_ids` 수용 완료 |
-| 소비자 호환 | Verifier·Reporter의 `safety_decisions` 입력 사본 `0.2.0` 동기화 완료 |
-| 독립 회귀 | `304 passed` |
+| 공개 계약 | `test_scenarios` 입력·`safety_decisions` 출력 `0.3.0`만 지원; policy_config·approval_record는 `0.1.0` 유지 |
+| 소비자 호환 | Reporter 입력 사본 `0.3.0` 일치 확인; Verifier 입력 사본 `0.2.0`은 담당자 전환 필요 |
+| 독립 회귀 | `308 passed` |
 | 설정·운영 안내 | `.env.example`, 원본 준비·사본 유지·오류 대응·승인 재평가 절차 정리 완료 |
 | 저장소 명세 | `docs/spec/m6-safety_policy.md`에 1~5단계 구현·호출 규약·변경 이력 반영 완료 |
-| 실제 전체 연결 | 미완료. 같은 run의 계획→판정→검증→리포트 연결 검증 필요 |
+| 실제 전체 연결 | 기존 단일 회차 Runner 호출 연결은 유지. 새 `0.3.0` 전체 실행은 외부 모듈 전환 후 재검증 필요 |
 
 승인 기록의 입력 검증·계획 바인딩·재평가는 구현됐지만, 실제 사용자 승인 수집·
 진위 확인을 연결하는 runner·UI 통합은 후속 작업이다. 공개 JSON 명세는
@@ -53,10 +50,10 @@
 
 - 입력: `schemas/input/test_scenarios.schema.json`
 - 출력: `schemas/output/safety_decisions.schema.json`
-- 공개 산출물 계약 버전: `0.2.0`
+- 공개 산출물 계약 버전: `0.3.0`
 
-`test_scenarios.json` 입력과 `safety_decisions.json` 출력은 `0.2.0`만 지원한다.
-`0.1.0`과 미지원 버전은 거절하며 완료된 입력 파일을 묵시적으로 변환하지 않는다.
+`test_scenarios.json` 입력과 `safety_decisions.json` 출력은 `0.3.0`만 지원한다.
+`0.1.0`·`0.2.0`과 미지원 버전은 거절하며 완료된 입력 파일을 묵시적으로 변환하지 않는다.
 자기 설정 `policy_config`와 승인 기록 `approval_record`의 Schema 버전은 각각
 `0.1.0`을 유지한다. `policy_version`은 적용한 안전 규칙의 버전이며 공개 산출물의
 `schema_version`과 별도로 관리한다.
@@ -83,17 +80,17 @@ Neo4j를 조회하지 않는다.
 
 ### 현재 연결 상태
 
-2026-10-10, 기준 커밋 `695b3c8`의 공개 Schema·fixture 기준이다.
+2026-10-14, 기준 커밋 `33421ef` + 이번 작업 트리의 공개 Schema 기준이다.
 
 | 경계 | 생산자 / 소비자 버전 | 확인 결과 |
 |---|---|---|
-| scenario_generator → safety_policy | `0.2.0` / `0.2.0` | `resource_ids`를 포함한 공개 시나리오 2개를 입력 loader가 수용 |
-| safety_policy → reporter | `0.2.0` / `0.2.0` | 공개 판정 2개의 Reporter 입력 Schema 검증 통과 |
-| safety_policy → verifier | `0.2.0` / `0.2.0` | 입력 Schema 사본 일치 및 공개 판정 2개의 Schema 수용 확인 |
+| scenario_generator → safety_policy | `0.2.0` / `0.3.0` | 현재 생산자 출력은 거절; 담당자의 합의된 출력 전환 필요 |
+| safety_policy → reporter | `0.3.0` / `0.3.0` | 최상위 제목·설명을 제외한 Schema 일치 및 독립 fixture 검증 통과 |
+| safety_policy → verifier | `0.3.0` / `0.2.0` | 현재 소비자는 새 판정을 거절; 담당자의 입력 사본 전환 필요 |
 
-공개 fixture 수신과 독립 회귀 검증이며 동일 run의 전체 pipeline 실행 완료를
-의미하지 않는다. Verifier의 시나리오 입력·검증 관계 출력 계약 전환은 완료됐고,
-실제 `graph_updates` 생성과 동일 run의 전체 연결 검증은 남아 있다.
+독립 fixture 검증이며 새 버전의 동일 run 전체 실행 완료를 의미하지 않는다.
+실제 사용자 승인 창구와 Verifier의 `graph_updates` 생성은 별도 후속 항목이다.
+공통 명세·Runner·local_web의 버전 수용은 해당 담당자가 전환한다.
 
 ## 판정 계약
 
@@ -362,7 +359,7 @@ CLI는 시나리오·선택 승인 파일 해시만 계산한 뒤 공개 `run()`
 .venv/bin/python -m pytest modules/safety_policy/
 ```
 
-현재 결과: `304 passed`.
+현재 결과: `308 passed`.
 
 실제 비밀값과 실행 결과는 fixture나 Git에 저장하지 않는다.
 
@@ -725,3 +722,23 @@ bash -n modules/safety_policy/.env.example
 
 skip 12건은 활성화하지 않은 KG 실제 Neo4j 통합 테스트다. 독립 fixture·임시 run의
 회귀 검증이며 실제 전체 pipeline·사용자 승인 창구 연결 완료를 의미하지 않는다.
+
+### 2026-10-14 — 실행 산출물 0.3.0 동시 전환
+
+팀 합의에 따라 test_scenarios 입력·safety_decisions 출력의 Schema·출력 adapter·
+정상/부분/실패 fixture를 `0.3.0`으로 맞췄다. 0.1·0.2 및 미지원 0.4 입력을 거절한다.
+정책 설정·승인 기록의 `0.1.0`, policy_version, 6개 assessment와 실행 허용 의미는 유지한다.
+같은 작업의 마지막에 m6 현재 상태·계약·변경 이력을 갱신했다.
+
+fixture의 계획 바이트가 바뀌어 계획·input_ref·승인 해시를 재계산했다. 실제 승인
+기록과 완료 결과는 수정하지 않았다. 0.2 계획 해시에 묶인 승인은 0.3 계획에 사용할
+수 없으므로 새 계획을 평가하고 필요한 승인을 새로 받아야 한다.
+
+```bash
+.venv/bin/python -m pytest modules/safety_policy -q --tb=short
+# 308 passed
+```
+
+Reporter 입력 사본과 출력 Schema 일치를 확인했다. 현재 SG 출력·Verifier 입력은
+아직 0.2이므로 담당자 전환 후 전체 실행을 다시 검증한다. 새 실제 pipeline·승인
+창구·Docker 실행은 이번 검증에 포함하지 않았다.
