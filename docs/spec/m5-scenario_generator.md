@@ -20,7 +20,7 @@
 | --- | --- |
 | 독립 구현 | `generate`, 공개 `run()`·CLI, 초안 생성기 `none`·`ollama`·`replay`, 재현 조건·기준 단계 생성, 초안 검증(판정 조건 필수 규칙), 실패 초안 진단, 원자 저장 구현 완료 |
 | 초안 경계 | LLM 초안은 `steps`만. step은 `source_request_id`+`account_role`(actor/reference) 등 **선택만** 담고, 식별자(`account_id`·`role_id`·`session_ref`)·`method`·`url_template`·`body_ref`와 세션 `preconditions`는 **프로그램이 원본에서 조립**한다(#57 요청 반영). 판정 조건(`assertions`)과 기준 단계도 **프로그램이 후보에서 만든다**(아래 "판정 조건 필수 규칙"). 경로 바인딩은 path 파라미터의 `binding_ref`로 표현하고 프로그램이 URL에 넣는다. Ollama는 초안 JSON Schema를 `format`으로 받아 초안 모양을 디코딩 단계에서 지킨다 |
-| 공개 계약 | 출력 `test_scenarios` `0.2.0`(`Scenario.resource_ids` 포함), 입력 `vulnerability_candidates` `0.2.0`·`crawl_result` `0.3.0` 미러(crawl_result의 새 필드 `discovered_endpoints`·`response.identifiers`는 쓰지 않음). 출력 Scenario 모양은 불변(조립 주체만 바뀜) |
+| 공개 계약 | 출력 `test_scenarios` `0.3.0`(`Scenario.resource_ids` 포함), 입력 `vulnerability_candidates`·`crawl_result` `0.3.0` 미러(crawl_result의 새 필드 `discovered_endpoints`·`response.identifiers`는 쓰지 않음). 출력 Scenario 모양은 불변(조립 주체만 바뀜) |
 | 독립 회귀 | scenario_generator `320 passed` |
 | 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행(로컬 ollama 모델)에서 시나리오를 발행했고 safety_policy·verifier·reporter가 받아 처리했다(2026-10-11) |
 | 모델 크기 비교 | 6차 실행 입력(후보 5)으로 `generate`만 다시 실행: qwen2.5:1.5b·7b 모두 수정 전 0/5(초안 키 구조·미선언 바인딩) → 수정 후 5/5(2026-10-12) |
@@ -134,7 +134,7 @@
 
 ### test_scenarios.json
 
-- 고정 값: `schema_version=0.2.0`, `artifact_type=test_scenarios`, `producer=scenario_generator`.
+- 고정 값: `schema_version=0.3.0`(2026-10-14 실행 산출물 0.3.0 통일, 필드는 0.2.0과 같음), `artifact_type=test_scenarios`, `producer=scenario_generator`.
 - 예상 Schema 경로: `modules/scenario_generator/schemas/output/test_scenarios.schema.json`.
 - 예상 출력 fixture 경로: `modules/scenario_generator/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/scenario_generator/test_scenarios.json`.
 
@@ -228,6 +228,7 @@
 | 2026-10-12 | `url_template`도 프로그램이 원본 요청에서 조립(초안 `request`는 `parameters`만). 경로 바인딩은 path 파라미터 `binding_ref`로 표현하고 프로그램이 관찰값 조각 하나를 `{binding_id}`로 바꿈. Ollama 호출 `format`을 초안 JSON Schema로(구조화 출력), 프롬프트 v6. 출력 필드·버전·의미 변경 없음(`url_template`은 지금도 허용되는 값만 나옴) | 6차 실행 입력으로 `generate`만 다시 실행: qwen2.5:1.5b 0/5(초안 키 중첩 오류 3·미선언 바인딩 2), 7b 0/5(미선언 바인딩 5, 미선언 이름은 path 파라미터 이름) → 수정 후 둘 다 5/5 |
 | 2026-10-14 | 판정 조건(`assertions`)과 기준 단계를 프로그램이 후보에서 생성(위 "판정 조건 필수 규칙"). 초안은 `steps`만(초안에 `assertions`가 있으면 `DRAFT_INVALID`), 프롬프트 v7. `resource_state`·`resource_owner`·`baseline_match`의 `subject_ref`·`selector`·`expected` 규약 확정(위 "Check 규약", verifier #78). 오류 코드 `ASSERTION_BASELINE_UNAVAILABLE` 추가, `ASSERTION_NON_JSON_RESPONSE` 삭제(비JSON 단계에 `response_json`을 만들지 않음). 출력 필드·enum·`schema_version` 변경 없음. 출력 의미 변화: 시나리오에 기준 계정 단계가 하나 더 들어가고(요청 수 +1), 기준 계정이 없는 후보는 시나리오가 나오지 않는다. 상단 담당 범위·"구현할 일"을 현재 동작에 맞춤 | 6·7차·local_web 실행에서 작은 모델이 `response_status` 기대값을 정상 동작(403)으로 적어 판정이 뒤집힘(6차 입력 5건 중 4건). 재현 조건은 후보에서 정해지는 값이라 #77(URL)과 같이 프로그램 몫으로 옮김 |
 | 2026-10-14 | 입력 `crawl_result` 사본 0.2.0 → 0.3.0(collector 계약 변경 미러). 새 필드(`discovered_endpoints`·`response.identifiers`)는 쓰지 않음. 출력 변경 없음 | collector 스키마 변경 PR |
+| 2026-10-14 | 실행 산출물 0.3.0 통일: 출력 `test_scenarios`와 입력 사본 `vulnerability_candidates`의 `schema_version`만 0.2.0 → 0.3.0. 필드·의미 변경 없음 | 스키마 변경 PR(KG·policy·reporter #82와 버전 정렬) |
 
 ### 0.2.0 `Scenario.resource_ids` (소비자 입력 사본 미러 기준)
 

@@ -20,7 +20,7 @@ from modules.scenario_generator.utils.schema_errors import summarize_schema_erro
 INPUT_SCHEMA_DIR = Path(__file__).resolve().parent / "schemas" / "input"
 SUPPORTED_INPUT_TYPES = ("crawl_result", "vulnerability_candidates")
 # 입력마다 생산자 계약 버전이 따로 올라간다(crawl_result 0.3.0: discovered_endpoints 추가). 묵시 변환은 하지 않는다.
-SUPPORTED_SCHEMA_VERSION_BY_TYPE = {"crawl_result": "0.3.0", "vulnerability_candidates": "0.2.0"}
+SUPPORTED_SCHEMA_VERSION_BY_TYPE = {"crawl_result": "0.3.0", "vulnerability_candidates": "0.3.0"}
 
 
 class InputErrorCode(StrEnum):

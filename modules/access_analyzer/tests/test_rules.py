@@ -35,7 +35,7 @@ def _config(enabled: bool = True, max_candidates: int = 100) -> RuleConfig:
 
 def _artifact(results, status="completed", errors=None, revision=1):
     return {
-        "schema_version": "0.2.0", "artifact_type": "graph_query_result", "artifact_id": "r",
+        "schema_version": "0.3.0", "artifact_type": "graph_query_result", "artifact_id": "r",
         "run_id": "run_demo_001", "iteration": 0, "producer": "knowledge_graph", "mode": "development",
         "created_at": "2026-10-07T00:03:00Z", "status": status, "input_refs": [GRAPH_QUERY_REF],
         "errors": errors or [], "runtime_metrics": None,
@@ -64,7 +64,7 @@ def _match_key(resource_id):
 
 
 def _own_row(resource_id, owner):
-    # 0.2.0 소유 행은 Resource instance만 온다.
+    # 0.3.0 소유 행은 Resource instance만 온다(0.2.0부터 같음).
     return {
         "resource_id": resource_id, "resource_key": "order", "resource_scope": "instance",
         "match_key": _match_key(resource_id), "owner_account_id": owner, "basis": "inferred", "evidence_refs": [],
