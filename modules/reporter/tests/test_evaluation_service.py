@@ -146,9 +146,11 @@ def test_build_evaluation_results_matches_structure_and_cases(
     assert metrics["user_recall"].denominator == 0
     assert result.data.candidate_counts.to_mapping() == {
         "tp": 1,
-        "fp": 1,
+        "fp": 2,
         "fn": 0,
     }
+    assert metrics["candidate_precision"].value == 1 / 3
+    assert metrics["candidate_precision"].denominator == 3
     assert result.data.confirmed_counts.to_mapping() == {
         "tp": 1,
         "fp": 0,

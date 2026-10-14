@@ -14,9 +14,9 @@
 
 ## 현재 구현·연결 상태 — 2026-10-14
 
-기준 커밋 `e93d0d8`(PR #81을 포함한 dev 병합) + 이번 작업 트리 기준이다.
-실행 계약 0.3.0과 Collector 입력을 유지하며 추론 Parameter의 노드 기반 발견율을
-보완했다. 공개 Schema·GT·default-v1·문서 판 v0.2는 변경하지 않는다.
+기준 커밋 `913a0df`(PR #82 병합) + 이번 작업 트리 기준이다.
+실행 계약 0.3.0과 기존 발견율을 유지하며 개발 평가의 계정 매핑·Precision을 보완했다.
+기존 산출물 Schema·GT 0.1.0·default-v1·문서 판 v0.2는 변경하지 않는다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
@@ -25,10 +25,12 @@
 | 공개 계약 | 실행 입력 7종·출력 2종 `0.3.0`만 지원; Ground Truth는 기존 `0.1.0` 유지 |
 | 입력 호환 | Collector discovered_endpoints·응답 식별자 수용, KG·Safety 출력과 입력 사본 일치; 기존 Resource·source_account_id 의미 유지 |
 | 평가 범위 | Endpoint 노드·Endpoint→USE→Parameter(추론 포함)·normalized_requests로 발견율 계산; 진단 집계 유지 |
-| 독립 회귀 | Reporter `486 passed`; 담당 3개 합동 `1051 passed, 12 skipped` |
+| 평가 계정 매핑 | GT와 분리된 선택적 Reporter 설정으로 논리 actor→원본 account_id를 연결; Candidate·User·관계에 적용 |
+| Precision 집계 | 양성 GT 최대 일대일 매칭 후 FP=전체 prediction−TP; 음성·미매칭·중복 예측 포함 |
+| 독립 회귀 | Reporter `533 passed`; 담당 3개 합동 `1098 passed, 12 skipped`; 계정/FP 회귀 47건 추가 |
 | 실제 전체 연결 | 기존 단일 회차 Runner의 report·evaluate 연결 유지(PR #59). 새 0.3 전체 실행은 외부 생산자·Web 수용 전환 후 재검증 필요 |
 
-이번 486건은 독립 회귀이며 이전 Runner 58건은 재실행하지 않았다.
+이번 533건은 독립 회귀이며 이전 Runner 58건은 재실행하지 않았다.
 이 결과를 실제 대상의 성능 수치나 확정 취약점 건수로 사용하지 않는다.
 Verifier의 graph_updates 관계는 아직 0개이며 실제 검증 관계 수신과 구분한다.
 PR #61의 적용 불가 JSON 체크·5xx 결과는 indeterminate로 보존하며 미재현이나
@@ -176,6 +178,49 @@ local_web은 해당 담당자가 전환하며 이번에는 수정하지 않았�
 - 같은 테스트 웹·dataset_version·초기 상태·계정·매칭 규칙·Policy 조건으로 모델을 비교한다. model_version·prompt_version·생성 설정·호출량·시간·자원을 기록한다.
 - 후보 발견율과 검증 확정 발견율을 분리한다. 전체 정답 양성 분모와 차단·승인 대기·판단불가 수를 함께 공개하고 미검증을 분모에서 빼서 발견율을 부풀리지 않는다.
 - 비율의 분모가 0이면 value=null이다. 미측정을 0·1로 기록하지 않는다. 정상 대조 사례도 포함해 정밀도를 평가한다.
+
+### 실행별 계정 매핑 — evaluate 전용 설정
+
+GT의 논리 actor와 실행 계정을 분리한다. GT 필드·버전·원본은 변경하지 않는다.
+선택적 환경변수 `REPORTER_EVALUATION_CONFIG_PATH`로 Reporter 전용 설정 JSON을
+지정한다. 기존 공개 run()/CLI 인자·진단 모듈 입출력은 변경하지 않는다.
+
+| 설정 필드 | 타입·허용값 | 필수 | 의미 |
+| --- | --- | --- | --- |
+| `schema_version` | `string: 0.1.0` | 필수 | 독립된 Reporter 내부 설정 버전. GT/실행 산출물 버전과 별개 |
+| `dataset_id` | `string` | 필수 | 평가 GT와 정확히 같은 데이터셋 ID |
+| `dataset_version` | `string` | 필수 | 평가 GT와 정확히 같은 데이터셋 버전 |
+| `actor_bindings` | `ActorBinding[]` | 필수 | 논리 actor와 원본 실행 account_id 연결. 빈 배열 허용 |
+| `ActorBinding.actor_alias` | `string` | 필수 | GT case.actor_alias 또는 User match_key.alias |
+| `ActorBinding.account_id` | `string` | 필수 | 실제 실행의 원본 계정 ID. 접두사로 node_id를 추측하지 않음 |
+
+- Schema는 `modules/reporter/schemas/config/evaluation.schema.json`이고 미정의 키·
+  비밀번호·세션·쿠키·토큰 필드를 거절한다. alias는 기존 정규화 후 중복을 거절하고
+  account_id는 원문 비교·중복 거절한다.
+- 설정 경로는 evaluate project_root 기준 상대 경로만 허용한다. 절대 경로·`..`·
+  루트 밖 symlink·파일 없음·dataset 불일치는 입력 실패다. 예시 설정은 자동 로드하지 않는다.
+- 명시된 binding이 있으면 candidate.actor_account_id 및 KG User properties.account_id와
+  정확히 비교한다. User가 source/target인 관계에도 적용한다. 명시된 binding 불일치는
+  alias로 우회하지 않는다. 매핑 없는 actor·기존 설정 없는 실행은 alias 비교를 유지한다.
+- User의 다른 match_key 조건과 다른 entity 종류의 비교는 유지한다. 설정의 미관찰
+  계정을 임의로 만들지 않으며 Resource 동의어 보정도 하지 않는다.
+- 설정 SHA-256을 준비·저장 시 재검증하고 notes에 경로·해시·binding 수를 남긴다.
+  기존 input_refs·GT 참조·원자 저장 검증을 유지한다. report는 설정을 읽지 않으며
+  의미 분석·후보·시나리오 생성으로 GT나 매핑을 전달하지 않는다.
+
+### Benchmark TP/FP/FN 의미
+
+GT가 대상의 완전한 정답 집합이라는 benchmark 가정으로 평가한다. 불완전한 GT가
+있는 일반 웹의 탐지 결과에 이 Precision 의미를 그대로 적용하지 않는다.
+
+- TP: 양성 GT와 최대 일대일 매칭된 prediction 수. 음성 GT는 양성 매칭을 소모하지 않는다.
+- FP: 전체 prediction 수−TP. 명시적 음성·어느 GT에도 일대일 배정되지 않은 예측·중복 양성 예측 포함.
+- FN: 양성 GT 수−TP. 미검증 양성 GT를 분모에서 제외하지 않는다.
+- Precision: TP/전체 prediction 수. prediction 0개면 null, prediction이 있으나 TP=0이면 0.0.
+- candidate는 고유 후보 전체, confirmed는 기존 report가 confirmed로 분류한 고유 후보만
+  집계한다. 동일 후보의 여러 시나리오를 중복 prediction으로 세지 않는다.
+- notes에 benchmark 가정·양성/명시적 음성/일대일 미매칭 수와 기존 unmatched 설명을 남긴다.
+  이 FP는 평가 매칭 결과이며 정책 차단·승인 대기·판단불가의 실제 취약/정상 재판정이 아니다.
 
 ## 입력·출력 JSON 필드
 
@@ -328,8 +373,8 @@ local_web은 해당 담당자가 전환하며 이번에는 수정하지 않았�
 
 | 필드 | 타입·허용값 | 필수 | 의미 |
 | --- | --- | --- | --- |
-| `tp` | `integer` | 필수 | 정답 취약 사례와 일치한 양성 수. |
-| `fp` | `integer` | 필수 | 정답 정상 사례에 대해 양성으로 분류한 수. |
+| `tp` | `integer` | 필수 | 양성 GT와 최대 일대일 매칭된 prediction 수. |
+| `fp` | `integer` | 필수 | 전체 prediction−TP. 명시적 음성·미매칭·중복 양성 예측 포함(완전한 정답 benchmark 기준). |
 | `fn` | `integer` | 필수 | 전체 평가 범위의 정답 취약 사례 중 양성으로 발견·확인하지 못한 수. |
 
 ### UnverifiedCounts
@@ -351,6 +396,7 @@ local_web은 해당 담당자가 전환하며 이번에는 수정하지 않았�
 | 2026-10-12 | GroundTruthRef path 설명의 `<dataset_id>` 누락 복구, Ground Truth 버전 "불일치" 문장을 02 공통 계약(0.1.0 유지)에 맞춤 | 문서만. 계약·코드·Schema 변경 없음. 이동찬 요청으로 최민준 수정 |
 | 2026-10-14 | 팀 합의로 실행 입력 7종·출력 2종을 0.3.0 전환, Collector 발견·식별자 필드 수용과 Endpoint 노드 기반 발견율 보완 | `33421ef` + 작업 트리. 462 passed, 합동 1015 passed·12 skipped. Ground Truth 0.1.0·default-v1·후보/확정 집계·문서 판 v0.2 유지; 외부 생산자·Web 전환 후 전체 재검증 필요 |
 | 2026-10-14 | PR #81의 추론 Parameter를 Endpoint→USE→Parameter로 평가에 포함하고 회귀 24건·공개 evaluate 저장을 검증 | `e93d0d8` + 작업 트리. 평가 56 passed, Reporter 486 passed, 합동 1051 passed·12 skipped. Schema·버전·GT·default-v1·관계/후보/확정 집계 불변; 실제 성능·새 pipeline 검증은 별도 |
+| 2026-10-14 | GT와 분리된 실행별 계정 매핑 설정, Candidate·User·관계 일치, 양성 우선 일대일 매칭과 FP=prediction−TP 보완 | `913a0df` + 작업 트리. 신규 회귀 47 passed, Reporter 533 passed, 합동 1098 passed·12 skipped. 설정 Schema 추가; 기존 산출물 Schema·GT 0.1.0·문서 판 v0.2·report 분류 유지. 실제 성능·pipeline·Docker 검증은 별도 |
 
 기존 책임 경계·미검증 후보 보존·평가 분모 규칙과 정답 필드 표는 유지하며 상세
 과거 구현 이력은 모듈 README에 보존한다. 2026-10-10 합동 회귀

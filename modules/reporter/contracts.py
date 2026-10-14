@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from modules.reporter.evaluation_config import load_evaluation_settings
 from modules.reporter.exceptions import ContractValidationError
 from modules.reporter.input_validation import (
     build_crawl_index,
@@ -117,6 +118,7 @@ def prepare_evaluation_inputs(request: ReporterRequest) -> EvaluationInputs:
     graph_snapshot = extract_graph_snapshot(graph_query_result)
     validate_evaluation_revisions(artifact_by_type, graph_snapshot)
     ground_truth = _load_ground_truth(request)
+    settings = load_evaluation_settings(request.project_root, ground_truth)
     return EvaluationInputs(
         request=request,
         report_inputs=report_inputs,
@@ -125,6 +127,7 @@ def prepare_evaluation_inputs(request: ReporterRequest) -> EvaluationInputs:
         graph_query_result=graph_query_result,
         graph_snapshot=graph_snapshot,
         ground_truth=ground_truth,
+        settings=settings,
     )
 
 

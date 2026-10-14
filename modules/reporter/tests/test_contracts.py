@@ -76,7 +76,7 @@ def graph_query_resource_node(artifact: dict[str, Any]) -> dict[str, Any]:
 def test_all_contract_schemas_are_valid(schema_root: Path) -> None:
     schema_paths = sorted(schema_root.rglob("*.schema.json"))
 
-    assert len(schema_paths) == 10
+    assert len(schema_paths) == 11  # 10 artifact contracts + Reporter-only evaluation settings
     for schema_path in schema_paths:
         Draft202012Validator.check_schema(load_json(schema_path))
 

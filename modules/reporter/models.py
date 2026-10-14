@@ -518,6 +518,19 @@ class ReportInputs:
 
 
 @dataclass(frozen=True)
+class ActorBinding:
+    actor_alias: str
+    account_id: str
+
+
+@dataclass(frozen=True)
+class EvaluationSettings:
+    actor_bindings: tuple[ActorBinding, ...] = ()
+    relative_path: str | None = None
+    sha256: str | None = None
+
+
+@dataclass(frozen=True)
 class EvaluationInputs:
     request: ReporterRequest
     report_inputs: ReportInputs
@@ -526,6 +539,7 @@ class EvaluationInputs:
     graph_query_result: InputArtifact
     graph_snapshot: GraphSnapshot | None
     ground_truth: GroundTruth
+    settings: EvaluationSettings = EvaluationSettings()
 
     @property
     def artifacts(self) -> tuple[InputArtifact, ...]:
