@@ -209,9 +209,18 @@ class _DataBuilder:
                 "content_type": record.response_headers.get(CONTENT_TYPE_HEADER),
                 "headers": build_headers(record.response_headers),
                 "body_ref": self.evidence_writer.write_response(request_id, record),
+                # 응답 근거 파일과 같은 식별자를 요청 옆에도 둔다. 소비자가 근거 파일을 열지 않고 소유 관계를 관찰한다.
+                "identifiers": _dump_identifiers(record),
+                "identifiers_truncated": record.is_response_identifiers_truncated,
             },
             "evidence_refs": [],
         }
+
+
+def _dump_identifiers(record: CapturedRequest) -> list[dict[str, Any]] | None:
+    if record.response_identifiers is None:
+        return None
+    return [identifier.model_dump() for identifier in record.response_identifiers]
 
 
 def build_parameters(record: CapturedRequest) -> list[dict[str, Any]]:

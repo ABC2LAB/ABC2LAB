@@ -199,7 +199,7 @@ class _DataChecker:
         self._accounts = _index_by_id(report, "$.data.accounts", data["accounts"], "account_id")
         self._pages = _index_by_id(report, "$.data.pages", data["pages"], "page_id")
         self._actions = _index_by_id(report, "$.data.actions", data["actions"], "action_id")
-        _index_by_id(report, "$.data.requests", data["requests"], "request_id")
+        self._requests = _index_by_id(report, "$.data.requests", data["requests"], "request_id")
         _index_by_id(report, "$.data.discovered_endpoints", data["discovered_endpoints"], "discovered_id")
         self._evidence_by_path: dict[Path, _LoadedEvidence] = {}
         self._evidence_signature_by_id: dict[str, tuple[object, ...]] = {}
@@ -299,6 +299,24 @@ class _DataChecker:
         self._check_parameters(f"{location}.parameters", request["parameters"])
         self._check_headers(f"{location}.headers", request["headers"])
         self._check_headers(f"{location}.response.headers", request["response"]["headers"])
+        self._check_response_identifiers(f"{location}.response", request["response"])
+
+    def _check_response_identifiers(self, location: str, response: Mapping[str, Any]) -> None:
+        """식별자는 JSON 응답(응답 근거가 있는 것)에만 있고, 민감 키 아래 값은 없어야 한다. 근거 파일과의 일치는 근거 검사에서 본다."""
+        identifiers = response["identifiers"]
+        if (identifiers is None) != (response["body_ref"] is None):
+            self._report.add(
+                IssueCode.EVIDENCE_MISMATCH, f"{location}.identifiers", "식별자는 응답 근거(body_ref)가 있을 때만, 있을 때는 늘 있어야 함"
+            )
+        if identifiers is None:
+            if response["identifiers_truncated"]:
+                self._report.add(IssueCode.FORMAT_INVALID, f"{location}.identifiers_truncated", "식별자가 null이면 false여야 함")
+            return
+        for index, identifier in enumerate(identifiers):
+            if any(is_sensitive_key(token) for token in _pointer_tokens(identifier["pointer"])):
+                self._report.add(
+                    IssueCode.SECRET_NOT_REDACTED, f"{location}.identifiers[{index}]", "민감 키 아래 값은 식별자로 남기지 않음"
+                )
 
     def _check_request_page(self, location: str, request: Mapping[str, Any], page_id: str) -> None:
         page = self._pages.get(page_id)
@@ -457,11 +475,23 @@ class _DataChecker:
             self._report.add(IssueCode.EVIDENCE_MISMATCH, use.location, "근거 파일의 evidence_id가 참조와 다름")
         if kind == RESPONSE_KIND and evidence["request_id"] != use.request_id:
             self._report.add(IssueCode.EVIDENCE_MISMATCH, use.location, "응답 근거의 request_id가 이 요청이 아님")
+        request = self._requests.get(use.request_id) if use.request_id is not None else None
+        if kind == RESPONSE_KIND and request is not None and request["response"]["body_ref"] is use.ref:
+            response = request["response"]
+            if (response["identifiers"], response["identifiers_truncated"]) != (
+                evidence["identifiers"], evidence["identifiers_truncated"]
+            ):
+                self._report.add(IssueCode.EVIDENCE_MISMATCH, use.location, "응답의 identifiers가 응답 근거 파일과 다름")
         if kind == DOM_KIND:
             if evidence["page_id"] != use.page_id:
                 self._report.add(IssueCode.EVIDENCE_MISMATCH, use.location, "DOM 근거의 page_id가 이 페이지가 아님")
             if use.action_id is not None and use.action_id not in evidence["actions"]:
                 self._report.add(IssueCode.EVIDENCE_MISMATCH, use.location, "DOM 근거에 이 행동 항목이 없음")
+
+
+def _pointer_tokens(pointer: str) -> list[str]:
+    """RFC 6901 JSON Pointer를 키 이름 목록으로("/a~1b/0" → ["a/b", "0"])."""
+    return [token.replace("~1", "/").replace("~0", "~") for token in pointer.split("/")[1:]]
 
 
 def _index_by_id(

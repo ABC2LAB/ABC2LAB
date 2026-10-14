@@ -201,12 +201,40 @@
     "ResponseMeta": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status_code", "content_type", "headers", "body_ref"],
+      "required": ["status_code", "content_type", "headers", "body_ref", "identifiers", "identifiers_truncated"],
       "properties": {
         "status_code": { "type": ["integer", "null"] },
         "content_type": { "type": ["string", "null"] },
         "headers": { "type": "array", "items": { "$ref": "#/$defs/HeaderMeta" } },
-        "body_ref": { "anyOf": [{ "$ref": "#/$defs/EvidenceRef" }, { "type": "null" }] }
+        "body_ref": { "anyOf": [{ "$ref": "#/$defs/EvidenceRef" }, { "type": "null" }] },
+        "identifiers": {
+          "description": "응답 근거(body_ref)의 identifiers와 같은 값. JSON 응답이 아니거나 읽지 못했으면 null",
+          "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Identifier" } }, { "type": "null" }]
+        },
+        "identifiers_truncated": {
+          "description": "깊이·개수 상한 때문에 식별자를 일부만 남겼으면 true. identifiers가 null이면 false",
+          "type": "boolean"
+        }
+      }
+    },
+    "Identifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pointer", "value"],
+      "properties": {
+        "pointer": {
+          "description": "응답 본문 안 위치. RFC 6901 JSON Pointer(~는 ~0, /는 ~1)",
+          "type": "string",
+          "pattern": "^(/([^~/]|~[01])*)+$"
+        },
+        "value": {
+          "description": "0 이상의 정수, 숫자로만 된 문자열, 또는 UUID 문자열. 응답의 원래 JSON 타입을 그대로 둔다(\"42\"는 문자열로)",
+          "anyOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "string", "pattern": "^[0-9]+$" },
+            { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" }
+          ]
+        }
       }
     },
     "ObservedRequest": {

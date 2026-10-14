@@ -227,6 +227,10 @@ def test_digit_string_identifier_kept_as_string(fixture_run: FixtureRun) -> None
     evidence = fixture_run.load_evidence(RESPONSE_EVIDENCE_PATH)
     evidence["identifiers"][0]["value"] = "42"
     fixture_run.save_evidence(RESPONSE_EVIDENCE_PATH, evidence)
+    # 0.3.0: 요청 응답에 인라인한 식별자도 근거 파일과 같아야 한다.
+    document = fixture_run.load()
+    _request(document, MEMBER_A_API_REQUEST)["response"]["identifiers"][0]["value"] = "42"
+    fixture_run.save(document)
 
     assert fixture_run.validate_codes() == set()
     assert fixture_run.load_evidence(RESPONSE_EVIDENCE_PATH)["identifiers"][0]["value"] == "42"
@@ -275,6 +279,44 @@ DOCUMENT_MUTATIONS: list[tuple[str, Mutation, IssueCode]] = [
     ("discovered_basis_observed", lambda document: _assign(_discovery(document), "basis", "observed"), IssueCode.SCHEMA_INVALID),
     ("discovered_from_empty", lambda document: _assign(_discovery(document), "discovered_from", []), IssueCode.SCHEMA_INVALID),
     ("discovered_unknown_source", lambda document: _assign(_discovery(document), "source", "guess"), IssueCode.SCHEMA_INVALID),
+    # 0.3.0 response.identifiers: 응답 근거와 같은 값, JSON 응답에만, 민감 키 아래 값 없음
+    (
+        "response_identifiers_missing",
+        lambda document: _request(document, MEMBER_A_API_REQUEST)["response"].pop("identifiers"),
+        IssueCode.SCHEMA_INVALID,
+    ),
+    (
+        "response_identifier_not_an_id",
+        lambda document: _assign(_request(document, MEMBER_A_API_REQUEST)["response"]["identifiers"][0], "value", "abc"),
+        IssueCode.SCHEMA_INVALID,
+    ),
+    (
+        "response_identifiers_differ_from_evidence",
+        lambda document: _assign(_request(document, MEMBER_A_API_REQUEST)["response"]["identifiers"][0], "value", 8),
+        IssueCode.EVIDENCE_MISMATCH,
+    ),
+    (
+        "response_truncated_differs_from_evidence",
+        lambda document: _assign(_request(document, MEMBER_A_API_REQUEST)["response"], "identifiers_truncated", True),
+        IssueCode.EVIDENCE_MISMATCH,
+    ),
+    (
+        "response_identifiers_without_evidence",
+        lambda document: _assign(_request(document, GUEST_REQUEST)["response"], "identifiers", []),
+        IssueCode.EVIDENCE_MISMATCH,
+    ),
+    (
+        "response_truncated_without_identifiers",
+        lambda document: _assign(_request(document, GUEST_REQUEST)["response"], "identifiers_truncated", True),
+        IssueCode.FORMAT_INVALID,
+    ),
+    (
+        "response_identifier_under_sensitive_key",
+        lambda document: _request(document, MEMBER_A_API_REQUEST)["response"]["identifiers"].append(
+            {"pointer": "/session/id", "value": 5}
+        ),
+        IssueCode.SECRET_NOT_REDACTED,
+    ),
     # 의미 검증
     ("discovered_id_duplicate", lambda document: document["data"]["discovered_endpoints"].append(dict(_discovery(document))), IssueCode.DUPLICATE_ID),
     ("discovered_endpoint_duplicate", _duplicate_discovery, IssueCode.DUPLICATE_ENDPOINT),
@@ -543,8 +585,9 @@ def test_document_mutation_rejected(fixture_run: FixtureRun, mutate: Mutation, e
 
 
 def test_evidence_bytes_changed_without_ref_update(fixture_run: FixtureRun) -> None:
+    # 식별자가 아닌 곳(shape)을 바꿔 해시 불일치 하나만 남긴다(식별자를 바꾸면 응답 인라인 식별자와도 달라진다).
     path = fixture_run.run_root / RESPONSE_EVIDENCE_PATH
-    path.write_bytes(path.read_bytes().replace(b'"value": 7', b'"value": 8'))
+    path.write_bytes(path.read_bytes().replace(b'"name": "str"', b'"name": "str|null"'))
 
     assert fixture_run.validate_codes() == {IssueCode.EVIDENCE_HASH_MISMATCH}
 
