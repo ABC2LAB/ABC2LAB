@@ -4,7 +4,7 @@
 - 키: id(대소문자 무관), _id로 끝남(대소문자 무관), 소문자 뒤 Id·ID로 끝남(userId, userID).
 - 값: 0 이상의 정수(bool 제외), 숫자로만 된 문자열, UUID 문자열. 원래 JSON 타입을 그대로 둔다("42"는 문자열).
 - 민감 키(session_id 등)와 그 아래는 보지 않는다.
-- 위치는 RFC 6901 JSON Pointer. 깊이·개수 상한은 collector와 같다.
+- 위치는 RFC 6901 JSON Pointer. 깊이·개수 상한은 collector와 같다(collector `core/identifiers.py`를 바꾸면 같이 바꾼다).
 """
 
 import re

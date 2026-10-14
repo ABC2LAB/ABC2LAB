@@ -83,14 +83,45 @@ CLI:
 
 ## Check 평가와 result 분류
 
-`assertions`는 "모두 참이면 위반 재현"으로 읽는다(생산자 해석). `subject_ref`는 샘플대로 단계 ID 또는 계정 ID. HTTP 상태 코드 하나만으로 success를 확정하지 않는다(명세 m7 51·96행).
+`assertions`는 "모두 참이면 위반 재현"으로 읽는다(생산자 해석). HTTP 상태 코드 하나만으로 success를 확정하지 않는다(명세 m7 51·96행).
 
-| kind | PR2 평가 | 방법 |
+| kind | subject_ref | selector | operator | expected | 방법 |
+|---|---|---|---|---|---|
+| `session_valid` | steps에 쓰인 account_id | null | eq | true | subject 계정의 `lease.is_valid()`. 어느 단계에도 안 쓰인 계정은 `passed=null`(안 써본 세션을 유효로 기록하지 않음) |
+| `response_status` | step_id | null | 전부 | 상태 코드 | subject 단계 응답 status_code. 5xx면 `passed=null`·`SERVER_ERROR_RESPONSE`(서버 오류는 거부도 허용도 관찰한 게 아님) |
+| `response_json` | step_id | JSON Pointer | 전부 | 비교값 | subject 단계 응답 body에 selector. 응답에 적용할 수 없으면 `passed=null`과 사유(아래 표) |
+| `baseline_match` | 판정 step_id | JSON: Pointer 또는 null(본문 전체) / 텍스트: null | eq·ne | **기준 단계 step_id** | 판정 응답을 기준 응답과 비교. JSON은 판정, 텍스트는 coverage만 기록(아래 "기준 비교") |
+| `resource_owner` | 판정 step_id | JSON Pointer 또는 null | eq·ne | **기준 단계 step_id** | 기준 응답의 식별자가 판정 응답에 전부 같은 값으로 있으면 같은 자원(eq 참). JSON만 |
+| `resource_state` | step_id | JSON: Pointer / 텍스트: null | JSON: 전부 / 텍스트: contains | 비교값 | JSON은 `response_json`과 같은 규칙으로 판정. 텍스트는 포함 여부만 기록 |
+
+`baseline_match`·`resource_owner`·`resource_state`도 응답 내용을 본 조건이라 status-only 규칙의 "내용 확인 조건"으로 센다.
+
+### 기준 비교 (`baseline_match`·`resource_owner`)
+
+같은 시나리오 안에서 다른 계정이 같은 요청을 보낸 단계(기준 단계)의 응답과 비교한다. scenario_generator는 실행 계정 단계 바로 앞에 기준 계정(소유자)이 같은 요청을 보내는 단계를 넣고, 그 step_id를 `expected`에 적는다.
+
+| 상황 | `passed` | errors |
 |---|---|---|
-| `session_valid` | 평가 | subject 계정의 `lease.is_valid()`. 어느 단계에도 안 쓰인 계정은 `passed=null`(안 써본 세션을 유효로 기록하지 않음) |
-| `response_status` | 평가 | subject 단계 응답 status_code. 5xx면 `passed=null`·`SERVER_ERROR_RESPONSE`(서버 오류는 거부도 허용도 관찰한 게 아님) |
-| `response_json` | 평가 | subject 단계 응답 body에 JSON Pointer(selector). 응답에 적용할 수 없으면 `passed=null`과 사유(아래 표) |
-| `resource_state`·`resource_owner`·`baseline_match` | **미평가** | `passed=null` → 그 시나리오 indeterminate. 완전 평가는 뒤 PR |
+| `expected`가 응답을 받은 단계가 아님 / 기준 단계가 판정 단계와 같은 계정 / 기준 응답이 2xx가 아님 | null | `BASELINE_UNAVAILABLE` |
+| operator가 eq·ne가 아님 | null | `CHECK_NOT_APPLICABLE` |
+| 판정 응답이 5xx | null | `SERVER_ERROR_RESPONSE` |
+| 한쪽만 JSON(예: 기준 JSON, 판정 HTML) / `resource_owner`인데 텍스트 | null | `CHECK_NOT_APPLICABLE`(불일치로 단정하지 않음) |
+| JSON, selector 첫 키가 기준 응답에 없음 | null | `SELECTOR_ROOT_MISSING` |
+| JSON `resource_owner`, 기준 응답 식별자가 0개 | null | `CHECK_NOT_APPLICABLE` |
+| JSON `baseline_match` | selector 위치 값(null이면 본문 전체)이 같으면 eq 참 | 없음 |
+| JSON `resource_owner` | 기준 식별자(pointer·값)가 판정 응답에 전부 같으면 eq 참 | 없음 |
+| 텍스트 `baseline_match`(둘 다 HTML 등) | **null(판정 안 함)** | `ASSERTION_TEXT_ONLY` |
+
+- **식별자 기준**은 collector 응답 근거와 같다: 키 `id`·`*_id`·`*Id`, 값 0 이상 정수(bool 제외)·숫자 문자열·UUID, 민감 키와 그 아래는 건너뜀, 깊이 6·개수 1000 상한. collector `core/identifiers.py`와 같은 규칙을 `utils/identifiers.py`에 다시 구현했으므로 **한쪽을 바꾸면 같이 바꾼다**. 기준·판정 응답에 같은 함수를 쓰므로 비교 두 쪽은 늘 같은 규칙으로 잘린다. 소유자 id가 깊이 6 밖에만 있으면 기준 식별자 0개로 `CHECK_NOT_APPLICABLE`이다.
+- `observed`에는 본문을 넣지 않는다: JSON `baseline_match`는 `{baseline_step_id, matched}`, `resource_owner`는 `{baseline_step_id, matched_count, baseline_count}`, 텍스트 `baseline_match`는 `{baseline_step_id, coverage}`.
+
+### 텍스트 응답 (HTML 등)
+
+- **판정하지 않고 기록만 한다.** 텍스트 `baseline_match`는 coverage, 텍스트 `resource_state`(selector=null·contains·빈 문자열 아님)는 `{contains}`만 `observed`에 남기고 `passed=null`·`ASSERTION_TEXT_ONLY`다. 그 밖의 텍스트 `resource_state` 형태는 `CHECK_NOT_APPLICABLE`.
+- **coverage** = 기준 응답의 보이는 텍스트 줄(중복 포함) 중 판정 응답에도 나타난 비율. 분모는 기준 줄 수다. 보이는 줄은 stdlib `html.parser`로 뽑는다: script·style·noscript·template 안은 버리고, 속성값(hidden 토큰·링크)은 텍스트가 아니며, 줄마다 공백을 접는다(`utils/text_content.py`).
+- 이유: control 응답(실행 계정이 자기 자원을 연 응답) 없이 텍스트만으로는 높은 coverage가 위반인지 틀 겹침·빈 페이지인지, 낮은 coverage가 거부인지 사용자별 장식 차이인지 가를 수 없다. 텍스트로 낸 음성을 failure로 쓰면 거짓 음성이고(절대 규칙 9), 양성을 success로 쓰면 오탐이다.
+- 그래서 **HTML 실행 응답이 2xx면 control 단계가 들어오기 전까지 indeterminate**다(설계대로). 확정 음성은 상태 코드에서만 나온다: 거부 코드(401·403·404)면 기존 규칙대로 failure.
+- 다음 단계: scenario_generator가 control 단계(실행 계정 자기 자원)를 넣고 "baseline과 높게·control과 낮게 겹침"으로 텍스트를 판정한다. 임계값 설정도 그때 넣는다.
 
 `response_json` 판정(2026-10-11). 적용하지 못한 Check를 미재현(failure)으로 쓰면 놓친 위반이 "없음"으로 기록되므로(절대 규칙 9) 판단불가로 둔다.
 
@@ -111,7 +142,7 @@ CLI:
   3. 하나 이상 거짓 → `failure`
   4. 모두 참 → `success`(status-only 규칙 적용)
   - 거부 우선은 assertions에만 적용한다. 사전조건이 403으로 거짓이면 전제 미충족이라 `indeterminate`.
-- **판단불가 사유**: `CHECK_NOT_APPLICABLE`·`SELECTOR_ROOT_MISSING`·`SERVER_ERROR_RESPONSE`는 Check마다 `VerificationItem.errors`에 ErrorItem(`item_ref`=check_id, `retryable=false`)으로 남긴다. 거부 우선으로 result가 failure여도 남긴다. 적용 불가 Check의 `observed`는 null(응답 원문을 남기지 않음), 5xx 상태 Check의 `observed`는 받은 상태 코드.
+- **판단불가 사유**: `CHECK_NOT_APPLICABLE`·`SELECTOR_ROOT_MISSING`·`SERVER_ERROR_RESPONSE`·`BASELINE_UNAVAILABLE`·`ASSERTION_TEXT_ONLY`는 Check마다 `VerificationItem.errors`에 ErrorItem(`item_ref`=check_id, `retryable=false`)으로 남긴다. 거부 우선으로 result가 failure여도 남긴다. 적용 불가 Check의 `observed`는 null(응답 원문을 남기지 않음), 5xx 상태 Check의 `observed`는 받은 상태 코드, `ASSERTION_TEXT_ONLY`의 `observed`는 기록값(coverage·contains).
 - **CheckResult 부착**: subject가 단계면 그 단계의 `check_results`에, 계정이면 그 계정이 처음 쓰인 단계에, 둘 다 못 찾으면 첫 단계에 붙인다. `observed`는 비밀 제거(민감 키 selector로 뽑은 스칼라도 가림).
 - `graph_updates`는 `basis=verified`와 실제 실행 근거가 있는 success만 출처로 삼는다. 지금은 **빈 배열**이다(PR3-c에서 채움). 관계 형태는 KG 입력 `verificationRelationship`과 같다: `source_account_id`=실제 요청한 계정의 원본 ID, `target_id`=그 시나리오 `Scenario.resource_ids`(Resource instance node_id) 중 하나. 경로는 access_analyzer `Candidate.resource_ids` → scenario_generator `Scenario.resource_ids` → verifier `target_id`.
 
@@ -142,7 +173,9 @@ CLI:
 ### 한계 (라이브 1회 결과)
 
 - 같은 IDOR 시나리오(`GET /api/users/{id}`)를 docker vulnerable(:8001)·secure(:8000)에 각각 실행: vulnerable은 **success**(위반 재현), secure는 403을 그대로 받아 **indeterminate**(거짓 success를 만들지 않음, 2026-10-11 판정 변경 전 규칙). 산출물·근거에서 비밀값 0건, 세션 쿠키는 창구 안에만.
-- 403으로 거부하는 앱은 2026-10-11부터 **failure**다(거부 코드 우선). 거부 응답에 붙은 `response_json`은 적용 불가로 errors에 남는다. 남은 한계는 HTML로만 응답하는 앱의 위반 재현이다: 내용 Check를 적용할 수 없어 200이어도 indeterminate이고, success 판정은 `baseline_match` 등 Check 3종 평가가 들어와야 한다(PR3-c 뒤 작업).
+- 403으로 거부하는 앱은 2026-10-11부터 **failure**다(거부 코드 우선). 거부 응답에 붙은 `response_json`은 적용 불가로 errors에 남는다.
+- JSON 응답 앱은 `baseline_match`·`resource_owner`(기준 단계 비교)로 내용을 확정한다(2026-10-14).
+- 남은 한계는 HTML로만 응답하는 앱의 위반 재현이다: 텍스트 Check는 기록만 해서 2xx면 indeterminate다. control 단계가 들어오면 판정한다(위 "텍스트 응답").
 
 ## PR 분할
 
@@ -151,7 +184,8 @@ CLI:
 - **PR3-a**: 실제 collector 세션 창구(`session_gateway.py`) 바인딩 + 라이브 실행 1회 확인.
 - **0.2 2단계(이것)**: 입력 사본 3종 0.2.0 미러 + 검증 관계 `source_account_id` 전환. 실행 로직 변경 없음.
 - **PR3-b**: 상태 변경 시 테스트 앱 DB 초기화(reset 훅, config).
-- **PR3-c**: `graph_updates`(KG node_id 매핑) + Check 3종 평가 + 하드닝.
+- **Check 3종(2026-10-14)**: `baseline_match`·`resource_owner`·`resource_state` 평가. JSON은 판정, 텍스트는 기록만(control 단계는 다음 PR).
+- **PR3-c**: `graph_updates`(KG node_id 매핑) + 하드닝.
 
 ## 독립 실행·테스트
 

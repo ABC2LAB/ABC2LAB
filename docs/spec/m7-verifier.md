@@ -12,19 +12,19 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-11
+## 현재 구현·연결 상태 — 2026-10-14
 
-기준 커밋 `30cb867`(PR #61·#62 병합 후)의 구현·공개 계약을 반영했다.
+기준 커밋 `b49f4f5`(PR #77 병합 후) + 이 PR(Check 3종 평가)의 구현·공개 계약을 반영했다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
-| 독립 구현 | `verify`, 공개 `run()`·CLI, 안전 게이트(계획 SHA-256·Policy 판정·계정·세션 대응), allow 재현 실행(바인딩, `effective_origins` 재검사, `max_redirects` 기본 0), Check 평가(`session_valid`·`response_status`·`response_json`)와 result 분류, 원자 저장 구현 완료 |
+| 독립 구현 | `verify`, 공개 `run()`·CLI, 안전 게이트(계획 SHA-256·Policy 판정·계정·세션 대응), allow 재현 실행(바인딩, `effective_origins` 재검사, `max_redirects` 기본 0), Check 6종 평가와 result 분류, 원자 저장 구현 완료. 텍스트(HTML) 응답의 `baseline_match`·`resource_state`는 기록만 한다(아래 "Check 규약") |
 | 세션 공개 창구 | collector 창구를 Protocol로만 쓴다(런너 주입). 주입되지 않으면 `SESSION_UNAVAILABLE`로 미실행·판단불가 |
 | 공개 계약 | 출력 `verification_results` `0.2.0`(관계 source는 `source_account_id`), 입력 `test_scenarios`·`safety_decisions`·`crawl_result` `0.2.0` 미러 |
-| 독립 회귀 | verifier `91 passed` |
+| 독립 회귀 | verifier `141 passed` |
 | 실제 전체 연결 | 부분. 루트 `pipeline.py` 실제 실행에서 allow 시나리오를 세션 창구로 보내 판정했다(2026-10-11). `graph_updates`가 빈 배열이라 KG `apply_verification`이 반영할 관계는 없다 |
 
-남은 것: `graph_updates` 채우기(지금 빈 배열), `resource_state`·`resource_owner`·`baseline_match` 평가(지금 판단불가), 입력 partial 기록(지금은 입력이 partial이어도 completed·오류 0건), 상태 변경 재현 전 DB 초기화(지금은 상태 변경 단계를 보내지 않음). 세부는 [모듈 README](../../modules/verifier/README.md).
+남은 것: `graph_updates` 채우기(지금 빈 배열), 텍스트 응답 판정(control 단계 = 실행 계정 자기 자원 응답이 들어온 뒤. 그 전까지 HTML 실행 응답이 2xx면 indeterminate), 입력 partial 기록(지금은 입력이 partial이어도 completed·오류 0건), 상태 변경 재현 전 DB 초기화(지금은 상태 변경 단계를 보내지 않음). 세부는 [모듈 README](../../modules/verifier/README.md).
 
 ## 독립 동작·수정 책임
 
@@ -217,6 +217,16 @@ KG 입력(`modules/knowledge_graph/schemas/input/verification_results.schema.jso
 - **result 분류**: precondition 중 거짓/판단불가 → indeterminate. 모두 참이면 assertion 중 `response_status`가 거부 코드(401·403·404)로 거짓 → failure(판단불가 assertion보다 우선, assertion에만 적용), 아니면 assertion 하나라도 판단불가 → indeterminate, 하나 이상 거짓 → failure, 모두 참 → success.
 - **적용 불가 Check**: `response_json`을 응답에 적용할 수 없으면 판단불가다. selector가 null·`""`이거나 본문이 JSON 객체·배열이 아니면 `CHECK_NOT_APPLICABLE`, selector 첫 키가 응답에 없으면 `SELECTOR_ROOT_MISSING`. 첫 키가 있고 더 깊은 경로가 없으면 `exists`는 거짓, 값 비교는 판단불가. 5xx 응답의 `response_status`는 판단불가(`SERVER_ERROR_RESPONSE`). 사유는 Check마다 `VerificationItem.errors`(`item_ref`=check_id)에 남긴다.
 - **CheckResult 부착**: subject가 단계면 그 단계에, 계정이면 그 계정이 처음 쓰인 단계에, 못 찾으면 첫 단계에. `observed`는 비밀 제거.
+- **Check 규약**(생산자 [m5](m5-scenario_generator.md)와 같은 표). `baseline_match`·`resource_owner`·`resource_state`도 응답 내용을 본 조건으로 센다(status-only 규칙).
+
+  | kind | subject_ref | selector | operator | expected |
+  | --- | --- | --- | --- | --- |
+  | `baseline_match` | 판정 단계 step_id | JSON: Pointer 또는 null(본문 전체) / 텍스트: null | eq·ne | 기준 단계 step_id(다른 계정이 같은 요청을 보낸 단계) |
+  | `resource_owner` | 판정 단계 step_id | JSON Pointer 또는 null | eq·ne | 기준 단계 step_id |
+  | `resource_state` | 단계 step_id | JSON: Pointer / 텍스트: null | JSON: 전부 / 텍스트: contains | 비교값 |
+
+- **기준 비교**: `expected`가 응답을 받은 단계가 아니거나, 판정 단계와 같은 계정이거나, 기준 응답이 2xx가 아니면 판단불가(`BASELINE_UNAVAILABLE`). JSON끼리면 판정한다. `baseline_match`는 selector 위치 값(null이면 본문 전체)이 같은지, `resource_owner`는 기준 응답의 식별자(collector 응답 근거와 같은 기준: 키 `id`·`*_id`·`*Id`, 값 0 이상 정수·숫자 문자열·UUID, 민감 키 제외)가 판정 응답에 전부 같은 값으로 있는지 본다. 한쪽만 JSON이거나 기준 식별자가 0개면 `CHECK_NOT_APPLICABLE`(불일치로 단정하지 않음).
+- **텍스트 응답(HTML 등)은 기록만 한다**: 텍스트 `baseline_match`는 coverage(기준 응답의 보이는 텍스트 줄 중 판정 응답에도 나타난 비율, 분모는 기준 줄 수), 텍스트 `resource_state`(contains)는 포함 여부만 `observed`에 남기고 `passed=null`·`ASSERTION_TEXT_ONLY`다. control 응답 없이 텍스트로 낸 양성·음성은 확정 근거가 아니기 때문이다. 확정 음성은 상태 코드(거부 코드 → failure)에서만 나온다.
 - **세션 공개 창구**(collector 소유): verifier는 Protocol로만 쓰고 collector 코드를 import하지 않는다(런너 주입). `session_valid` Check 의미는 "창구 세션 보유 + 만료 감지 없음"이며 실제 만료는 send 응답 신호로 잡는다. 창구 `lease` 로그인 요청은 세션 준비라 `limits.max_requests`에 세지 않는다. 규약은 [m1-collector](m1-collector.md) "세션 공개 창구".
 
 ## 변경 이력
@@ -224,6 +234,7 @@ KG 입력(`modules/knowledge_graph/schemas/input/verification_results.schema.jso
 | 날짜 | 변경 | 근거 |
 | --- | --- | --- |
 | 2026-10-11 | 현재 구현·연결 상태 표 추가 | 문서만, 계약 변경 없음 |
+| 2026-10-14 | `baseline_match`·`resource_owner`·`resource_state` 평가와 세 kind의 `subject_ref`·`selector`·`expected` 규약(위 "Check 규약"). JSON은 판정, 텍스트는 기록만(`ASSERTION_TEXT_ONLY`). 기준 단계를 못 쓰면 `BASELINE_UNAVAILABLE`. 입력·출력 Schema·enum·`schema_version` 변경 없음(세 kind는 0.2.0 enum에 이미 있음). 다른 `test_scenarios` 소비자(safety_policy·reporter)는 kind별 의미를 읽지 않음 | 이전에는 세 kind가 항상 판단불가였다. HTML 실행 응답이 2xx인 시나리오는 control 단계 전까지 indeterminate(설계대로) |
 
 ### 0.1.0 → 0.2.0
 
