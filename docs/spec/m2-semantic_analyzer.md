@@ -20,7 +20,7 @@
 | --- | --- |
 | 독립 구현 | `analyze` 공개 함수·CLI, 입력·출력 adapter, 출력 Schema·근거 재검증, 원자 저장 구현 완료 |
 | 모델·추론 | 요청 정규화, 자원(Resource) Type/Instance 분류, 행위 의미·역할 관계(ACCESS는 역할·계정 둘 다)·업무 흐름 추론 구현 완료 |
-| 공개 계약 | 입력 `crawl_result` **0.3.0** 수신, 출력 `semantic_analysis` `0.2.0`(Resource 계약, KG와 정렬. 입력 버전과 독립) |
+| 공개 계약 | 입력 `crawl_result` **0.3.0** 수신, 출력 `semantic_analysis` `0.3.0`(2026-10-14 실행 산출물 0.3.0 통일, 필드는 0.2.0과 같음. 입력 버전과 독립) |
 | discovered_endpoints | crawl_result의 `discovered_endpoints`(요청 안 한 발견 엔드포인트)마다 Endpoint·Parameter 노드와 Page·Action→Endpoint CALL을 **basis=inferred**로 생성. ACCESS·normalized_requests는 만들지 않음 |
 | ResponseMeta.identifiers | 입력 스키마에 수신(선택). OWNS를 관찰 근거로 분리하는 작업에서 소비 예정(후속) |
 | LLM 설정 | 기본 `provider=fake`(네트워크 0 결정적). 커밋 파일을 고치지 않고 경로로 교체한다: CLI `--config` > 환경변수 `SEMANTIC_ANALYZER_CONFIG_PATH` > 기본 `configs/default.toml`. collector `COLLECTOR_CONFIG_PATH`와 같은 방식(PR #57) |
@@ -118,7 +118,7 @@
 
 ### semantic_analysis.json
 
-- 고정 값: `artifact_type=semantic_analysis`, `producer=semantic_analyzer`, `schema_version=0.2.0`(Resource 입력 계약 0.2 반영. crawl_result 입력 버전과 독립).
+- 고정 값: `artifact_type=semantic_analysis`, `producer=semantic_analyzer`, `schema_version=0.3.0`(2026-10-14 실행 산출물 0.3.0 통일, 필드는 0.2.0과 같음. Resource 입력 계약 0.2 반영. crawl_result 입력 버전과 독립).
 - 예상 Schema 경로: `modules/semantic_analyzer/schemas/output/semantic_analysis.schema.json`.
 - 예상 출력 fixture 경로: `modules/semantic_analyzer/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/semantic_analyzer/semantic_analysis.json`.
 
@@ -249,6 +249,7 @@
 | 2026-10-08 | **0.1.0 → 0.2.0.** 출력 `schema_version`을 0.2.0으로 올리고 `node_type=Resource`의 `properties`에 ResourceProperties(`resource_key`·`resource_scope`·`match_key`) 계약을 추가(KG와 동시 전환) | PR #44. 소비자 knowledge_graph·reporter(이동찬)와 합의 |
 | 2026-10-11 | 현재 구현·연결 상태 절 추가, LLM 설정 경로(CLI `--config` > 환경변수 `SEMANTIC_ANALYZER_CONFIG_PATH` > 기본)와 명시 경로의 `[llm]`·`provider` 누락 시 오류 규칙을 명시 | PR #57. 기존 동작 문서화이며 계약·버전 변경 없음 |
 | 2026-10-14 | 입력 `crawl_result` **0.2.0 → 0.3.0** 소비: `discovered_endpoints`(요청 안 한 발견 엔드포인트)를 Endpoint·Parameter·CALL `basis=inferred`로 생성, `ResponseMeta.identifiers` 수신(선택). 출력 `semantic_analysis`는 0.2.0 불변(신규 출력 필드·enum 없음) | collector 0.3.0 생산자 PR과 동기화. crawl_result 소비자 전원 동시 전환. OWNS 관찰 근거 분리는 후속 |
+| 2026-10-14 | 실행 산출물 0.3.0 통일: 출력 `semantic_analysis`의 `schema_version`만 0.2.0 → 0.3.0. 필드·의미 변경 없음(KG·reporter 입력 사본 0.3.0과 정렬) | 스키마 변경 PR(최민준, 이경준 허락) |
 
 ---
 
