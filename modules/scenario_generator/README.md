@@ -5,7 +5,7 @@
 
 - 기준 명세: `docs/spec/m5-scenario_generator.md` (공통: `02-common-contract.md`, `03-runner-layout.md`)
 - 공개 operation: `generate`
-- 지원 `schema_version`: 입력 `crawl_result` `0.3.0`, `vulnerability_candidates` `0.2.0`, 출력 `test_scenarios` `0.2.0`(입력마다 따로 검사, 묵시 변환 없음)
+- 지원 `schema_version`: 입력 `crawl_result`·`vulnerability_candidates` `0.3.0`, 출력 `test_scenarios` `0.3.0`(입력마다 따로 검사, 묵시 변환 없음)
 - 직접 소비자: safety_policy · verifier · reporter
 - 이 모듈은 요청을 보내지 않는다. 실행 허용은 safety_policy가 정한다.
 
@@ -290,6 +290,7 @@ class ScenarioDrafter(Protocol):
 | 2026-10-09 | 출력 `test_scenarios` `Scenario.resource_ids` | 새 필수 필드. `array<nonEmptyString>`, `minItems 1`, 위치는 `expected_basis` 다음. 원본 후보 `Candidate.resource_ids`(KG Resource instance `node_id`)를 순서·값 그대로 복사한다. 프로그램이 채우고, LLM 초안에 이 키가 있으면 값이 같아도 `DRAFT_INVALID`, 원본과 다르면 거절 | verifier가 검증 결과를 KG 자원 노드에 잇는 키(KG `target_id` = 기존 Resource instance node_id). 소비자 이동찬(safety_policy·reporter)과 합의, verifier(최민준). 소비자 입력 사본 미러 전까지 소비자 입력 검증에서 거절된다 |
 | 2026-10-09 | 입력 `crawl_result`·`vulnerability_candidates` | `0.2.0`만 받는다. `0.1.0`은 묵시 변환 없이 `INPUT_VERSION_UNSUPPORTED`(failed) | 생산자 출력 Schema를 그대로 복사(`cmp` 동일). 생산자 `run_demo_001` 샘플이 입력 adapter 통과(수동 확인) |
 | 2026-10-14 | 입력 `crawl_result` | `0.3.0`만 받는다(`discovered_endpoints`·`response.identifiers` 추가). **새 필드는 이 모듈이 쓰지 않는다**(Schema로 받기만). `vulnerability_candidates`는 `0.2.0` 그대로 | collector 출력 Schema 그대로 복사(`cmp` 동일), 스키마 변경 PR |
+| 2026-10-14 | 출력 `test_scenarios`·입력 `vulnerability_candidates` | `0.2.0` → `0.3.0`(실행 산출물 0.3.0 통일). 필드 변경 없음 | 스키마 변경 PR |
 
 ## 명세 해석과 미정 사항
 
@@ -314,7 +315,7 @@ class ScenarioDrafter(Protocol):
 | 대상 | 현재 동작 | 이 모듈에 주는 영향 |
 |---|---|---|
 | access_analyzer | 후보 규칙은 `rule_same_role_other_owner`(authorization / horizontal_access) 하나 | 업무 흐름(workflow) 후보는 아직 들어오지 않는다 |
-| access_analyzer ↔ knowledge_graph | access_analyzer 입력·출력 모두 `0.2.0`. `Candidate.resource_ids`는 KG Resource instance `node_id`다 | 이 모듈은 그 값을 `Scenario.resource_ids`로 그대로 복사한다. 형식은 가정하지 않는다 |
+| access_analyzer ↔ knowledge_graph | access_analyzer 입력·출력 모두 `0.3.0`. `Candidate.resource_ids`는 KG Resource instance `node_id`다 | 이 모듈은 그 값을 `Scenario.resource_ids`로 그대로 복사한다. 형식은 가정하지 않는다 |
 | safety_policy | 등록된 요청 규칙이 없으면 GET이어도 `require_approval`. URL에 fragment·공백·`//`·`.`/`..` 세그먼트·잘못된 `%` 인코딩이 있으면 허용하지 않음 | 이 모듈은 위 URL 형식을 미리 거르지 않는다. 허용 여부는 safety_policy가 정한다 |
 | verifier | `state_change≠none` 단계와 `body_ref`가 있는 단계는 보내지 않는다(DB 초기화 훅·본문 역참조가 다음 PR). `baseline_match`·`resource_owner`는 JSON이면 판정, 텍스트(HTML)면 기록만 한다(#78) | 지금 끝까지 판정되는 것은 **GET + `state_change=none` + JSON 응답 읽기 시나리오**다. HTML 응답이 2xx면 control 단계 전까지 판단불가(`indeterminate`) |
 | verifier ↔ knowledge_graph | KG 0.2는 검증 관계의 target으로 앞 단계에서 받은 Resource instance `node_id`만 받는다 | `test_scenarios` 0.2.0의 `Scenario.resource_ids`로 전달한다(위 "명세 대비 변경 이력"). verifier가 이 값을 `graph_updates`에 쓰는 것은 verifier 쪽 작업이다 |

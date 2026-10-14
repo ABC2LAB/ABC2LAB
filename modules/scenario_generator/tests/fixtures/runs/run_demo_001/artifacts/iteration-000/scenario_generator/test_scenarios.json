@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "artifact_type": "test_scenarios",
   "artifact_id": "test_scenarios_run_demo_001_iteration000",
   "run_id": "run_demo_001",
@@ -21,7 +21,7 @@
       "artifact_type": "vulnerability_candidates",
       "iteration": 0,
       "path": "artifacts/iteration-000/access_analyzer/vulnerability_candidates.json",
-      "sha256": "7fd42d6e41f13a146ed607a6d6be921b5246c8788b5e40d2f41b0eeba3bca008"
+      "sha256": "ec75786dab0d543f765f6f04eddefb02218d63b9167bb32f9db66a7948075371"
     }
   ],
   "errors": [],
