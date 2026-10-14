@@ -155,6 +155,10 @@ def test_fixture_covers_contract_cases() -> None:
         accounts_by_url.setdefault(page["url"], set()).add(page["account_id"])
     assert max(len(accounts) for accounts in accounts_by_url.values()) >= 2
     assert any(action["evidence_refs"] for action in data["actions"])
+    # 0.3.0: 발견 엔드포인트(path·민감 body 파라미터 포함)
+    discovered_parameters = [p for record in data["discovered_endpoints"] for p in record["parameters"]]
+    assert {"path", "body"} <= {p["location"] for p in discovered_parameters}
+    assert any(p["is_sensitive"] for p in discovered_parameters)
 
 
 def test_partial_with_errors_passes(fixture_run: FixtureRun) -> None:
@@ -181,7 +185,26 @@ def _add_own_response_to_request_evidence(document: Document) -> None:
     request["evidence_refs"] = [request["response"]["body_ref"]]
 
 
+def _discovery(document: Document) -> Document:
+    """fixture의 발견 엔드포인트: page:2의 상태 변경 폼(action:3, 실행 안 함) → POST /items/{id}/delete."""
+    return document["data"]["discovered_endpoints"][0]
+
+
+def _duplicate_discovery(document: Document) -> None:
+    record = dict(_discovery(document), discovered_id="discovered:2")
+    document["data"]["discovered_endpoints"].append(record)
+
+
+def _discovery_already_observed(document: Document) -> None:
+    # member_a가 실제로 요청한 엔드포인트(GET /items/{id})를 발견 목록에 넣는다.
+    record = _discovery(document)
+    record.update({"method": "GET", "url_template": "http://localhost:8080/items/{id}"})
+    record["parameters"] = [{"name": "path:1", "location": "path", "is_sensitive": False}]
+
+
 ACCEPTED_DOCUMENT_VARIATIONS: list[tuple[str, Mutation]] = [
+    # 0.3.0: 발견 엔드포인트가 없어도 된다(빈 배열)
+    ("no_discovered_endpoints", lambda document: _assign(document["data"], "discovered_endpoints", [])),
     # action↔page 일치는 둘 다 있을 때만 본다.
     ("action_without_page", lambda document: _assign(_request(document, MEMBER_A_LINK_REQUEST), "page_id", None)),
     # 요청 evidence_refs에는 request·response 근거가 올 수 있다.
@@ -204,6 +227,10 @@ def test_digit_string_identifier_kept_as_string(fixture_run: FixtureRun) -> None
     evidence = fixture_run.load_evidence(RESPONSE_EVIDENCE_PATH)
     evidence["identifiers"][0]["value"] = "42"
     fixture_run.save_evidence(RESPONSE_EVIDENCE_PATH, evidence)
+    # 0.3.0: 요청 응답에 인라인한 식별자도 근거 파일과 같아야 한다.
+    document = fixture_run.load()
+    _request(document, MEMBER_A_API_REQUEST)["response"]["identifiers"][0]["value"] = "42"
+    fixture_run.save(document)
 
     assert fixture_run.validate_codes() == set()
     assert fixture_run.load_evidence(RESPONSE_EVIDENCE_PATH)["identifiers"][0]["value"] == "42"
@@ -237,6 +264,106 @@ DOCUMENT_MUTATIONS: list[tuple[str, Mutation, IssueCode]] = [
     ("partial_without_errors", lambda document: _assign(document, "status", "partial"), IssueCode.SCHEMA_INVALID),
     ("failed_with_data", _set_failed_with_data, IssueCode.SCHEMA_INVALID),
     ("completed_without_data", _set_completed_without_data, IssueCode.SCHEMA_INVALID),
+    # 0.3.0 discovered_endpoints: 필수 배열, 값 없음, 위치는 path·query·body, basis는 inferred, 발견 위치 1개 이상
+    ("discovered_endpoints_missing", lambda document: document["data"].pop("discovered_endpoints"), IssueCode.SCHEMA_INVALID),
+    (
+        "discovered_parameter_with_value",
+        lambda document: _assign(_discovery(document)["parameters"][2], "value", "x"),
+        IssueCode.SCHEMA_INVALID,
+    ),
+    (
+        "discovered_parameter_header_location",
+        lambda document: _assign(_discovery(document)["parameters"][2], "location", "header"),
+        IssueCode.SCHEMA_INVALID,
+    ),
+    ("discovered_basis_observed", lambda document: _assign(_discovery(document), "basis", "observed"), IssueCode.SCHEMA_INVALID),
+    ("discovered_from_empty", lambda document: _assign(_discovery(document), "discovered_from", []), IssueCode.SCHEMA_INVALID),
+    ("discovered_unknown_source", lambda document: _assign(_discovery(document), "source", "guess"), IssueCode.SCHEMA_INVALID),
+    # 0.3.0 response.identifiers: 응답 근거와 같은 값, JSON 응답에만, 민감 키 아래 값 없음
+    (
+        "response_identifiers_missing",
+        lambda document: _request(document, MEMBER_A_API_REQUEST)["response"].pop("identifiers"),
+        IssueCode.SCHEMA_INVALID,
+    ),
+    (
+        "response_identifier_not_an_id",
+        lambda document: _assign(_request(document, MEMBER_A_API_REQUEST)["response"]["identifiers"][0], "value", "abc"),
+        IssueCode.SCHEMA_INVALID,
+    ),
+    (
+        "response_identifiers_differ_from_evidence",
+        lambda document: _assign(_request(document, MEMBER_A_API_REQUEST)["response"]["identifiers"][0], "value", 8),
+        IssueCode.EVIDENCE_MISMATCH,
+    ),
+    (
+        "response_truncated_differs_from_evidence",
+        lambda document: _assign(_request(document, MEMBER_A_API_REQUEST)["response"], "identifiers_truncated", True),
+        IssueCode.EVIDENCE_MISMATCH,
+    ),
+    (
+        "response_identifiers_without_evidence",
+        lambda document: _assign(_request(document, GUEST_REQUEST)["response"], "identifiers", []),
+        IssueCode.EVIDENCE_MISMATCH,
+    ),
+    (
+        "response_truncated_without_identifiers",
+        lambda document: _assign(_request(document, GUEST_REQUEST)["response"], "identifiers_truncated", True),
+        IssueCode.FORMAT_INVALID,
+    ),
+    (
+        "response_identifier_under_sensitive_key",
+        lambda document: _request(document, MEMBER_A_API_REQUEST)["response"]["identifiers"].append(
+            {"pointer": "/session/id", "value": 5}
+        ),
+        IssueCode.SECRET_NOT_REDACTED,
+    ),
+    # 의미 검증
+    ("discovered_id_duplicate", lambda document: document["data"]["discovered_endpoints"].append(dict(_discovery(document))), IssueCode.DUPLICATE_ID),
+    ("discovered_endpoint_duplicate", _duplicate_discovery, IssueCode.DUPLICATE_ENDPOINT),
+    ("discovered_already_observed", _discovery_already_observed, IssueCode.ALREADY_OBSERVED),
+    (
+        "discovered_raw_id_in_template",
+        lambda document: _assign(_discovery(document), "url_template", "http://localhost:8080/items/7/delete"),
+        IssueCode.FORMAT_INVALID,
+    ),
+    (
+        "discovered_query_in_template",
+        lambda document: _assign(_discovery(document), "url_template", "http://localhost:8080/items/{id}/delete?x=1"),
+        IssueCode.FORMAT_INVALID,
+    ),
+    ("discovered_lowercase_method", lambda document: _assign(_discovery(document), "method", "post"), IssueCode.FORMAT_INVALID),
+    (
+        "discovered_path_parameter_mismatch",
+        lambda document: _assign(_discovery(document)["parameters"][0], "name", "path:0"),
+        IssueCode.FORMAT_INVALID,
+    ),
+    (
+        "discovered_sensitive_parameter_not_marked",
+        lambda document: _assign(_discovery(document)["parameters"][1], "is_sensitive", False),
+        IssueCode.SECRET_NOT_REDACTED,
+    ),
+    (
+        "discovered_from_unknown_action",
+        lambda document: _assign(_discovery(document)["discovered_from"][0], "action_id", "action:99"),
+        IssueCode.REFERENCE_MISSING,
+    ),
+    (
+        "discovered_from_action_of_other_page",
+        lambda document: _assign(_discovery(document)["discovered_from"][0], "action_id", "action:1"),
+        IssueCode.REFERENCE_MISMATCH,
+    ),
+    (
+        "discovered_source_does_not_match_action",
+        lambda document: _assign(_discovery(document), "source", "link"),
+        IssueCode.REFERENCE_MISMATCH,
+    ),
+    (
+        "discovered_evidence_of_other_page",
+        lambda document: _assign(
+            _discovery(document), "evidence_refs", _find(document, "pages", "page_id", "page:1")["evidence_refs"]
+        ),
+        IssueCode.EVIDENCE_MISMATCH,
+    ),
     (
         "sensitive_parameter_with_value",
         lambda document: _assign(_request(document, MEMBER_A_API_REQUEST)["parameters"][1], "value", "abc"),
@@ -458,8 +585,9 @@ def test_document_mutation_rejected(fixture_run: FixtureRun, mutate: Mutation, e
 
 
 def test_evidence_bytes_changed_without_ref_update(fixture_run: FixtureRun) -> None:
+    # 식별자가 아닌 곳(shape)을 바꿔 해시 불일치 하나만 남긴다(식별자를 바꾸면 응답 인라인 식별자와도 달라진다).
     path = fixture_run.run_root / RESPONSE_EVIDENCE_PATH
-    path.write_bytes(path.read_bytes().replace(b'"value": 7', b'"value": 8'))
+    path.write_bytes(path.read_bytes().replace(b'"name": "str"', b'"name": "str|null"'))
 
     assert fixture_run.validate_codes() == {IssueCode.EVIDENCE_HASH_MISMATCH}
 

@@ -82,6 +82,25 @@ URL_MASK_SAFE_CHARS = "*"
 _NO_JSON_BODY = object()
 
 
+def normalize_key_name(key: str) -> str:
+    """민감 키 비교에 쓰는 이름 형태: 소문자, -는 _로."""
+    return key.lower().replace("-", "_")
+
+
+def list_sensitive_field_names(config: CrawlerConfig) -> frozenset[str]:
+    """SENSITIVE_KEY_PARTS에 안 걸려도 가릴 이름(설정의 로그인 비밀번호 필드). 비교 형태로 정규화해 둔다."""
+    return frozenset({normalize_key_name(config.login.password_field)} if config.login else ())
+
+
+def is_sensitive_key(key: str, sensitive_field_names: frozenset[str] = frozenset()) -> bool:
+    """키 이름이 민감한지. 요청 파라미터·헤더·응답 JSON 키와 결과 검증에 같은 규칙을 쓴다.
+
+    sensitive_field_names는 list_sensitive_field_names로 만든 값이다(설정을 모르는 곳은 빈 값으로 조각 규칙만 쓴다).
+    """
+    normalized = normalize_key_name(key)
+    return normalized in sensitive_field_names or any(part in normalized for part in SENSITIVE_KEY_PARTS)
+
+
 @dataclass(frozen=True)
 class ResponseSummary:
     """JSON 응답 본문을 대신 남기는 요약. 값은 식별자 규칙에 맞는 것만 들어 있다."""
@@ -118,7 +137,7 @@ class RequestCapture:
         self._clock_samples: list[ServerClockSample] = []
         self._records: list[CapturedRequest] = []
         # 목록에 안 걸리는 이름이어도 설정의 로그인 비밀번호 필드는 가린다.
-        self._sensitive_field_names = frozenset({config.login.password_field.lower()} if config.login else ())
+        self._sensitive_field_names = list_sensitive_field_names(config)
         self._known_secrets = list_secret_variants(config.known_passwords)
 
     @property
@@ -245,8 +264,7 @@ class RequestCapture:
         return ResponseSummary(describe_json_shape(document), identifiers, scan.is_truncated)
 
     def _is_sensitive_key(self, key: str) -> bool:
-        lowered = key.lower().replace("-", "_")
-        return lowered in self._sensitive_field_names or any(part in lowered for part in SENSITIVE_KEY_PARTS)
+        return is_sensitive_key(key, self._sensitive_field_names)
 
     def _mask_params(self, pairs: Iterable[tuple[str, str]]) -> dict[str, list[str]]:
         params: dict[str, list[str]] = {}

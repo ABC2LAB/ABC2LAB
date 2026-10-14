@@ -16,15 +16,24 @@ from enum import StrEnum
 from functools import cache
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit
 
 from jsonschema import Draft202012Validator, ValidationError
 
 from modules.collector.core.capture import (
     AUTHORIZATION_HEADERS,
     COOKIE_HEADER,
-    SENSITIVE_KEY_PARTS,
     SET_COOKIE_HEADER,
+    is_sensitive_key,
     list_secret_variants,
+)
+from modules.collector.core.normalize import normalize_path
+from modules.collector.utils.discovery import (
+    FORM_SOURCE,
+    LINK_SOURCE,
+    PATH_LOCATION,
+    endpoint_key,
+    path_parameter_names,
 )
 
 SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schemas" / "output"
@@ -38,6 +47,8 @@ RESPONSE_BODY_KINDS = frozenset({RESPONSE_KIND})
 REQUEST_BODY_KINDS = frozenset({REQUEST_KIND})
 PAGE_EVIDENCE_KINDS = frozenset({DOM_KIND, SCREENSHOT_KIND})
 ACTION_EVIDENCE_KINDS = frozenset({DOM_KIND})
+# 발견 엔드포인트 출처별로 발견 위치 행동이 가져야 하는 종류(crawl_result Action.kind)
+DISCOVERY_ACTION_KIND_BY_SOURCE = {FORM_SOURCE: "submit", LINK_SOURCE: "navigate"}
 REQUEST_EVIDENCE_KINDS = frozenset({REQUEST_KIND, RESPONSE_KIND})
 # 내용 형식을 정한 근거만 Schema로 본다. 나머지 kind는 위치·해시·비밀값만 본다.
 EVIDENCE_SCHEMA_NAME_BY_KIND = {
@@ -78,6 +89,9 @@ class IssueCode(StrEnum):
     EVIDENCE_HASH_MISMATCH = "EVIDENCE_HASH_MISMATCH"
     EVIDENCE_INVALID = "EVIDENCE_INVALID"
     EVIDENCE_MISMATCH = "EVIDENCE_MISMATCH"
+    # discovered_endpoints: 같은 (method, url_template)이 두 번 / 이미 requests에 관찰된 엔드포인트
+    DUPLICATE_ENDPOINT = "DUPLICATE_ENDPOINT"
+    ALREADY_OBSERVED = "ALREADY_OBSERVED"
 
 
 @dataclass(frozen=True)
@@ -185,7 +199,8 @@ class _DataChecker:
         self._accounts = _index_by_id(report, "$.data.accounts", data["accounts"], "account_id")
         self._pages = _index_by_id(report, "$.data.pages", data["pages"], "page_id")
         self._actions = _index_by_id(report, "$.data.actions", data["actions"], "action_id")
-        _index_by_id(report, "$.data.requests", data["requests"], "request_id")
+        self._requests = _index_by_id(report, "$.data.requests", data["requests"], "request_id")
+        _index_by_id(report, "$.data.discovered_endpoints", data["discovered_endpoints"], "discovered_id")
         self._evidence_by_path: dict[Path, _LoadedEvidence] = {}
         self._evidence_signature_by_id: dict[str, tuple[object, ...]] = {}
 
@@ -198,8 +213,67 @@ class _DataChecker:
             self._check_reference(f"$.data.actions[{index}].page_id", action["page_id"], self._pages)
         for index, request in enumerate(self._data["requests"]):
             self._check_request(f"$.data.requests[{index}]", request)
+        self._check_discovered_endpoints()
         for use in self._list_evidence_uses():
             self._check_evidence_use(use)
+
+    def _check_discovered_endpoints(self) -> None:
+        """발견 엔드포인트: 형식·발견 위치·근거, 그리고 중복·이미 관찰된 엔드포인트가 없는지."""
+        observed = {endpoint_key(request["method"], request["url"]) for request in self._data["requests"]}
+        seen: set[tuple[str, str]] = set()
+        for index, record in enumerate(self._data["discovered_endpoints"]):
+            location = f"$.data.discovered_endpoints[{index}]"
+            self._check_discovered_format(location, record)
+            self._check_discovery_sites(location, record)
+            key = (record["method"], record["url_template"])
+            if key in seen:
+                self._report.add(IssueCode.DUPLICATE_ENDPOINT, location, "같은 (method, url_template)이 이미 있음")
+            seen.add(key)
+            if endpoint_key(record["method"], record["url_template"]) in observed:
+                self._report.add(IssueCode.ALREADY_OBSERVED, location, "requests에서 이미 관찰된 엔드포인트")
+
+    def _check_discovered_format(self, location: str, record: Mapping[str, Any]) -> None:
+        if record["method"] != record["method"].upper():
+            self._report.add(IssueCode.FORMAT_INVALID, f"{location}.method", "Method는 대문자여야 함")
+        url_template = record["url_template"]
+        parts = urlsplit(url_template)
+        template = normalize_path(url_template).template
+        if parts.query or parts.fragment or not parts.scheme or not parts.netloc or parts.path != template:
+            self._report.add(
+                IssueCode.FORMAT_INVALID, f"{location}.url_template", "origin + 경로 템플릿({id})이어야 함(쿼리·값 없음)"
+            )
+        path_names = [p["name"] for p in record["parameters"] if p["location"] == PATH_LOCATION]
+        if path_names != path_parameter_names(template):
+            self._report.add(IssueCode.FORMAT_INVALID, f"{location}.parameters", "path 파라미터가 템플릿의 {id} 위치와 다름")
+        for parameter_index, parameter in enumerate(record["parameters"]):
+            if is_sensitive_key(parameter["name"]) and not parameter["is_sensitive"]:
+                self._report.add(
+                    IssueCode.SECRET_NOT_REDACTED,
+                    f"{location}.parameters[{parameter_index}]",
+                    f"민감 이름 파라미터는 is_sensitive=true여야 함 ({parameter['name']})",
+                )
+
+    def _check_discovery_sites(self, location: str, record: Mapping[str, Any]) -> None:
+        """발견 위치의 페이지·행동이 있고 출처와 행동 종류가 맞는지. 근거는 그 페이지들의 DOM 근거여야 한다."""
+        expected_kind = DISCOVERY_ACTION_KIND_BY_SOURCE.get(record["source"])
+        expected_refs: list[Mapping[str, Any]] = []
+        for site_index, site in enumerate(record["discovered_from"]):
+            site_location = f"{location}.discovered_from[{site_index}]"
+            page = self._pages.get(site["page_id"])
+            action = self._actions.get(site["action_id"])
+            if page is None or action is None:
+                self._check_reference(f"{site_location}.page_id", site["page_id"], self._pages)
+                self._check_reference(f"{site_location}.action_id", site["action_id"], self._actions)
+                continue
+            if action["page_id"] != site["page_id"]:
+                self._report.add(IssueCode.REFERENCE_MISMATCH, site_location, "행동이 일어난 페이지와 page_id가 다름")
+            if expected_kind is not None and action["kind"] != expected_kind:
+                self._report.add(IssueCode.REFERENCE_MISMATCH, site_location, f"source와 행동 종류가 맞지 않음 ({action['kind']})")
+            for ref in page["evidence_refs"]:
+                if all(known["evidence_id"] != ref["evidence_id"] for known in expected_refs):
+                    expected_refs.append(ref)
+        if list(record["evidence_refs"]) != expected_refs:
+            self._report.add(IssueCode.EVIDENCE_MISMATCH, f"{location}.evidence_refs", "발견 위치 페이지들의 DOM 근거와 다름")
 
     def _check_reference(self, location: str, target_id: str, targets: Mapping[str, Any]) -> None:
         if target_id not in targets:
@@ -225,6 +299,24 @@ class _DataChecker:
         self._check_parameters(f"{location}.parameters", request["parameters"])
         self._check_headers(f"{location}.headers", request["headers"])
         self._check_headers(f"{location}.response.headers", request["response"]["headers"])
+        self._check_response_identifiers(f"{location}.response", request["response"])
+
+    def _check_response_identifiers(self, location: str, response: Mapping[str, Any]) -> None:
+        """식별자는 JSON 응답(응답 근거가 있는 것)에만 있고, 민감 키 아래 값은 없어야 한다. 근거 파일과의 일치는 근거 검사에서 본다."""
+        identifiers = response["identifiers"]
+        if (identifiers is None) != (response["body_ref"] is None):
+            self._report.add(
+                IssueCode.EVIDENCE_MISMATCH, f"{location}.identifiers", "식별자는 응답 근거(body_ref)가 있을 때만, 있을 때는 늘 있어야 함"
+            )
+        if identifiers is None:
+            if response["identifiers_truncated"]:
+                self._report.add(IssueCode.FORMAT_INVALID, f"{location}.identifiers_truncated", "식별자가 null이면 false여야 함")
+            return
+        for index, identifier in enumerate(identifiers):
+            if any(is_sensitive_key(token) for token in _pointer_tokens(identifier["pointer"])):
+                self._report.add(
+                    IssueCode.SECRET_NOT_REDACTED, f"{location}.identifiers[{index}]", "민감 키 아래 값은 식별자로 남기지 않음"
+                )
 
     def _check_request_page(self, location: str, request: Mapping[str, Any], page_id: str) -> None:
         page = self._pages.get(page_id)
@@ -248,7 +340,7 @@ class _DataChecker:
 
     def _check_parameters(self, location: str, parameters: list[Mapping[str, Any]]) -> None:
         for index, parameter in enumerate(parameters):
-            is_secret_parameter = parameter["location"] == COOKIE_LOCATION or _is_sensitive_name(parameter["name"])
+            is_secret_parameter = parameter["location"] == COOKIE_LOCATION or is_sensitive_key(parameter["name"])
             if is_secret_parameter and not parameter["is_sensitive"]:
                 self._report.add(
                     IssueCode.SECRET_NOT_REDACTED,
@@ -261,7 +353,7 @@ class _DataChecker:
             name = header["name"]
             if name != name.lower():
                 self._report.add(IssueCode.FORMAT_INVALID, f"{location}[{index}].name", "헤더 이름은 소문자여야 함")
-            if (name.lower() in SECRET_HEADER_NAMES or _is_sensitive_name(name)) and not header["redacted"]:
+            if (name.lower() in SECRET_HEADER_NAMES or is_sensitive_key(name)) and not header["redacted"]:
                 self._report.add(
                     IssueCode.SECRET_NOT_REDACTED, f"{location}[{index}]", f"값을 가려야 하는 헤더 ({name.lower()})"
                 )
@@ -383,11 +475,23 @@ class _DataChecker:
             self._report.add(IssueCode.EVIDENCE_MISMATCH, use.location, "근거 파일의 evidence_id가 참조와 다름")
         if kind == RESPONSE_KIND and evidence["request_id"] != use.request_id:
             self._report.add(IssueCode.EVIDENCE_MISMATCH, use.location, "응답 근거의 request_id가 이 요청이 아님")
+        request = self._requests.get(use.request_id) if use.request_id is not None else None
+        if kind == RESPONSE_KIND and request is not None and request["response"]["body_ref"] is use.ref:
+            response = request["response"]
+            if (response["identifiers"], response["identifiers_truncated"]) != (
+                evidence["identifiers"], evidence["identifiers_truncated"]
+            ):
+                self._report.add(IssueCode.EVIDENCE_MISMATCH, use.location, "응답의 identifiers가 응답 근거 파일과 다름")
         if kind == DOM_KIND:
             if evidence["page_id"] != use.page_id:
                 self._report.add(IssueCode.EVIDENCE_MISMATCH, use.location, "DOM 근거의 page_id가 이 페이지가 아님")
             if use.action_id is not None and use.action_id not in evidence["actions"]:
                 self._report.add(IssueCode.EVIDENCE_MISMATCH, use.location, "DOM 근거에 이 행동 항목이 없음")
+
+
+def _pointer_tokens(pointer: str) -> list[str]:
+    """RFC 6901 JSON Pointer를 키 이름 목록으로("/a~1b/0" → ["a/b", "0"])."""
+    return [token.replace("~1", "/").replace("~0", "~") for token in pointer.split("/")[1:]]
 
 
 def _index_by_id(
@@ -480,11 +584,6 @@ def _is_utc_timestamp(text: str) -> bool:
     except ValueError:
         return False
     return True
-
-
-def _is_sensitive_name(name: str) -> bool:
-    lowered = name.lower().replace("-", "_")
-    return any(part in lowered for part in SENSITIVE_KEY_PARTS)
 
 
 def _expand_secret_variants(known_secrets: Iterable[str]) -> tuple[str, ...]:

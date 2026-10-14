@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from modules.scenario_generator.input_adapter import (
+    SUPPORTED_SCHEMA_VERSION_BY_TYPE,
     InputError,
     InputErrorCode,
     InputSource,
@@ -114,9 +115,20 @@ def test_schema_error_message_never_contains_input_values(tmp_path: Path) -> Non
 
 
 def test_wrong_artifact_type_is_rejected_by_schema(tmp_path: Path) -> None:
-    candidates_bytes = (FIXTURE_RUN_ROOT / CANDIDATES_RELATIVE_PATH).read_bytes()
-    path = write_run_file(tmp_path, CRAWL_RELATIVE_PATH, candidates_bytes)
+    # 버전 검사를 지나도록 버전만 crawl_result 것으로 맞춘 후보 파일 → Schema가 거절해야 한다.
+    candidates = read_fixture(CANDIDATES_RELATIVE_PATH)
+    candidates["schema_version"] = SUPPORTED_SCHEMA_VERSION_BY_TYPE["crawl_result"]
+    path = write_run_file(tmp_path, CRAWL_RELATIVE_PATH, candidates)
     expect_error(InputErrorCode.SCHEMA_INVALID, path, tmp_path)
+
+
+def test_each_input_has_its_own_supported_version(tmp_path: Path) -> None:
+    # crawl_result는 0.3.0, vulnerability_candidates는 0.2.0. 한쪽 버전으로 다른 쪽을 받지 않는다.
+    assert SUPPORTED_SCHEMA_VERSION_BY_TYPE == {"crawl_result": "0.3.0", "vulnerability_candidates": "0.2.0"}
+    crawl = read_fixture(CRAWL_RELATIVE_PATH)
+    crawl["schema_version"] = SUPPORTED_SCHEMA_VERSION_BY_TYPE["vulnerability_candidates"]
+    path = write_run_file(tmp_path, CRAWL_RELATIVE_PATH, crawl)
+    expect_error(InputErrorCode.VERSION_UNSUPPORTED, path, tmp_path)
 
 
 @pytest.mark.parametrize(

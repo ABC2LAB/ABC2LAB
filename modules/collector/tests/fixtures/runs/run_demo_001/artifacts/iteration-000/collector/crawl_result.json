@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "artifact_type": "crawl_result",
   "artifact_id": "crawl_result-run_demo_001-000-7c3e9a10",
   "run_id": "run_demo_001",
@@ -116,7 +116,9 @@
             {"name": "content-type", "value": "text/html; charset=utf-8", "redacted": false},
             {"name": "set-cookie", "value": "[REDACTED]", "redacted": true}
           ],
-          "body_ref": null
+          "body_ref": null,
+          "identifiers": null,
+          "identifiers_truncated": false
         },
         "evidence_refs": []
       },
@@ -141,7 +143,9 @@
           "headers": [
             {"name": "location", "value": "/", "redacted": false}
           ],
-          "body_ref": null
+          "body_ref": null,
+          "identifiers": null,
+          "identifiers_truncated": false
         },
         "evidence_refs": []
       },
@@ -169,7 +173,9 @@
           "headers": [
             {"name": "content-type", "value": "text/html; charset=utf-8", "redacted": false}
           ],
-          "body_ref": null
+          "body_ref": null,
+          "identifiers": null,
+          "identifiers_truncated": false
         },
         "evidence_refs": []
       },
@@ -199,7 +205,9 @@
           "headers": [
             {"name": "content-type", "value": "application/json", "redacted": false}
           ],
-          "body_ref": {"evidence_id": "evidence:response:request:4", "kind": "response", "path": "evidence/collector/response/request-4.json", "sha256": "4472ca820cafd94e9a385710c0741232e457558131376cf7fa459cdaf3e39f54", "redacted": true}
+          "body_ref": {"evidence_id": "evidence:response:request:4", "kind": "response", "path": "evidence/collector/response/request-4.json", "sha256": "4472ca820cafd94e9a385710c0741232e457558131376cf7fa459cdaf3e39f54", "redacted": true},
+          "identifiers": [{"pointer": "/items/0/id", "value": 7}, {"pointer": "/items/0/owner_id", "value": 2}, {"pointer": "/items/1/id", "value": 9}, {"pointer": "/items/1/owner_id", "value": 2}],
+          "identifiers_truncated": false
         },
         "evidence_refs": []
       },
@@ -228,7 +236,9 @@
           "headers": [
             {"name": "content-type", "value": "text/html; charset=utf-8", "redacted": false}
           ],
-          "body_ref": null
+          "body_ref": null,
+          "identifiers": null,
+          "identifiers_truncated": false
         },
         "evidence_refs": []
       },
@@ -256,7 +266,9 @@
           "headers": [
             {"name": "content-type", "value": "text/html; charset=utf-8", "redacted": false}
           ],
-          "body_ref": null
+          "body_ref": null,
+          "identifiers": null,
+          "identifiers_truncated": false
         },
         "evidence_refs": []
       },
@@ -285,9 +297,27 @@
           "headers": [
             {"name": "content-type", "value": "application/json", "redacted": false}
           ],
-          "body_ref": {"evidence_id": "evidence:response:request:7", "kind": "response", "path": "evidence/collector/response/request-7.json", "sha256": "f9376e08e5d0a18639676fd197ffb420ccaa812aa661acb04d14e7d619910d7f", "redacted": true}
+          "body_ref": {"evidence_id": "evidence:response:request:7", "kind": "response", "path": "evidence/collector/response/request-7.json", "sha256": "f9376e08e5d0a18639676fd197ffb420ccaa812aa661acb04d14e7d619910d7f", "redacted": true},
+          "identifiers": [{"pointer": "/items/0/id", "value": 11}, {"pointer": "/items/0/owner_id", "value": 3}, {"pointer": "/items/0/categoryId", "value": "0b6f2c1e-8d4a-4c3e-9f1a-2d5e7c8b9a01"}],
+          "identifiers_truncated": false
         },
         "evidence_refs": []
+      }
+    ],
+    "discovered_endpoints": [
+      {
+        "discovered_id": "discovered:1",
+        "method": "POST",
+        "url_template": "http://localhost:8080/items/{id}/delete",
+        "parameters": [
+          {"name": "path:1", "location": "path", "is_sensitive": false},
+          {"name": "csrf_token", "location": "body", "is_sensitive": true},
+          {"name": "reason", "location": "body", "is_sensitive": false}
+        ],
+        "source": "form",
+        "discovered_from": [{"page_id": "page:2", "action_id": "action:3"}],
+        "basis": "inferred",
+        "evidence_refs": [{"evidence_id": "evidence:dom:page:2", "kind": "dom", "path": "evidence/collector/dom/page-2.json", "sha256": "a1589b112d94f3b520304e99bd66574e97f80df8d8ee849fab02b797f28f1039", "redacted": true}]
       }
     ]
   }

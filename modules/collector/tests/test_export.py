@@ -10,7 +10,9 @@ from urllib.parse import urlsplit
 import pytest
 from pydantic import JsonValue
 
-from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config
+from modules.collector.core import identifiers as identifiers_module
+from modules.collector.core.capture import RequestCapture
+from modules.collector.core.config import GUEST_ROLE, CrawlerConfig, load_config, secret_key_names
 from modules.collector.core.models import CapturedRequest, DiscoveredPage, FormField, PageAction, PageLink
 from modules.collector.service import AccountCrawl, CollectOutcome
 from modules.collector.utils import export
@@ -351,7 +353,11 @@ def test_response_meta_and_time_format(writer: EvidenceWriter) -> None:
 
     request = build_single_request(writer, record)
 
-    assert request["response"] == {"status_code": None, "content_type": None, "headers": [], "body_ref": None}
+    assert request["response"] == {
+        "status_code": None, "content_type": None, "headers": [], "body_ref": None,
+        # JSON 응답이 아니면 식별자를 볼 수 없었다(null). 빈 배열(JSON인데 식별자 없음)과 다르다.
+        "identifiers": None, "identifiers_truncated": False,
+    }
     assert request["observed_at"] == "2026-10-01T05:12:03.250000Z"
     assert (request["method"], request["body_ref"], request["evidence_refs"]) == ("GET", None, [])
 
@@ -476,3 +482,111 @@ def test_exported_data_passes_contract(tmp_path: Path, writer: EvidenceWriter) -
     raw = json.dumps(document, ensure_ascii=False).encode("utf-8")
 
     assert validate_crawl_result_bytes(raw, run_root) == []
+
+
+def test_unsent_form_is_exported_as_discovered_endpoint_and_passes_contract(tmp_path: Path, writer: EvidenceWriter) -> None:
+    # user_a 화면의 상태 변경 폼(보내지 않음) → discovered_endpoints. user_b가 실제로 요청한 엔드포인트는 빠진다.
+    unsent = PageAction(
+        action_id="form:0", kind="form", label="Delete", method="POST", target_url=f"{PAGE_A}/7/delete",
+        fields=[FormField(name="csrf_token", type="hidden")], is_state_changing=True, outcome="not_executed_state_changing",
+    )
+    observed_elsewhere = PageAction(
+        action_id="form:1", kind="form", label="Save", method="POST", target_url=f"{PAGE_A}/7",
+        fields=[], is_state_changing=True, outcome="not_executed_state_changing",
+    )
+    page = make_page("user_a", PAGE_A, actions=[unsent, observed_elsewhere])
+    sent_by_b = make_record("user_b", f"{PAGE_A}/9", 1, method="POST", status=None)
+    outcome = make_outcome(
+        make_crawl("user_a", (page,), (), role=USER_ROLE), make_crawl("user_b", (), (sent_by_b,), role=USER_ROLE)
+    )
+    data = build_data(writer, outcome)
+
+    assert [(r["method"], r["url_template"], r["discovered_from"]) for r in data["discovered_endpoints"]] == [
+        ("POST", "http://127.0.0.1:1/a/{id}/delete", [{"page_id": "page:1", "action_id": "action:1"}])
+    ]
+    assert data["discovered_endpoints"][0]["evidence_refs"] == data["pages"][0]["evidence_refs"]
+    run_root = tmp_path / RUN_ID
+    run_context = RunContext(RUN_ID, 0, Mode.DEVELOPMENT, run_root, Path("collector.toml"), Path(".env"))
+    document = build_envelope(run_context, WorkResult(Status.COMPLETED, [], data, 10))
+    assert validate_crawl_result_bytes(json.dumps(document, ensure_ascii=False).encode("utf-8"), run_root) == []
+
+
+def test_response_identifiers_are_inlined_like_the_evidence_file(tmp_path: Path, writer: EvidenceWriter) -> None:
+    # 0.3.0: 응답 근거 파일과 같은 식별자·잘림 표시를 요청 response에도 둔다. 원래 JSON 타입("42"는 문자열)을 지킨다.
+    record = make_record(
+        USER_ROLE, f"{PAGE_A}/7", response_shape={"id": "int", "owner_id": "str"},
+        response_identifiers=[{"pointer": "/id", "value": 7}, {"pointer": "/owner_id", "value": "42"}],
+        is_response_identifiers_truncated=True,
+    )
+    request = build_single_request(writer, record)
+    evidence = read_evidence(tmp_path / RUN_ID, request["response"]["body_ref"])
+
+    assert request["response"]["identifiers"] == [{"pointer": "/id", "value": 7}, {"pointer": "/owner_id", "value": "42"}]
+    assert request["response"]["identifiers_truncated"] is True
+    assert (request["response"]["identifiers"], request["response"]["identifiers_truncated"]) == (
+        evidence["identifiers"], evidence["identifiers_truncated"]
+    )
+
+
+def test_json_response_without_identifiers_is_an_empty_list(writer: EvidenceWriter) -> None:
+    record = make_record(USER_ROLE, PAGE_A, response_shape={"name": "str"}, response_identifiers=[])
+    request = build_single_request(writer, record)
+    assert (request["response"]["identifiers"], request["response"]["identifiers_truncated"]) == ([], False)
+
+
+
+class _JsonResponse:
+    """capture가 읽는 응답 본문만 흉내 낸다(브라우저 없음)."""
+
+    def __init__(self, document: object) -> None:
+        self._raw = json.dumps(document).encode("utf-8")
+
+    def body(self) -> bytes:
+        return self._raw
+
+
+def _export_through_capture(document: object, run_root: Path) -> dict[str, Any]:
+    """capture의 JSON 응답 요약 → CapturedRequest → export response. 실제 수집과 같은 길로 식별자를 만든다."""
+    login_id_key, password_key = secret_key_names("user_a")
+    config = load_config(
+        {
+            "target_url": TARGET_URL,
+            "roles": [USER_ROLE],
+            "login": {"path": "/signin", "username_field": "login_id", "password_field": "pw", "success_check": "left_login_page"},
+            "accounts": [{"alias": "user_a", "role": USER_ROLE}],
+        },
+        {login_id_key: "alice", password_key: "pw-value"},
+    )
+    capture = RequestCapture(config, next(account for account in config.accounts if account.alias == "user_a"))
+    summary = capture._summarize_response(_JsonResponse(document), {"content-type": "application/json"})
+    record = make_record(
+        USER_ROLE, f"{PAGE_A}/7", response_shape=summary.shape, response_identifiers=summary.identifiers,
+        is_response_identifiers_truncated=summary.is_identifiers_truncated,
+    )
+    data = export.build_data(config, make_outcome(make_crawl(USER_ROLE, (), (record,))), EvidenceWriter(run_root, ()))
+    return data["requests"][0]["response"]
+
+
+def test_sensitive_key_subtree_is_not_in_response_identifiers(tmp_path: Path) -> None:
+    document = {"id": 7, "session": {"id": 5}, "session_id": 9, "owner": {"user_id": 3}}
+    response = _export_through_capture(document, tmp_path / RUN_ID)
+    assert response["identifiers"] == [{"pointer": "/id", "value": 7}, {"pointer": "/owner/user_id", "value": 3}]
+    assert response["identifiers_truncated"] is False
+
+
+@pytest.mark.parametrize(
+    "limit_name, document, kept",
+    [
+        ("MAX_IDENTIFIERS", {"items": [{"id": 1}, {"id": 2}, {"id": 3}]}, [("/items/0/id", 1), ("/items/1/id", 2)]),
+        ("MAX_IDENTIFIER_DEPTH", {"a": {"b": {"id": 1}}, "id": 2}, [("/id", 2)]),
+    ],
+    ids=["count", "depth"],
+)
+def test_identifier_limits_mark_response_truncated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, limit_name: str, document: object, kept: list[tuple[str, int]]
+) -> None:
+    # 상한(개수 1000·깊이 6)을 2로 줄여 넘기면, 찾은 것까지만 남고 identifiers_truncated=true가 response에 나온다.
+    monkeypatch.setattr(identifiers_module, limit_name, 2)
+    response = _export_through_capture(document, tmp_path / RUN_ID)
+    assert [(item["pointer"], item["value"]) for item in response["identifiers"]] == kept
+    assert response["identifiers_truncated"] is True

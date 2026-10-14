@@ -17,9 +17,10 @@ from modules.scenario_generator.utils.hashing import compute_sha256_of_bytes
 from modules.scenario_generator.utils.json_io import InvalidJsonError, parse_json_strict
 from modules.scenario_generator.utils.schema_errors import summarize_schema_errors
 
-SUPPORTED_SCHEMA_VERSION = "0.2.0"
 INPUT_SCHEMA_DIR = Path(__file__).resolve().parent / "schemas" / "input"
 SUPPORTED_INPUT_TYPES = ("crawl_result", "vulnerability_candidates")
+# 입력마다 생산자 계약 버전이 따로 올라간다(crawl_result 0.3.0: discovered_endpoints 추가). 묵시 변환은 하지 않는다.
+SUPPORTED_SCHEMA_VERSION_BY_TYPE = {"crawl_result": "0.3.0", "vulnerability_candidates": "0.2.0"}
 
 
 class InputErrorCode(StrEnum):
@@ -104,10 +105,11 @@ def load_input_artifact(source: InputSource, run_root: Path, run_id: str) -> Loa
     if not isinstance(document, dict):
         raise InputError(InputErrorCode.SCHEMA_INVALID, f"{label}: 최상위가 JSON 객체가 아니다")
 
-    if document.get("schema_version") != SUPPORTED_SCHEMA_VERSION:
+    supported_version = SUPPORTED_SCHEMA_VERSION_BY_TYPE[source.artifact_type]
+    if document.get("schema_version") != supported_version:
         raise InputError(
             InputErrorCode.VERSION_UNSUPPORTED,
-            f"{label}: 지원하는 schema_version은 {SUPPORTED_SCHEMA_VERSION}뿐이다",
+            f"{label}: 지원하는 schema_version은 {supported_version}뿐이다",
         )
 
     validator = _get_validator(source.artifact_type)

@@ -14,7 +14,7 @@
       "artifact_type": "crawl_result",
       "iteration": 0,
       "path": "artifacts/iteration-000/collector/crawl_result.json",
-      "sha256": "64eb86762a5022c48f7ca92d272fb6a9449b63a5e0679c9ac03246b3a332c96f"
+      "sha256": "0012e4ab6634d657fd4b0825c281131b088864058befddc83aa527083b58e3e2"
     },
     {
       "artifact_id": "vulnerability_candidates_demo_001",

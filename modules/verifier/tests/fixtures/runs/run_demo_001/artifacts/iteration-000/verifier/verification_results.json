@@ -28,7 +28,7 @@
       "artifact_type": "crawl_result",
       "iteration": 0,
       "path": "artifacts/iteration-000/collector/crawl_result.json",
-      "sha256": "5d15a7db6c7e69a2163033be35fd431aeedc9f4ae1a1abc6a12e73abb0858c86"
+      "sha256": "8036951d7b7d45cdee574a63831e2fd732b512cc26661b325d2bbe960a15bb41"
     }
   ],
   "errors": [],

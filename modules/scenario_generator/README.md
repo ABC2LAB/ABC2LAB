@@ -5,7 +5,7 @@
 
 - 기준 명세: `docs/spec/m5-scenario_generator.md` (공통: `02-common-contract.md`, `03-runner-layout.md`)
 - 공개 operation: `generate`
-- 지원 `schema_version`: `0.2.0` (입력 `crawl_result`·`vulnerability_candidates`, 출력 `test_scenarios`)
+- 지원 `schema_version`: 입력 `crawl_result` `0.3.0`, `vulnerability_candidates` `0.2.0`, 출력 `test_scenarios` `0.2.0`(입력마다 따로 검사, 묵시 변환 없음)
 - 직접 소비자: safety_policy · verifier · reporter
 - 이 모듈은 요청을 보내지 않는다. 실행 허용은 safety_policy가 정한다.
 
@@ -289,6 +289,7 @@ class ScenarioDrafter(Protocol):
 | 2026-10-09 | 출력 `test_scenarios` `schema_version` | `0.1.0` → `0.2.0` | 11개 파일 전원 동시 전환(02 공통 계약). 필드 변경은 아래 `resource_ids`뿐 |
 | 2026-10-09 | 출력 `test_scenarios` `Scenario.resource_ids` | 새 필수 필드. `array<nonEmptyString>`, `minItems 1`, 위치는 `expected_basis` 다음. 원본 후보 `Candidate.resource_ids`(KG Resource instance `node_id`)를 순서·값 그대로 복사한다. 프로그램이 채우고, LLM 초안에 이 키가 있으면 값이 같아도 `DRAFT_INVALID`, 원본과 다르면 거절 | verifier가 검증 결과를 KG 자원 노드에 잇는 키(KG `target_id` = 기존 Resource instance node_id). 소비자 이동찬(safety_policy·reporter)과 합의, verifier(최민준). 소비자 입력 사본 미러 전까지 소비자 입력 검증에서 거절된다 |
 | 2026-10-09 | 입력 `crawl_result`·`vulnerability_candidates` | `0.2.0`만 받는다. `0.1.0`은 묵시 변환 없이 `INPUT_VERSION_UNSUPPORTED`(failed) | 생산자 출력 Schema를 그대로 복사(`cmp` 동일). 생산자 `run_demo_001` 샘플이 입력 adapter 통과(수동 확인) |
+| 2026-10-14 | 입력 `crawl_result` | `0.3.0`만 받는다(`discovered_endpoints`·`response.identifiers` 추가). **새 필드는 이 모듈이 쓰지 않는다**(Schema로 받기만). `vulnerability_candidates`는 `0.2.0` 그대로 | collector 출력 Schema 그대로 복사(`cmp` 동일), 스키마 변경 PR |
 
 ## 명세 해석과 미정 사항
 
