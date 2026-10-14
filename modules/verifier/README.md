@@ -5,7 +5,7 @@
 | module_id | `verifier` |
 | 공개 operation | `verify` (안전 게이트 + allow 재현 실행·Check 판정 + 실물 collector 세션 창구 연결) |
 | 명세 | `docs/spec/m7-verifier.md`, `02-common-contract.md`, `03-runner-layout.md` |
-| 계약 버전 | `schema_version = 0.2.0` (입력 test_scenarios·safety_decisions·crawl_result, 출력 verification_results) |
+| 계약 버전 | 입력 test_scenarios·safety_decisions `0.2.0`, crawl_result `0.3.0`, 출력 verification_results `0.2.0` |
 
 허용된 재현 계획만 대상 웹에 실행하고 실제 요청·응답·상태 근거로 판정한다. **safety_policy가 allow한 것만**,
 `effective_origins`·`limits` 안에서만 실행한다. block·require_approval은 요청 없이 미실행으로 남긴다. 미실행·판단불가를
@@ -165,7 +165,8 @@ CLI:
 
 - 출력 `graph_updates`의 node/edge는 `basis`를 `const "verified"`로, `evidence_refs`를 `minItems:1`로 **명세 m7("basis=verified와 실제 실행 근거만")에 맞춰** KG 입력보다 좁게 둔다(reporter 입력 사본과는 같다). 우리 출력이 같거나 더 엄격해 소비자 입력을 항상 통과한다.
 - 출력 `graph_updates.relationships`는 명세 표의 GraphEdge(`source_id`) 대신 **VerificationRelationship**(`source_account_id`)이다(2026-10-10). KG·reporter 입력이 같은 0.2.0 안에서 먼저 전환했고, verifier가 맞췄다. 이전 `source_id`는 소비자가 거절한다. 필드 표는 m7 "VerificationRelationship".
-- 입력 3종은 생산자 0.2.0만 받는다(2026-10-10, 0.2 2단계). `test_scenarios`의 `Scenario.resource_ids`는 Schema로 받기만 하고 실행 로직은 아직 읽지 않는다(PR3-c에서 `target_id`로 씀).
+- 입력 3종은 생산자 계약 버전만 받는다(2026-10-10, 0.2 2단계). `test_scenarios`의 `Scenario.resource_ids`는 Schema로 받기만 하고 실행 로직은 아직 읽지 않는다(PR3-c에서 `target_id`로 씀).
+- 입력 `crawl_result`는 2026-10-14부터 `0.3.0`(`discovered_endpoints`·`response.identifiers` 추가). **새 필드는 verifier가 쓰지 않는다**(Schema로 받기만, 계정·세션 대응만 읽음).
 - `max_redirects` 기본 **0**: 명세는 리다이렉트 처리를 세부로 규정하지 않는데, 로그인 리다이렉트를 자동으로 따라가면 최종 200을 "접근 성공"으로 **오탐**한다. 그래서 기본은 따라가지 않고 3xx를 그 단계 응답으로 기록한다(`configs/verifier.toml`에서 조정).
 - 비밀값 제거는 collector와 같은 기준(민감 키 이름·cookie/authorization 헤더 → `***`). **다른 점**: verifier는 계정 비밀번호를 쥐지 않으므로(세션은 collector 창구 안) 알려진 비밀값 스크럽 목록이 보통 비어 있고 구조적 마스킹만 적용한다. 근거 파일 이름에는 회차를 담는다(verifier는 회차마다 다시 실행).
 - `session_valid` Check 의미가 약해짐: 명세 m7의 "session_ref 능동 재확인" 대신 **"창구가 세션 보유 중 + 만료 감지 없음"**이다. 실제 세션 만료는 `send()` 응답 신호(로그인 리다이렉트 등, collector README)로 잡는다.

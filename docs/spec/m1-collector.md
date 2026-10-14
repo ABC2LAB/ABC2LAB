@@ -12,20 +12,24 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-12
+## 현재 구현·연결 상태 — 2026-10-14
 
-기준 커밋 `7754fe9`에 요청 범위 변경(설정 origin 기준)을 더한 구현·공개 계약을 반영했다.
+기준 커밋 `9738c40`(dev, #79 병합 후)에 이 PR(crawl_result 0.3.0: 발견 엔드포인트·응답 식별자 인라인)을 더한 구현·공개 계약을 반영했다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
-| 독립 구현 | `collect`, 공개 `run()`·CLI, 역할별·역할당 복수 계정 탐색, `crawl_result.json` export adapter, 응답·DOM 근거 파일(EvidenceRef)과 자원 식별자 보존, 원자 저장 구현 완료 |
+| 독립 구현 | `collect`, 공개 `run()`·CLI, 역할별·역할당 복수 계정 탐색, `crawl_result.json` export adapter, 응답·DOM 근거 파일(EvidenceRef)과 자원 식별자 보존(응답 근거 + `response.identifiers` 인라인), 발견했지만 요청하지 않은 엔드포인트(`discovered_endpoints`), 원자 저장 구현 완료 |
 | 세션 공개 창구 | `entrypoint.open_session_executor()`(인자 없음, 컨텍스트 매니저)로 연다. 여는 중 오류는 설정이 없거나 틀리면 호출 즉시 `ValueError`, Playwright·브라우저 시작 실패면 with 진입 때 `RuntimeError`(`SessionTransportError`), 설정 파일 권한이면 `OSError`. 세부 규약은 [모듈 README](../../modules/collector/README.md) "세션 공개 창구" |
 | 요청 범위 | 설정 origin(`target_url` + `extra_allowed_origins`)과 정확히 같을 때만 요청한다. 브라우저는 이름 해석 규칙으로 다른 호스트로 가는 요청·리다이렉트 hop까지 막고, 같은 호스트의 다른 포트·스킴 hop은 탐지해 `REDIRECT_OUT_OF_SCOPE`로 남긴다. 프록시 없이 직접 연결한다. 세부는 [모듈 README](../../modules/collector/README.md) "요청 범위"·"브라우저 요청 범위" |
-| 공개 계약 | 출력 `crawl_result.json`과 근거 파일(`response_evidence`·`dom_evidence`) `0.2.0` |
-| 독립 회귀 | collector `469 passed` |
+| 공개 계약 | 출력 `crawl_result.json` **`0.3.0`**, 근거 파일(`response_evidence`·`dom_evidence`) `0.2.0` 그대로 |
+| 독립 회귀 | collector `541 passed` |
 | 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행(테스트 앱 vulnerable 모드)에서 collect가 completed로 끝나고, 같은 실행에서 세션 창구를 열어 verifier가 allow 시나리오를 이 창구로 전송했다(2026-10-11) |
 
-남은 것: 엔드포인트 발견율 고도화.
+남은 것: 엔드포인트 발견율 고도화(아래 "다음 단계").
+
+다음 단계:
+- `discovered_endpoints`의 `source=js·spec`(JS 안 경로·API 명세). 이 출처는 발견 위치가 페이지 행동이 아닐 수 있어(`DiscoverySite`의 `action_id`가 없을 수 있음) **`DiscoverySite` 모양이 바뀔 수 있다**. 바꿀 때는 소비자(SA)와 합의하고 버전을 올린다.
+- 상태 변경을 재현해야만 렌더되는 폼(예: 빈 장바구니라 안 보이는 수량 변경·삭제·주문 폼)과 링크가 없는 경로는 지금 방식으로 찾지 못한다.
 
 ## 독립 동작·수정 책임
 
@@ -113,7 +117,7 @@
 
 ### crawl_result.json
 
-- 고정 값: `artifact_type=crawl_result`, `producer=collector`, `schema_version=0.2.0`(전원 동시 0.2.0 전환).
+- 고정 값: `artifact_type=crawl_result`, `producer=collector`, `schema_version=0.3.0`(2026-10-14, 이 파일만 0.2.0에서 올림).
 - 예상 Schema 경로: `modules/collector/schemas/output/crawl_result.schema.json`.
 - 예상 출력 fixture 경로: `modules/collector/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/collector/crawl_result.json`.
 
@@ -125,6 +129,9 @@
 | `data.pages` | `array<Page>` | 필수 | 관찰 페이지 목록. |
 | `data.actions` | `array<Action>` | 필수 | 관찰 행동 목록. 미관찰이면 빈 배열이며 추측으로 채우지 않는다. |
 | `data.requests` | `array<ObservedRequest>` | 필수 | 역할·계정·화면·행동과 연결된 요청 및 응답 메타데이터. |
+| `data.discovered_endpoints` | `array<DiscoveredEndpoint>` | 필수 | 화면에서 발견했지만 요청을 보내지 않은 엔드포인트(0.3.0 추가). 없으면 빈 배열. `requests`에서 이미 관찰된 (method, origin, 경로 템플릿)은 넣지 않는다. |
+
+- **소비자 용도** — semantic_analyzer: `discovered_endpoints`로 Endpoint·Parameter를 `basis=inferred`로 만들고(접근을 관찰한 게 아니라 ACCESS·normalized_requests는 만들지 않음), `response.identifiers`를 소유 관계(OWNS)의 `observed` 근거로 쓴다. reporter: endpoint 지표를 semantic_analysis `nodes`의 Endpoint(inferred 포함)까지 세면 발견 엔드포인트가 반영된다.
 
 ## 중첩 레코드 필드
 
@@ -191,6 +198,15 @@
 | `content_type` | `string / null` | 필수 | 응답 Content-Type. 알 수 없으면 null. |
 | `headers` | `array<HeaderMeta>` | 필수 | 비밀값을 제거한 응답 헤더 메타데이터. |
 | `body_ref` | `EvidenceRef / null` | 필수 | 별도로 보존한 응답 본문 참조. |
+| `identifiers` | `array<Identifier> / null` | 필수 | 응답 JSON의 자원 식별자(0.3.0 추가). `body_ref`가 가리키는 응답 근거의 `identifiers`와 같은 값이다. **`null`** = JSON 응답이 아니거나 본문을 읽지 못해 식별자를 볼 수 없었음(`body_ref`도 null). **`[]`** = JSON 응답인데 식별자가 하나도 없음. |
+| `identifiers_truncated` | `boolean` | 필수 | 깊이 6·개수 1000 상한 때문에 식별자를 일부만 남겼으면 true(0.3.0 추가). `identifiers`가 null이면 false. |
+
+### Identifier
+
+| 필드 | 타입·허용값 | 필수 | 의미 |
+| --- | --- | --- | --- |
+| `pointer` | `string` (RFC 6901 JSON Pointer) | 필수 | 응답 본문 안 위치. |
+| `value` | `integer ≥ 0 / string`(숫자만 또는 UUID) | 필수 | 식별자 값. 응답의 원래 JSON 타입을 그대로 둔다(`"42"`는 문자열). 키가 `id`·`*_id`·`*Id`인 것만, 민감 키(session·token 등)와 그 아래는 넣지 않는다. |
 
 ### ObservedRequest
 
@@ -211,6 +227,34 @@
 | `response` | `ResponseMeta` | 필수 | 응답 메타데이터. |
 | `evidence_refs` | `array<EvidenceRef>` | 필수 | 이 요청의 관찰 근거 참조. |
 
+### DiscoveredEndpoint
+
+| 필드 | 타입·허용값 | 필수 | 의미 |
+| --- | --- | --- | --- |
+| `discovered_id` | `string` | 필수 | 발견 엔드포인트 ID(`discovered:<N>`). 불투명 문자열로 다룬다. |
+| `method` | `string` | 필수 | 대문자 HTTP Method. 폼은 브라우저가 보내는 Method(POST가 아니면 GET). |
+| `url_template` | `string` | 필수 | origin + 경로 템플릿. 숫자·UUID 경로 조각은 `{id}`이고 쿼리는 넣지 않는다(관찰 요청과 같은 정규화). |
+| `parameters` | `array<DiscoveredParameter>` | 필수 | 이름·위치만. 값은 남기지 않는다. |
+| `source` | `enum: form, link, js, spec` | 필수 | 발견 출처. 지금은 `form`(보내지 않은 폼)·`link`(상태 변경이라 따라가지 않은 링크)만 채운다. |
+| `discovered_from` | `array<DiscoverySite>` (1개 이상) | 필수 | 발견한 페이지·행동. 같은 엔드포인트를 여러 페이지·계정에서 보면 모두 담는다. 계정은 `page_id`의 `Page.account_id`다. |
+| `basis` | `const: inferred` | 필수 | 요청을 관찰하지 않은 추론이다. |
+| `evidence_refs` | `array<EvidenceRef>` | 필수 | 발견 위치 페이지들의 DOM 근거(중복 없이). |
+
+### DiscoveredParameter
+
+| 필드 | 타입·허용값 | 필수 | 의미 |
+| --- | --- | --- | --- |
+| `name` | `string` | 필수 | 파라미터 이름. 경로 `{id}`는 `path:<index>`(관찰 요청과 같은 규칙). |
+| `location` | `enum: path, query, body` | 필수 | 위치. GET 폼 입력칸은 query, 그 밖 폼은 body. |
+| `is_sensitive` | `boolean` | 필수 | 민감 이름(password·token·csrf 등, 설정의 비밀번호 필드)이거나 `type=password` 입력칸이면 true. |
+
+### DiscoverySite
+
+| 필드 | 타입·허용값 | 필수 | 의미 |
+| --- | --- | --- | --- |
+| `page_id` | `string` | 필수 | 발견한 페이지 ID. |
+| `action_id` | `string` | 필수 | 발견한 행동 ID. `source=form`이면 `submit`, `link`면 `navigate` 행동이다. js·spec 출처에서 이 모양이 바뀔 수 있다(위 "다음 단계"). |
+
 **재사용하는 계약 필드:** [ArtifactRef](02-common-contract.md), [ErrorItem](02-common-contract.md), [EvidenceRef](02-common-contract.md), [RuntimeMetrics](02-common-contract.md).
 
 ## 변경 이력
@@ -219,6 +263,15 @@
 | --- | --- | --- |
 | 2026-10-10 | 세션 공개 창구를 여는 공개 함수 `open_session_executor()`와 여는 중 오류 타입(`ValueError`·`RuntimeError`(`SessionTransportError`)·`OSError`)을 정함. 출력 계약 변경 없음 | #55·#60 |
 | 2026-10-12 | 요청 범위를 loopback 고정에서 설정 origin(target_url + extra_allowed_origins)으로 전환, 브라우저 리다이렉트 hop 차단·탐지, 오류 코드 REDIRECT_OUT_OF_SCOPE | 동작 변경. 계약 필드 변경 없음(ErrorItem.code는 자유 문자열). crawl_result가 partial로 올 수 있음 |
+| 2026-10-14 | **crawl_result 0.2.0 → 0.3.0**: `data.discovered_endpoints`, `ResponseMeta.identifiers`·`identifiers_truncated` 추가(아래 "0.2.0 → 0.3.0"). 근거 파일 0.2.0은 그대로 | 스키마 변경 PR. 소비자 SA·SG·verifier·reporter 입력 사본 0.3.0 동시 전환 |
+
+### 0.2.0 → 0.3.0
+
+출력 `crawl_result.json`만 0.3.0으로 올렸다(파일 하나의 계약 변경, 다른 산출물 버전은 그대로).
+
+- 이유 1: 상태 변경이라 제출하지 않은 폼의 method·URL이 DOM 근거에만 남고 crawl_result에서 빠져, 소비자가 그 엔드포인트를 알 수 없었다(7차 실행 기준 GT 엔드포인트 14개 중 놓친 11개 가운데 7개).
+- 이유 2: 소유 관계 판단에 쓰는 응답 식별자가 근거 파일에만 있어, 소비자가 근거 파일을 열지 않고 계약만으로 소유 근거를 받게 했다.
+- 추가 필드: `data.discovered_endpoints`(필수, 없으면 `[]`), `ResponseMeta.identifiers`(`null`/`[]` 구분)·`identifiers_truncated`. 필드 표는 위 "DiscoveredEndpoint"·"ResponseMeta"·"Identifier".
 
 ### 0.1.0 → 0.2.0
 

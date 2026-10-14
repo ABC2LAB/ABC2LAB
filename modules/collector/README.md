@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | operation | `collect` |
-| 출력 | `crawl_result.json` (schema_version `0.2.0`) + 근거 파일(응답·DOM) |
+| 출력 | `crawl_result.json` (schema_version `0.3.0`) + 근거 파일(응답·DOM, `0.2.0`) |
 | 직접 소비자 | semantic_analyzer·scenario_generator(이경준) · verifier(최민준) · reporter(이동찬, 개발 평가) |
 | 담당 | 최민준 |
 | 명세 | `docs/spec/m1-collector.md`, `docs/spec/02-common-contract.md` |
@@ -11,6 +11,8 @@
 **지금 상태**
 - `entrypoint.py`가 아래 계약대로 `crawl_result.json`을 공개한다.
 - 근거 파일도 같이 쓴다. JSON 응답은 응답 근거(shape + 식별자), 링크·폼·버튼이 있는 페이지는 DOM 근거.
+- 응답 식별자는 요청의 `response.identifiers`에도 그대로 둔다(0.3.0, 아래 "응답 식별자 인라인").
+- 화면에서 발견했지만 요청하지 않은 엔드포인트(보내지 않은 상태 변경 폼 등)를 `discovered_endpoints`로 내보낸다(0.3.0, 아래 "발견 엔드포인트").
 - 같은 역할에 계정을 여럿 둘 수 있다. 계정마다 브라우저 context를 따로 열어 쿠키가 섞이지 않고, 각자 자기 화면만 탐색한다.
 - 요청 대상은 설정한 origin뿐이다. 브라우저는 다른 호스트로 가는 리다이렉트 hop까지 막는다(아래 "요청 범위"·"브라우저 요청 범위").
 - 이 문서와 Schema는 소비자 합의용 기준본이다.
@@ -24,6 +26,7 @@
 | `core/identifiers.py` | 응답 JSON에서 식별자 추출(capture 안에서 호출, 본문 원문은 capture 밖으로 안 나감) |
 | `core/browser_scope.py` | 브라우저 launch 인자(이름 해석 규칙·직접 연결)와 리다이렉트 hop 탐지 |
 | `utils/export.py` | 내부 결과를 계약 형식으로 바꾼다 |
+| `utils/discovery.py` | 발견했지만 요청하지 않은 엔드포인트 수집(`discovered_endpoints`) |
 | `utils/envelope.py` | 공통 envelope·ErrorItem |
 | `utils/evidence.py` | 응답·DOM 근거 파일 작성 |
 | `configs/collector.example.toml` | 설정 예시. 실제 설정 `configs/collector.toml`은 로컬 파일(git 제외) |
@@ -137,6 +140,8 @@
 | 날짜 | 파일 | 필드 | 변경 내용 | 합의한 사람 |
 |---|---|---|---|---|
 | 2026-10-07 | crawl_result.json | Page.account_id | 필수 추가(이 페이지를 관찰한 계정 ID) | 이경준·이동찬 |
+| 2026-10-14 | crawl_result.json | `data.discovered_endpoints` | 필수 추가. 0.2.0 → 0.3.0 | 스키마 변경 PR(소비자 SA·reporter는 각자 사본 반영) |
+| 2026-10-14 | crawl_result.json | `ResponseMeta.identifiers`·`identifiers_truncated` | 필수 추가(응답 근거 식별자 인라인, OWNS 근거용) | 이경준 (B) 확정 |
 
 ## 출력 계약
 
@@ -165,6 +170,7 @@
 | page_id | `page:<N>` (실행 전체에서 1부터) | `page:2` |
 | action_id | `action:<N>` (실행 전체에서 1부터) | `action:3` |
 | request_id | `request:<N>` (실행 전체에서 1부터, 요청이 나간 순서) | `request:4` |
+| discovered_id | `discovered:<N>` (실행 전체에서 1부터, 발견 순서. 관찰된 것을 뺀 뒤 번호) | `discovered:1` |
 | evidence_id | `evidence:<kind>:<대상 ID>` | `evidence:response:request:4`, `evidence:dom:page:2` |
 | artifact_id | `crawl_result-<run_id>-<NNN>-<랜덤>` | `crawl_result-run_demo_001-000-7c3e9a10` |
 
@@ -210,6 +216,36 @@ ID는 불투명 문자열로 다룬다. 소비자는 형식을 파싱하지 말�
 | `ObservedRequest.evidence_refs` | `request`, `response` | `[]` |
 | `Page.evidence_refs` | `dom`, `screenshot` | 그 페이지의 DOM 근거 하나. 링크·폼·버튼이 없거나 추출하지 못한 페이지는 `[]` |
 | `Action.evidence_refs` | `dom` | 행동이 일어난 페이지의 DOM 근거 하나 |
+
+**응답 식별자 인라인 (`response.identifiers`, 0.3.0)**
+- 응답 근거 파일의 `identifiers`·`identifiers_truncated`와 같은 값을 요청의 `response`에도 둔다. 소비자가 근거 파일을 열지 않고 소유 관계(OWNS)를 관찰하게 하려는 것이다.
+- `null`: JSON 응답이 아니거나 본문을 읽지 못해 식별자를 볼 수 없었다(`body_ref`도 null, `identifiers_truncated=false`).
+- `[]`: JSON 응답인데 식별자가 하나도 없다.
+- 추출 규칙은 근거 파일과 같다(아래 "근거 파일" `identifiers`): 키 `id`·`*_id`·`*Id`, 값은 id꼴만, 민감 키와 그 아래는 제외, 깊이 6·개수 1000 상한(넘으면 `identifiers_truncated=true`).
+
+**발견 엔드포인트 (`discovered_endpoints`, 0.3.0)**
+
+화면에서 발견했지만 요청을 보내지 않은 엔드포인트다. `basis="inferred"`이고 값은 남기지 않는다.
+
+- 넣는 것
+  - 폼: outcome이 `not_executed_state_changing`(상태 변경이라 제출 안 함)·`failed`·`not_found`인 폼 → `source="form"`.
+  - 링크: 상태 변경 키워드 때문에 따라가지 않은 링크(`not_executed_state_changing`) → `source="link"`, GET.
+- 빼는 것
+  - `blocked_state_changing_request` 폼: JS가 submit을 가로채 보낸 실제 요청이 이미 `requests`에 있다(차단돼 status null). 폼에 적힌 method·action은 그 실제 요청과 다를 수 있다(7차: 폼은 `GET /products/{id}`, 실제는 `POST /cart/add`).
+  - 실행했거나 따라간 폼·링크(요청이 관찰됨), 허용 origin 밖 대상, 버튼(이동할 URL이 없음), `method="dialog"` 폼(요청을 보내지 않음).
+  - **모든 계정의 `requests`(status null 포함)에 이미 있는 (method, origin, 경로 템플릿)**. 다른 계정이 요청한 엔드포인트도 뺀다.
+- 키와 합치기
+  - 키는 (Method, origin, 경로 템플릿). 같은 키를 여러 페이지·계정에서 보면 한 레코드로 합치고 `discovered_from`에 `{page_id, action_id}`를 모두 담는다(계정은 `Page.account_id`). `evidence_refs`는 그 페이지들의 DOM 근거(중복 없이).
+  - 폼 Method는 브라우저가 보내는 것으로 정한다: POST가 아니면 GET.
+  - `url_template` = origin + 경로 템플릿(숫자·UUID 조각은 `{id}`), 쿼리는 넣지 않는다.
+- 파라미터(`{name, location, is_sensitive}`, 값 없음)
+  - 경로 `{id}`는 `path:<index>`(관찰 요청과 같은 규칙).
+  - action URL의 쿼리 이름은 `query`. 폼 입력칸은 GET 폼이면 `query`, 그 밖이면 `body`.
+  - 여러 페이지의 같은 엔드포인트는 (이름, 위치)로 합친다.
+  - 민감 여부: 민감 이름 규칙(설정의 로그인 비밀번호 필드 포함)이거나 `type=password` 입력칸이면 `is_sensitive=true`.
+- 한계(7차 실행 기준, GT 엔드포인트 14개 중 지금 방식으로 못 잡는 4개)
+  - 렌더되지 않은 폼: 장바구니 담기가 막혀 장바구니가 비어 있으면 수량 변경·삭제·주문 폼이 아예 안 보인다(`POST /cart/update`·`/cart/remove`·`/orders`). 상태 변경 재현이 필요하다.
+  - 링크가 없는 경로: 화면 어디에도 링크가 없는 경로(`GET /admin/export/orders`). JS·API 명세 출처(`source=js·spec`)에서 다룬다. 그때 `DiscoverySite` 모양이 바뀔 수 있다(m1 "다음 단계").
 
 **그 밖**
 - 시각은 UTC RFC3339(`2026-10-06T03:00:05Z`)다.
@@ -335,6 +371,8 @@ issues = validate_crawl_result_file(artifact_path, run_root, known_secrets=[...]
 - 행동과 요청의 페이지 일치(둘 다 있을 때), UTC 시각, Method·헤더 이름 표기.
 - 근거 파일: 자리별 허용 kind, 위치·존재·SHA-256·근거 Schema(응답·DOM), 근거 안 ID와 참조의 대응.
 - 비밀값: 쿠키·인증 헤더·민감 파라미터를 가렸는지, 직렬화 바이트에 알려진 비밀값(계정 비밀번호 등)이 없는지.
+- 응답 식별자(0.3.0): `body_ref`가 있을 때만 있고, 응답 근거 파일과 값·잘림 표시가 같으며, 민감 키 아래 값이 없는지.
+- 발견 엔드포인트(0.3.0): ID·(method, url_template) 유일(`DUPLICATE_ENDPOINT`), 이미 관찰된 엔드포인트가 아닌지(`ALREADY_OBSERVED`), `url_template` 형식(값·쿼리 없음)과 path 파라미터 위치, 민감 이름 표시, 발견 위치의 페이지·행동 존재와 출처-행동 종류(form→submit, link→navigate), 근거가 그 페이지들의 DOM 근거인지.
 
 메시지에는 값 대신 위치·키 이름만 넣는다.
 

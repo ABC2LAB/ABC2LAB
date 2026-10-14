@@ -20,7 +20,7 @@
 | --- | --- |
 | 독립 구현 | `verify`, 공개 `run()`·CLI, 안전 게이트(계획 SHA-256·Policy 판정·계정·세션 대응), allow 재현 실행(바인딩, `effective_origins` 재검사, `max_redirects` 기본 0), Check 6종 평가와 result 분류, 원자 저장 구현 완료. 텍스트(HTML) 응답의 `baseline_match`·`resource_state`는 기록만 한다(아래 "Check 규약") |
 | 세션 공개 창구 | collector 창구를 Protocol로만 쓴다(런너 주입). 주입되지 않으면 `SESSION_UNAVAILABLE`로 미실행·판단불가 |
-| 공개 계약 | 출력 `verification_results` `0.2.0`(관계 source는 `source_account_id`), 입력 `test_scenarios`·`safety_decisions`·`crawl_result` `0.2.0` 미러 |
+| 공개 계약 | 출력 `verification_results` `0.2.0`(관계 source는 `source_account_id`), 입력 `test_scenarios`·`safety_decisions` `0.2.0`, `crawl_result` `0.3.0` 미러(crawl_result의 새 필드 `discovered_endpoints`·`response.identifiers`는 쓰지 않음) |
 | 독립 회귀 | verifier `141 passed` |
 | 실제 전체 연결 | 부분. 루트 `pipeline.py` 실제 실행에서 allow 시나리오를 세션 창구로 보내 판정했다(2026-10-11). `graph_updates`가 빈 배열이라 KG `apply_verification`이 반영할 관계는 없다 |
 
@@ -235,6 +235,7 @@ KG 입력(`modules/knowledge_graph/schemas/input/verification_results.schema.jso
 | --- | --- | --- |
 | 2026-10-11 | 현재 구현·연결 상태 표 추가 | 문서만, 계약 변경 없음 |
 | 2026-10-14 | `baseline_match`·`resource_owner`·`resource_state` 평가와 세 kind의 `subject_ref`·`selector`·`expected` 규약(위 "Check 규약"). JSON은 판정, 텍스트는 기록만(`ASSERTION_TEXT_ONLY`). 기준 단계를 못 쓰면 `BASELINE_UNAVAILABLE`. 입력·출력 Schema·enum·`schema_version` 변경 없음(세 kind는 0.2.0 enum에 이미 있음). 다른 `test_scenarios` 소비자(safety_policy·reporter)는 kind별 의미를 읽지 않음 | 이전에는 세 kind가 항상 판단불가였다. HTML 실행 응답이 2xx인 시나리오는 control 단계 전까지 indeterminate(설계대로) |
+| 2026-10-14 | 입력 `crawl_result` 사본 0.2.0 → 0.3.0(collector 계약 변경 미러). 새 필드는 쓰지 않음. 출력 변경 없음 | collector 스키마 변경 PR |
 
 ### 0.1.0 → 0.2.0
 
