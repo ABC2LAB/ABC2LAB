@@ -160,10 +160,10 @@ drafter 옵션은 `--llm-provider` `--drafts` `--model-id` `--base-url` `--tempe
 2. **후보 대조** (`candidate_matcher.py`): 실행·기준 계정, 역할, 근거 요청, `session_ref`가 `crawl_result`와 맞는지 확인. ID만 존재하고 관계가 다르면 거절
 3. **초안 생성** (`scenario_drafter.py`): LLM에게 줄 입력을 만든다(헤더·쿠키·응답 본문·근거 경로·비밀 파라미터 값은 제외).
    Ollama drafter는 초안 JSON Schema를 `format`으로 넘겨 초안 모양(키·중첩·허용값)을 디코딩 단계에서 강제한다
-4. **조립** (`service.py`): 초안의 선택(원본 요청·`account_role`·바꿀 파라미터·바인딩·판정 조건)에 원본의 계정 식별자·`method`·`url_template`·`body_ref`와 세션 사전조건을 붙인다
-5. **초안 검증** (`scenario_validator.py`): Schema + 의미 검사. 통과한 초안만 시나리오가 된다.
-   통과한 뒤 JSON이 아닌 응답 단계를 가리키는 `response_json` 조건을 버리고(`ASSERTION_NON_JSON_RESPONSE`), 버린 게 있으면 다시 검증한다
-6. **출력 adapter** (`output_adapter.py`) → **원자적 저장** (`utils/atomic_io.py`): 완료 파일은 덮어쓰지 않는다
+4. **조립** (`service.py`): 초안의 선택(원본 요청·`account_role`·바꿀 파라미터·바인딩)에 원본의 계정 식별자·`method`·`url_template`·`body_ref`와 세션 사전조건을 붙인다
+5. **재현 조건** (`reproduction_checks.py`): 재현 단계 앞에 기준 단계를 넣고 판정 조건(assertions)을 만든다. 아래 "재현 조건"
+6. **검증** (`scenario_validator.py`): Schema + 의미 검사. 통과한 것만 시나리오가 된다
+7. **출력 adapter** (`output_adapter.py`) → **원자적 저장** (`utils/atomic_io.py`): 완료 파일은 덮어쓰지 않는다
 
 후보 하나가 실패해도 나머지는 계속 처리하고, 실패는 `item_ref=candidate_id`로 `errors`에 남긴다.
 
@@ -179,7 +179,7 @@ drafter 옵션은 `--llm-provider` `--drafts` `--model-id` `--base-url` `--tempe
 | `CANDIDATE_REQUEST_INVALID` | 근거 요청이 없거나 계정·역할·세션이 어긋남 | candidate_id |
 | `DRAFTER_FAILED` | 초안 생성 실패 (`retryable`은 drafter가 알려 준 값) | candidate_id |
 | `DRAFT_INVALID` | 초안이 검증을 통과하지 못함 (위치와 규칙만 적고 값은 적지 않음) | candidate_id |
-| `ASSERTION_NON_JSON_RESPONSE` | JSON이 아닌 응답 단계를 가리키는 `response_json` 조건을 버림. 시나리오는 발행한다(메시지에는 버린 check_id만) | candidate_id |
+| `ASSERTION_BASELINE_UNAVAILABLE` | 이 후보로는 기준 응답을 만들 수 없어 재현 조건을 세우지 못함(기준 계정 없음·재현 단계 `state_change≠none`·근거 응답이 2xx 아님). 시나리오를 만들지 않는다. 기준 계정이 없으면 LLM을 부르지 않는다 | candidate_id |
 | `DRAFTER_NOT_CONFIGURED` | 초안 생성기(LLM)가 설정되지 않음(`provider = "none"`) | null |
 
 ## 실패 초안 진단 (개발용)
@@ -195,30 +195,48 @@ drafter 옵션은 `--llm-provider` `--drafts` `--model-id` `--base-url` `--tempe
 - `draft`: **비밀값 제거 사본**(parameter 값 마스킹, 구조·바인딩은 보존)
 
 목적은 "기대 필드 목록"이 아니라 **실제로 어느 필드·바인딩이 틀렸는지** 사람이 보는 것이다.
+`ASSERTION_BASELINE_UNAVAILABLE`은 초안이 틀린 게 아니라 후보·근거 요청 때문이라 진단 레코드를 남기지 않는다(공개 errors에는 남는다).
+
+## 재현 조건 (프로그램 생성)
+
+후보 기대 동작은 "기준 계정(소유자·상위 역할)이 아닌 실행 계정은 거부돼야 한다"(`expected_behavior`)이고, **그 부정이 재현 조건**이다: 실행 계정이 기준 계정과 같은 응답을 받는다. 판정 조건은 LLM이 아니라 프로그램이 만든다(`reproduction_checks.py`). 작은 모델이 기대값을 정상 동작(403)으로 적어 판정이 뒤집혔기 때문이다(6차 입력 5건 중 4건).
+
+1. **재현 단계**: 실행 계정이 후보 `source_request_ids` 중 하나를 보내는 단계 중 마지막. 없으면 `DRAFT_INVALID`
+2. **기준 단계**: 재현 단계 바로 앞에 기준 계정이 같은 요청을 보내는 단계를 넣는다
+   - `step_id`는 `baseline_<재현 단계 step_id>`, 계정·역할·`session_ref`는 기준 계정 것, 요청(`method`·`url_template`·`parameters`·`body_ref`)과 바인딩은 재현 단계 복사
+   - 바인딩 ID와 그것을 쓰는 `url_template`의 `{…}`·`binding_ref`는 `baseline_` 접두어로 바꿔 시나리오 안에서 유일하게 둔다(`source_step_id`는 그대로)
+   - 뒤 단계 `order`는 하나씩 민다(0부터 다시 매기지 않는다. 초안 order가 틀렸으면 검증이 잡는다). ID가 겹치면 `DRAFT_INVALID`
+   - 세션 사전조건은 기준 계정에도 붙는다
+3. **판정 조건** (모두 `subject_ref`=재현 단계, `selector`=null, `operator`=eq)
+   - `assertion_status`: `response_status` = 근거 요청에서 관찰한 상태 코드(2xx)
+   - `assertion_baseline`: `baseline_match` = 기준 단계 step_id
+   - `assertion_owner`: `resource_owner` = 기준 단계 step_id. 근거 응답이 JSON일 때만(식별자 비교는 JSON만)
+4. **만들 수 없는 후보**(`ASSERTION_BASELINE_UNAVAILABLE`, 시나리오 없음): 기준 계정 없음(LLM 호출 전), 재현 단계 `state_change≠none`(기준 계정이 먼저 보내면 상태가 바뀐다), 근거 응답이 2xx 아님
+
+verifier 판정(m7 "Check 규약"): JSON은 `baseline_match`(본문 비교)·`resource_owner`(식별자 비교)로 success·failure를 낸다. HTML 등 텍스트 응답은 control 단계(실행 계정 자기 자원)가 들어오기 전까지 기록만 해서, 재현 응답이 2xx면 `indeterminate`다(거부 코드면 failure).
 
 ## 초안 검증 규칙
 
-LLM 초안은 `steps`·`assertions`의 **선택**만 담는다. 아래 계정·`method`·`url_template`·`body_ref`·세션 사전조건은 프로그램이 원본에서 조립하므로, 다음 검사는 조립 결과에 대한 안전망이다(현재 경계는 [m5 명세](../../docs/spec/m5-scenario_generator.md)).
+LLM 초안은 `steps`의 **선택**만 담는다. 계정·`method`·`url_template`·`body_ref`·세션 사전조건·기준 단계·판정 조건은 프로그램이 원본과 후보에서 만들므로, 다음 검사는 조립 결과에 대한 안전망이다(현재 경계는 [m5 명세](../../docs/spec/m5-scenario_generator.md)).
 
 조립 단계(`service.py`)에서 먼저 거르는 것:
 
-- 초안 키가 정해진 것과 다르다(최상위 `steps`·`assertions`, step 7개, `request`는 `parameters`만). 값이 원본과 같아도 `url_template`·`method` 같은 프로그램 몫 키가 있으면 거절한다
+- 초안 키가 정해진 것과 다르다(최상위 `steps`만, step 7개, `request`는 `parameters`만). 값이 원본과 같아도 `assertions`·`url_template`·`method` 같은 프로그램 몫 키가 있으면 거절한다
 - 경로 바인딩: 초안은 URL을 쓰지 않고, 그 단계 원본 요청의 path 파라미터에 `binding_ref`를 건다(`value`=null).
   프로그램은 원본 URL에서 그 파라미터 관찰값과 같은 경로 조각 **하나**를 `{binding_id}`로 바꾸고, 그 파라미터는 출력 `parameters`에서 뺀다.
   다음은 거절한다: 리터럴 path 값(value가 있음), 원본 요청에 없는 path 이름·관찰값이 null인 이름, 같은 조각이 0개 또는 여러 개.
   verifier는 URL에 자리가 없는 path 파라미터를 조용히 무시하므로, 효과 없는 path 변경을 "실행됨"으로 보이게 두지 않는다
+- 조립한 steps가 출력 `ScenarioStep` 모양이 아니다(기준 단계를 복사해 만들기 전에 본다)
 
 Schema(필드·타입·enum, 미정의 키 거절) 외에 다음을 코드로 확인한다.
 
 - `steps`와 `assertions`가 비어 있지 않다
-- verifier가 평가하는 세 조건을 모두 쓴다. 명세 m7은 HTTP 200만으로 위반을 확정하지 않는다
+- 명세 m7은 HTTP 200만으로 위반을 확정하지 않는다
   - `preconditions`: steps에 쓰인 **계정마다** `session_valid`(`subject_ref`=account_id, `operator=eq`, `expected=true`). `exists`는 세션이 죽어도(false) 참이라 거절한다
-  - `assertions`: **실행 계정 단계 하나에** `response_status`와 `response_json`이 함께 있다. 그 단계 원본 응답이 JSON이 아니면 `response_status`만 있으면 된다
-- 단계 응답이 JSON인지는 원본 요청 `response.content_type`에 `json`이 들어 있는지로 정한다(collector 근거 파일·세션 창구와 같은 기준, null이면 JSON 아님).
-  JSON이 아닌 단계의 `response_json`은 verifier가 적용할 수 없어 판단불가가 되므로 검증 통과 뒤 버리고 `ASSERTION_NON_JSON_RESPONSE`로 남긴다.
-  검증은 버리기 전에 하므로, 그런 조건의 selector 문법이 틀리면 버려지기 전에 `DRAFT_INVALID`가 된다
-- `response_status`·`response_json` 조건의 `subject_ref`는 steps에 있는 `step_id`다(응답은 단계에서만 나온다)
-- `resource_state`·`resource_owner`·`baseline_match`는 Schema상 허용하지만 verifier가 아직 평가하지 않아(판단불가) 필수 조건으로 치지 않는다
+  - `assertions`: **재현 단계에** `response_status`와 `baseline_match`가 있고, 근거 응답이 JSON이면 `resource_owner`도 있다. `baseline_match`의 기준 단계는 기준 계정이 같은 근거 요청을 보낸 단계다
+- 근거 응답이 JSON인지는 원본 요청 `response.content_type`에 `json`이 들어 있는지로 정한다(collector 근거 파일·세션 창구와 같은 기준, null이면 JSON 아님)
+- `response_status`·`response_json`·`resource_state`·`resource_owner`·`baseline_match` 조건의 `subject_ref`는 steps에 있는 `step_id`다(응답은 단계에서만 나온다)
+- `baseline_match`·`resource_owner`의 `expected`는 판정 단계와 다른 계정이 실행한 단계의 `step_id`다
 - `steps.order`가 0..N-1을 순서대로 유일하게 채운다. `step_id`·`binding_id`·`check_id`가 중복이 아니다
 - 바인딩은 **앞선 단계**만 가리킨다. 파라미터의 `binding_ref`와 `url_template`의 `{binding_id}`는 정의된 바인딩만 쓴다
 - 바인딩 selector: 본문은 JSON Pointer 문법, 헤더는 소문자 이름. `response_json` 조건의 selector도 JSON Pointer
@@ -238,7 +256,7 @@ class ScenarioDrafter(Protocol):
     def draft(self, request: dict) -> Draft: ...  # Draft(scenario, input_tokens, output_tokens)
 ```
 
-- 초안은 `{"steps", "assertions"}` 두 키만 가진 객체여야 한다(모양은 `scenario_drafter.build_draft_json_schema()`)
+- 초안은 `{"steps"}` 한 키만 가진 객체여야 한다(모양은 `scenario_drafter.build_draft_json_schema()`)
 - 호출 실패는 `DrafterError`로 감싸서 던진다(메시지에 비밀값·프롬프트 원문 금지)
 - 구현체는 두 개다.
 
@@ -247,14 +265,14 @@ class ScenarioDrafter(Protocol):
 | `ReplayScenarioDrafter` | `replay_drafter.py` | 개발·테스트. `drafts_path`(설정)·`--drafts`(CLI) 파일의 초안을 그대로 돌려준다. `model_info.model_id`는 `replay_file`로 남아 LLM이 아님을 드러낸다 |
 | `OllamaScenarioDrafter` | `ollama_drafter.py` | 실제 로컬 모델. 표준 라이브러리 `urllib`로 Ollama `/api/generate`를 부른다(추가 패키지 없음, 폐쇄망용) |
 
-- Ollama 프롬프트 버전은 `PROMPT_VERSION`(현재 `ollama-scenario-v6`)이고 `model_info.prompt_version`에 기록된다.
+- Ollama 프롬프트 버전은 `PROMPT_VERSION`(현재 `ollama-scenario-v7`)이고 `model_info.prompt_version`에 기록된다.
   - v4(10/11): parameter 객체 예시를 넣고 입력 parameter가 출력과 같은 모양이라고 적었다.
   - v5(10/12): 초안을 선택으로 좁혔다(계정 식별자·`method`·`body_ref`·세션 사전조건은 프로그램).
   - v6(10/12): URL 복사 지시를 빼고(`url_template`도 프로그램), 경로 바인딩은 path 파라미터의 `binding_ref`로만 표현한다고 적었다.
-  - 프롬프트에는 초안 레코드의 정확한 필드와 아래 "초안 검증 규칙"의 판정 조건 요구를 적었다
+  - v7(10/14): assertions 지시를 뺐다. 초안은 steps만 내고, 판정 조건과 기준 단계는 프로그램이 만든다(위 "재현 조건")
 - Ollama 호출의 `format`은 `"json"`이 아니라 초안 JSON Schema다(구조화 출력). `"json"`은 JSON인지만 강제해서 작은 모델이 키를 잘못 중첩했다(10/12 6차 입력 qwen2.5:1.5b: `bindings`·`state_change`를 `request` 안에).
-  Schema의 키는 `DRAFT_*` 상수 순서, 허용값은 출력 Schema에서 가져온다. 모든 객체가 미정의 키를 거절하고 `steps`·`assertions`는 1개 이상이다.
-  값(`value`·`expected`)은 생성 문법을 줄이려고 스칼라와 스칼라 배열까지만 둔다. 의미(ID 존재·순서·참조)는 강제하지 못하므로 조립·`scenario_validator`가 계속 본다.
+  Schema의 키는 `DRAFT_*` 상수 순서, 허용값은 출력 Schema에서 가져온다. 모든 객체가 미정의 키를 거절하고 `steps`는 1개 이상이다.
+  값(`value`)은 생성 문법을 줄이려고 스칼라와 스칼라 배열까지만 둔다. 의미(ID 존재·순서·참조)는 강제하지 못하므로 조립·`scenario_validator`가 계속 본다.
   `format`에 JSON Schema를 받는 Ollama(0.5 이상)가 필요하다
 - LLM에게 주는 입력은 `build_draft_request`가 만든 것뿐이다(헤더·쿠키·응답 본문·근거 경로·민감 파라미터 값 제외)
   - `source_requests[].parameters`는 출력 ParameterValue와 같은 `{name, location, value, binding_ref: null}` 모양으로 보여 준다.
@@ -280,12 +298,12 @@ class ScenarioDrafter(Protocol):
 |---|---|---|---|
 | `assertions`의 의미 | "모두 참이면 위반이 재현됨" | 확정 | verifier README "Check 평가와 result 분류"에 같은 해석으로 구현 |
 | `Check.subject_ref` (`response_status`·`response_json`·`session_valid`) | 응답 조건은 step_id, `session_valid`는 account_id | 확정 | verifier `execution.py` Check 평가 |
-| `Check.subject_ref`·selector (`resource_state`·`resource_owner`·`baseline_match`) | 정하지 않음. 필수 조건으로 치지 않는다 | 미정 | verifier(최민준). verifier가 아직 평가하지 않음 |
+| `Check.subject_ref`·selector·expected (`resource_state`·`resource_owner`·`baseline_match`) | 세 kind 모두 subject_ref는 step_id. `baseline_match`·`resource_owner`의 expected는 기준 단계 step_id, selector는 JSON Pointer 또는 null. 이 모듈은 selector=null·eq로만 만든다 | 확정 | m5·m7 "Check 규약", verifier README "기준 비교" |
 | `Binding`의 위치 | 값을 **쓰는** 단계의 `bindings`에 두고 `source_step_id`로 앞 단계를 가리킨다 | 확정 | verifier는 URL을 만들 때 그 단계의 `bindings`만 읽는다. 이 모듈도 그 단계의 `bindings`에 정의된 바인딩만 쓰게 검증한다 |
 | `url_template`의 `{binding_id}` 와 `parameters(location=path)` | `url_template`은 프로그램이 원본 URL로 채우고 `{...}`는 바인딩 ID만 쓴다. 경로 바인딩은 관찰값 조각 하나를 `{binding_id}`로 바꾸고, 출력 `parameters`에는 `location=path`를 남기지 않는다 | 확정(더 엄격) | verifier는 `{경로 파라미터 이름}` 치환도 지원하지만, 이 모듈은 바인딩만 쓴다. verifier는 URL에 자리가 없는 path 파라미터를 무시한다 |
 | 근거 요청의 계정 | `source_request_ids`의 요청이 실행 계정의 것일 필요는 없다 | 확정 | access_analyzer README: 기준(소유자) 계정의 요청을 실행 계정이 재현한다 |
 | 후보와 시나리오의 수 | 후보 1개당 시나리오 1개. `scenario_id = "scenario_" + candidate_id` | 미정 | 이경준 |
-| 기준 계정 단계 | 기준(소유자) 계정으로 보내는 단계를 steps에 둘 수 있다(필수 아님) | 미정 | 이경준. 명세 m7의 정상 기준 비교를 위해 필수로 바꿀지 |
+| 기준 계정 단계 | 프로그램이 재현 단계 앞에 기준 계정이 같은 요청을 보내는 단계를 넣는다(위 "재현 조건"). 초안도 setup용 기준 계정 단계를 둘 수 있다 | 확정 | 명세 m7 정상 기준 비교. verifier `baseline_match`·`resource_owner`가 이 단계와 비교한다 |
 | `method`·`url`·계정 제한 | 위 "초안 검증 규칙"의 해석 | 미정 | 이경준 |
 
 ## 소비자·생산자 연결 상태 (10/9 기준)
@@ -297,7 +315,7 @@ class ScenarioDrafter(Protocol):
 | access_analyzer | 후보 규칙은 `rule_same_role_other_owner`(authorization / horizontal_access) 하나 | 업무 흐름(workflow) 후보는 아직 들어오지 않는다 |
 | access_analyzer ↔ knowledge_graph | access_analyzer 입력·출력 모두 `0.2.0`. `Candidate.resource_ids`는 KG Resource instance `node_id`다 | 이 모듈은 그 값을 `Scenario.resource_ids`로 그대로 복사한다. 형식은 가정하지 않는다 |
 | safety_policy | 등록된 요청 규칙이 없으면 GET이어도 `require_approval`. URL에 fragment·공백·`//`·`.`/`..` 세그먼트·잘못된 `%` 인코딩이 있으면 허용하지 않음 | 이 모듈은 위 URL 형식을 미리 거르지 않는다. 허용 여부는 safety_policy가 정한다 |
-| verifier | `state_change≠none` 단계와 `body_ref`가 있는 단계는 보내지 않는다(DB 초기화 훅·본문 역참조가 다음 PR). `resource_state`·`resource_owner`·`baseline_match`는 평가하지 않는다 | 지금 끝까지 판정되는 것은 **GET + `state_change=none` 읽기 시나리오**뿐이다. 그 밖은 판단불가(`indeterminate`) |
+| verifier | `state_change≠none` 단계와 `body_ref`가 있는 단계는 보내지 않는다(DB 초기화 훅·본문 역참조가 다음 PR). `baseline_match`·`resource_owner`는 JSON이면 판정, 텍스트(HTML)면 기록만 한다(#78) | 지금 끝까지 판정되는 것은 **GET + `state_change=none` + JSON 응답 읽기 시나리오**다. HTML 응답이 2xx면 control 단계 전까지 판단불가(`indeterminate`) |
 | verifier ↔ knowledge_graph | KG 0.2는 검증 관계의 target으로 앞 단계에서 받은 Resource instance `node_id`만 받는다 | `test_scenarios` 0.2.0의 `Scenario.resource_ids`로 전달한다(위 "명세 대비 변경 이력"). verifier가 이 값을 `graph_updates`에 쓰는 것은 verifier 쪽 작업이다 |
 
 생산자 샘플로 교차 확인한 결과(10/9): collector·access_analyzer `run_demo_001` 샘플이 이 모듈 입력 adapter를 통과한다(Schema 오류 0).
@@ -309,6 +327,8 @@ class ScenarioDrafter(Protocol):
 - `created_at`·`observed_at`이 실제 날짜 형식인지는 검사하지 않는다 (`date-time` 형식 검사에 추가 패키지가 필요)
 - `resource_ids`·`workflow_id`는 `crawl_result`로 검증할 수 없어 그대로 전달한다
 - 응답 본문을 저장하지 않으므로 바인딩 selector가 실제 응답에 있는지는 이 모듈이 알 수 없다 (verifier가 실행 시 확인)
+- 재현 조건은 기준 계정과 같은 응답을 받는지로만 만든다. 기준 계정이 없는 후보(업무 흐름 등)와 상태 변경 재현은 시나리오가 나오지 않는다(`ASSERTION_BASELINE_UNAVAILABLE`)
+- HTML 응답은 control 단계(실행 계정 자기 자원)가 들어오기 전까지 verifier가 판정하지 않는다(재현 응답 2xx면 `indeterminate`)
 
 ## 테스트
 
@@ -319,7 +339,7 @@ class ScenarioDrafter(Protocol):
 다른 모듈의 실제 코드 없이 `tests/fixtures/`의 입력과 대역 drafter로 정상·partial·failed·입력 오류·함정 케이스를 검증한다.
 drafter 설정·CLI 조합은 `tests/test_sg_drafter_config.py`가 본다(Ollama 전송은 기록용 대역, 네트워크 없음).
 `tests/conftest.py`가 autouse로 `SCENARIO_GENERATOR_CONFIG_PATH`를 `tests/fixtures/configs/provider_none.toml`에 고정하므로 로컬 설정은 테스트에 영향이 없다.
-테스트는 계정·요청 ID에 기대지 않고 fixture에서 값을 읽는다.
+테스트는 계정·요청 ID에 기대지 않고 fixture에서 값을 읽는다. 재현 조건 생성(`tests/test_sg_reproduction_checks.py`)은 리터럴 입력으로 규칙 하나씩 본다.
 
 ## 의존성
 
