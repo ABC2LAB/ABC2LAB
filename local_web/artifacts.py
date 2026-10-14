@@ -183,7 +183,7 @@ def read_bytes(run_root: Path, suffix: str) -> bytes:
 
 def validate_envelope(raw: object, name: str, run_id: str) -> dict[str, object]:
     value = object_fields(raw, " ".join(ENVELOPE_FIELDS))
-    if (value["schema_version"] != "0.2.0" or value["artifact_type"] != name
+    if (value["schema_version"] != "0.3.0" or value["artifact_type"] != name
             or value["run_id"] != run_id or type(value["iteration"]) is not int
             or value["iteration"] != 0 or value["mode"] != "development"
             or value["producer"] != PUBLIC_FILES[name].split("/")[0]):
@@ -221,7 +221,8 @@ def load_artifact(run_root: Path, name: str, expected_hash: str | None) -> Loade
 
 
 def crawl_view(data: object) -> dict[str, object]:
-    value = object_fields(data, "target_url roles accounts pages actions requests")
+    # crawl_result 0.3.0: discovered_endpoints(발견만 한 엔드포인트)가 필수 키로 추가됐다. 화면 집계는 그대로다.
+    value = object_fields(data, "target_url roles accounts pages actions requests discovered_endpoints")
     counts = {name: len(records(value[name], key)) for name, key in (
         ("roles", "role_id"), ("accounts", "account_id"), ("pages", "page_id"),
         ("actions", "action_id"), ("requests", "request_id"))}

@@ -1223,7 +1223,7 @@ snapshot 조회 실패·누락·복수 snapshot은 빈 그래프나 임의 첫 �
 - 절대 경로의 각 디렉터리·파일을 `dir_fd`와 `O_NOFOLLOW`로 열어 symlink 경로와
   교체를 따라가지 않는다. 일반 파일만 읽고 hardlink·FIFO·루트 밖 경로를 거절한다.
 - JSON 중복 키·NaN/Infinity·비유한 수·잘못된 인코딩을 거절하고 envelope의 버전
-  0.2.0·run_id·development·iteration 0·작성자·종류·필수 필드·상태/data/errors 대응을
+  0.3.0(2026-10-14 실행 산출물 0.3.0 통일)·run_id·development·iteration 0·작성자·종류·필수 필드·상태/data/errors 대응을
   확인한다. 표시 필드의 타입·enum·ID 중복과 그래프 끝점도 확인한다. 이것은 **Web의
   최소 표시 검증**이며 각 모듈의 전체 JSON Schema·참조·의미 검증을 대신하지 않는다.
 - 이미 읽은 공개 입력과 input_refs의 ID·회차·고정 경로·실제 바이트 hash를 대조한다.
@@ -1297,7 +1297,7 @@ Ground Truth 평가 성능을 완료로 기록하지 않는다.
 #### 연결·표현 경계
 
 기존 Runner가 development 모드에서 호출하는 `reporter.evaluate`의 공개 출력
-`evaluation_results.json`(`schema_version=0.2.0`)을 성능 평가 메뉴에 연결했다.
+`evaluation_results.json`(당시 `schema_version=0.2.0`, 2026-10-14부터 0.3.0)을 성능 평가 메뉴에 연결했다.
 Runner 호출·평가 계산·모듈 Schema는 수정하지 않았다. 기존 표·모바일 스타일을
 재사용했으며 외부 사이트 등록·배포·새 의존성은 없다.
 

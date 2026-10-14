@@ -26,7 +26,7 @@ def make_artifacts(run_id: str, target_url: str, case: str = "completed", *,
 
     def publish(name: str, data: dict, references: tuple[str, ...] = ()) -> None:
         status = "failed" if name == "crawl_result" and case == "failed" else "partial" if name in {"semantic_analysis", "evaluation_results"} and case == "partial" else "completed"
-        result[name] = {"schema_version": "0.2.0", "artifact_type": name, "artifact_id": name + "_" + run_id,
+        result[name] = {"schema_version": "0.3.0", "artifact_type": name, "artifact_id": name + "_" + run_id,
                         "run_id": run_id, "iteration": 0, "producer": producers[name], "mode": "development",
                         "created_at": "2026-10-12T00:00:00Z", "status": status,
                         "input_refs": [{"artifact_id": result[ref]["artifact_id"], "artifact_type": ref, "iteration": 0,
@@ -40,7 +40,8 @@ def make_artifacts(run_id: str, target_url: str, case: str = "completed", *,
     publish("crawl_result", {"target_url": target_url, "roles": [{"role_id": "role-q", "name": "reviewer"}],
                              "accounts": [{"account_id": "actor-z", "role_id": "role-q", "alias": "probe_z", "session_ref": "PRIVATE_SESSION_SENTINEL"}],
                              "pages": [{"page_id": "page-j", "account_id": "actor-z", "url": target_url,
-                                        "title": "Fixture page", "evidence_refs": []}], "actions": [], "requests": []})
+                                        "title": "Fixture page", "evidence_refs": []}], "actions": [], "requests": [],
+                             "discovered_endpoints": []})
     if case == "failed":
         return result
     nodes = [{"node_id": node_id, "node_type": node_type, "properties": {"secret": "PASSWORD_SENTINEL"},
