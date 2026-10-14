@@ -143,8 +143,8 @@ def copy_committed_triple(run_root: Path) -> list[str]:
     return list(INPUT_RELS.values())
 
 
-# 입력마다 생산자 계약 버전이 따로 올라간다(crawl_result 0.3.0: discovered_endpoints 추가).
-SCHEMA_VERSION_BY_ARTIFACT = {"test_scenarios": "0.2.0", "safety_decisions": "0.2.0", "crawl_result": "0.3.0"}
+# 입력마다 생산자 계약 버전을 따로 둔다(2026-10-14 실행 산출물 0.3.0 통일로 지금은 모두 0.3.0).
+SCHEMA_VERSION_BY_ARTIFACT = {"test_scenarios": "0.3.0", "safety_decisions": "0.3.0", "crawl_result": "0.3.0"}
 
 
 def _envelope(artifact_type: str, producer: str, data: Any, status: str = "completed") -> dict[str, Any]:

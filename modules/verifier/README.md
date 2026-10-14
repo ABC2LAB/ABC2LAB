@@ -5,7 +5,7 @@
 | module_id | `verifier` |
 | 공개 operation | `verify` (안전 게이트 + allow 재현 실행·Check 판정 + 실물 collector 세션 창구 연결) |
 | 명세 | `docs/spec/m7-verifier.md`, `02-common-contract.md`, `03-runner-layout.md` |
-| 계약 버전 | 입력 test_scenarios·safety_decisions `0.2.0`, crawl_result `0.3.0`, 출력 verification_results `0.2.0` |
+| 계약 버전 | 입력 test_scenarios·safety_decisions·crawl_result `0.3.0`, 출력 verification_results `0.3.0` (2026-10-14 실행 산출물 0.3.0 통일) |
 
 허용된 재현 계획만 대상 웹에 실행하고 실제 요청·응답·상태 근거로 판정한다. **safety_policy가 allow한 것만**,
 `effective_origins`·`limits` 안에서만 실행한다. block·require_approval은 요청 없이 미실행으로 남긴다. 미실행·판단불가를
@@ -22,7 +22,7 @@
 | 입력(창구) | 세션 공개 창구 | collector(런너가 주입) |
 | 출력 | `verification_results.json` | 소비자: knowledge_graph, reporter |
 
-- 입력 Schema는 `schemas/input/`의 사본으로, **생산자 실제 출력 Schema를 그대로 미러링**한다(더 엄격하게 하지 않음). 0.2.0 기준 title·description 외 동일하다(정규화 비교). `0.1.0` 입력은 `INPUT_CONTRACT_INVALID`(failed, 전송 0건). `crawl_result`의 `Page.account_id`는 m1 명세 표엔 없고 collector가 추가한 필드라 사본에도 포함한다(#35까지 반영).
+- 입력 Schema는 `schemas/input/`의 사본으로, **생산자 실제 출력 Schema를 그대로 미러링**한다(더 엄격하게 하지 않음). 0.3.0 기준 title·description 외 동일하다(정규화 비교). `0.1.0` 입력은 `INPUT_CONTRACT_INVALID`(failed, 전송 0건). `crawl_result`의 `Page.account_id`는 m1 명세 표엔 없고 collector가 추가한 필드라 사본에도 포함한다(#35까지 반영).
 - 다른 모듈의 Schema·코드를 import/$ref 하지 않는다.
 
 ## 공개 호출

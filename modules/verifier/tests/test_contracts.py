@@ -27,7 +27,7 @@ def _item(result: str, execution_status: str, policy_decision: str = "allow", st
 
 def _doc(results, graph_updates=None) -> dict:
     return {
-        "schema_version": "0.2.0", "artifact_type": "verification_results", "artifact_id": "r1",
+        "schema_version": "0.3.0", "artifact_type": "verification_results", "artifact_id": "r1",
         "run_id": "run_demo_001", "iteration": 0, "producer": "verifier", "mode": "development",
         "created_at": "2026-10-07T00:00:00Z", "status": "completed", "input_refs": [], "errors": [],
         "runtime_metrics": None,
@@ -174,9 +174,9 @@ def test_relationship_with_old_source_id_rejected() -> None:
 
 
 def test_producer_sample_validates_against_output_schema() -> None:
-    # 커밋된 생산자 샘플(실제 verify 출력, 세션 창구 없음)이 자기 출력 스키마(0.2.0)를 통과하는지 고정한다.
+    # 커밋된 생산자 샘플(실제 verify 출력, 세션 창구 없음)이 자기 출력 스키마(0.3.0)를 통과하는지 고정한다.
     doc = json.loads(VERIFICATION_RESULTS_FIXTURE.read_bytes())
-    assert doc["schema_version"] == "0.2.0"
+    assert doc["schema_version"] == "0.3.0"
     assert doc["run_id"] == "run_demo_001"
     # 데모 입력 2개 시나리오가 다 들어간다(세션 창구 없어 allow는 미실행 indeterminate, block은 blocked).
     assert {it["scenario_id"] for it in doc["data"]["results"]} == {"scenario_allow", "scenario_block"}
