@@ -5,7 +5,7 @@
 | module_id | `access_analyzer` |
 | 공개 operation | `prepare_queries`, `analyze` |
 | 명세 | `docs/spec/m4-access_analyzer.md`, `docs/spec/02-common-contract.md`, `docs/spec/03-runner-layout.md` |
-| 계약 버전 | 출력(`graph_query`·`vulnerability_candidates`) `0.1.0` · 입력 `graph_query_result` `0.2.0` |
+| 계약 버전 | 출력(`graph_query`·`vulnerability_candidates`) `0.3.0` · 입력 `graph_query_result` `0.3.0` (2026-10-14 실행 산출물 0.3.0 통일, 필드 변경 없음) |
 
 KG 조회 계획을 세우고(prepare_queries), KG가 돌린 결과로 인가·비즈니스 로직 취약점 **후보**를 만든다(analyze).
 후보는 **검증 대상이지 확정 취약점이 아니다.** Neo4j 접속·Cypher 실행은 knowledge_graph가 한다. 이 모듈은
