@@ -21,7 +21,7 @@
       "artifact_type": "vulnerability_candidates",
       "iteration": 0,
       "path": "artifacts/iteration-000/access_analyzer/vulnerability_candidates.json",
-      "sha256": "5a311737ba4ef66fee9c5d697204d8fc597b95e2a5b4482679d88588e0ecf95f"
+      "sha256": "7fd42d6e41f13a146ed607a6d6be921b5246c8788b5e40d2f41b0eeba3bca008"
     }
   ],
   "errors": [],
@@ -77,8 +77,31 @@
             "state_change": "none"
           },
           {
-            "step_id": "step_actor_detail",
+            "step_id": "baseline_step_actor_detail",
             "order": 1,
+            "source_request_id": "req_b_detail",
+            "account_id": "account_b",
+            "role_id": "role_user",
+            "session_ref": "session_ref_b",
+            "request": {
+              "method": "GET",
+              "url_template": "http://target.example.test/items/{baseline_binding_item_id}",
+              "parameters": [],
+              "body_ref": null
+            },
+            "bindings": [
+              {
+                "binding_id": "baseline_binding_item_id",
+                "source_step_id": "step_owner_list",
+                "source_part": "response_body",
+                "selector": "/0/id"
+              }
+            ],
+            "state_change": "none"
+          },
+          {
+            "step_id": "step_actor_detail",
+            "order": 2,
             "source_request_id": "req_b_detail",
             "account_id": "account_a",
             "role_id": "role_user",
@@ -102,7 +125,7 @@
         ],
         "assertions": [
           {
-            "check_id": "assert_actor_status",
+            "check_id": "assertion_status",
             "kind": "response_status",
             "subject_ref": "step_actor_detail",
             "selector": null,
@@ -110,25 +133,41 @@
             "expected": 200
           },
           {
-            "check_id": "assert_actor_body",
-            "kind": "response_json",
+            "check_id": "assertion_baseline",
+            "kind": "baseline_match",
             "subject_ref": "step_actor_detail",
-            "selector": "/id",
-            "operator": "exists",
-            "expected": true
+            "selector": null,
+            "operator": "eq",
+            "expected": "baseline_step_actor_detail"
+          },
+          {
+            "check_id": "assertion_owner",
+            "kind": "resource_owner",
+            "subject_ref": "step_actor_detail",
+            "selector": null,
+            "operator": "eq",
+            "expected": "baseline_step_actor_detail"
           }
         ]
       },
       {
-        "scenario_id": "scenario_cand_workflow_1",
-        "candidate_id": "cand_workflow_1",
-        "expected_basis": "unknown",
+        "scenario_id": "scenario_cand_horizontal_2",
+        "candidate_id": "cand_horizontal_2",
+        "expected_basis": "inferred",
         "resource_ids": [
-          "item_202"
+          "item_list_b"
         ],
         "preconditions": [
           {
             "check_id": "precondition_session_1",
+            "kind": "session_valid",
+            "subject_ref": "account_b",
+            "selector": null,
+            "operator": "eq",
+            "expected": true
+          },
+          {
+            "check_id": "precondition_session_2",
             "kind": "session_valid",
             "subject_ref": "account_a",
             "selector": null,
@@ -138,38 +177,62 @@
         ],
         "steps": [
           {
-            "step_id": "step_confirm_directly",
+            "step_id": "baseline_step_actor_list",
             "order": 0,
-            "source_request_id": "req_a_confirm",
-            "account_id": "account_a",
+            "source_request_id": "req_b_list",
+            "account_id": "account_b",
             "role_id": "role_user",
-            "session_ref": "session_ref_a",
+            "session_ref": "session_ref_b",
             "request": {
-              "method": "POST",
-              "url_template": "http://target.example.test/items/202/confirm",
+              "method": "GET",
+              "url_template": "http://target.example.test/items",
               "parameters": [],
               "body_ref": null
             },
             "bindings": [],
-            "state_change": "expected"
+            "state_change": "none"
+          },
+          {
+            "step_id": "step_actor_list",
+            "order": 1,
+            "source_request_id": "req_b_list",
+            "account_id": "account_a",
+            "role_id": "role_user",
+            "session_ref": "session_ref_a",
+            "request": {
+              "method": "GET",
+              "url_template": "http://target.example.test/items",
+              "parameters": [],
+              "body_ref": null
+            },
+            "bindings": [],
+            "state_change": "none"
           }
         ],
         "assertions": [
           {
-            "check_id": "assert_confirm_status",
+            "check_id": "assertion_status",
             "kind": "response_status",
-            "subject_ref": "step_confirm_directly",
+            "subject_ref": "step_actor_list",
             "selector": null,
             "operator": "eq",
             "expected": 200
           },
           {
-            "check_id": "assert_confirm_body",
-            "kind": "response_json",
-            "subject_ref": "step_confirm_directly",
-            "selector": "/status",
+            "check_id": "assertion_baseline",
+            "kind": "baseline_match",
+            "subject_ref": "step_actor_list",
+            "selector": null,
             "operator": "eq",
-            "expected": "confirmed"
+            "expected": "baseline_step_actor_list"
+          },
+          {
+            "check_id": "assertion_owner",
+            "kind": "resource_owner",
+            "subject_ref": "step_actor_list",
+            "selector": null,
+            "operator": "eq",
+            "expected": "baseline_step_actor_list"
           }
         ]
       }

@@ -36,7 +36,7 @@ def _request() -> dict[str, Any]:
 
 
 def test_parses_draft_and_tokens():
-    draft_obj = {"steps": [], "assertions": []}
+    draft_obj = {"steps": []}
     client = OllamaScenarioDrafter(_config(),
                                    transport=lambda u, p, t: _response_bytes(draft_obj, in_tokens=11, out_tokens=22))
     result = client.draft(_request())
@@ -49,7 +49,7 @@ def test_prompt_carries_request_as_json_only():
 
     def transport(url: str, payload: bytes, timeout: float) -> bytes:
         captured["body"] = json.loads(payload)
-        return _response_bytes({"steps": [], "assertions": []})
+        return _response_bytes({"steps": []})
 
     OllamaScenarioDrafter(_config(), transport=transport).draft(_request())
     body = captured["body"]

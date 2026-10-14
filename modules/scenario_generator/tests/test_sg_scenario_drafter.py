@@ -81,15 +81,14 @@ def test_viewed_parameter_has_output_schema_shape(matched_candidates: list[Match
 
 
 def test_viewed_parameter_hides_sensitivity_flag_but_keeps_value_null(matched_candidates: list[MatchedCandidate]) -> None:
-    sensitive_names = {
-        parameter["name"]
-        for matched in matched_candidates
-        for source in matched.source_requests
-        for parameter in source["parameters"]
-        if parameter["is_sensitive"]
-    }
-    assert sensitive_names, "fixture에 민감 parameter가 있어야 한다"
-    viewed = _viewed_parameters(matched_candidates)
+    # collector가 민감 값으로 표시한 body 파라미터(값 null)를 원본 요청에 하나 넣는다.
+    candidates = copy.deepcopy(matched_candidates)
+    candidates[0].source_requests[0]["parameters"].append(
+        {"name": "token", "location": "body", "value": None, "is_sensitive": True}
+    )
+    sensitive_names = {"token"}
+    viewed = _viewed_parameters(candidates)
+    assert any(parameter["name"] in sensitive_names for parameter in viewed)
     assert all("is_sensitive" not in parameter for parameter in viewed)
     assert all(parameter["value"] is None for parameter in viewed if parameter["name"] in sensitive_names)
 

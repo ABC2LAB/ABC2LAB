@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from modules.scenario_generator.input_adapter import InputError, InputErrorCode, LoadedArtifact
+from modules.scenario_generator.reproduction_checks import BASELINE_PREFIX
 from modules.scenario_generator.scenario_drafter import Draft, DrafterError
 from modules.scenario_generator.service import GenerationErrorCode, generate_scenarios
 
@@ -132,10 +133,15 @@ def test_drafter_failure_is_tracked_and_others_continue(
     [
         lambda draft: draft.update({"steps": []}),
         lambda draft: draft.update({"candidate_id": "smuggled"}),
-        lambda draft: draft.pop("assertions"),
+        lambda draft: draft.update({"assertions": [
+            {"check_id": "a1", "kind": "response_status", "subject_ref": "x", "selector": None, "operator": "eq", "expected": 403}
+        ]}),
+        lambda draft: draft.pop("steps"),
         lambda draft: draft["steps"][0].update({"account_id": "no_such_account"}),
+        # 기준 단계는 재현 단계를 복사해 만든다. 모양이 틀린 단계로 만들다 터지지 않고 초안 오류로 남아야 한다.
+        lambda draft: draft["steps"][-1].update({"bindings": "not a list"}),
     ],
-    ids=["no steps", "extra key", "missing key", "unknown account"],
+    ids=["no steps", "extra key", "draft writes assertions", "missing key", "unknown account", "bindings not a list"],
 )
 def test_invalid_draft_is_rejected_not_hidden(
     candidates_artifact: LoadedArtifact,
@@ -213,48 +219,173 @@ def test_duplicate_ids_in_crawl_result_raise_input_error(
     assert caught.value.code is InputErrorCode.DUPLICATE_ID
 
 
-def test_response_json_on_non_json_step_is_dropped_and_reported(
+def published_by_candidate(outcome: Any) -> dict[str, dict[str, Any]]:
+    return {s["candidate_id"]: s for s in outcome.scenarios}
+
+
+def reproduction_step(scenario: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    return [
+        step for step in scenario["steps"]
+        if step["account_id"] == candidate["actor_account_id"] and step["source_request_id"] in candidate["source_request_ids"]
+    ][-1]
+
+
+def test_assertions_are_built_by_the_program_from_the_candidate(
     candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
 ) -> None:
-    # 원본 요청 하나의 응답을 HTML로 바꾸면, 그 요청을 쓰는 단계의 response_json만 버리고 시나리오는 발행한다.
-    def content_steps(draft: dict[str, Any]) -> list[tuple[str, str]]:
-        source_by_step = {step["step_id"]: step["source_request_id"] for step in draft["steps"]}
-        return [
-            (check["check_id"], source_by_step[check["subject_ref"]])
-            for check in draft["assertions"]
-            if check["kind"] == "response_json" and check["subject_ref"] in source_by_step
+    # 기대 동작(기준 계정이 아니면 거부)의 부정이 재현 조건이다: 실행 계정이 기준 계정과 같은 응답을 받는다.
+    requests = requests_by_id(crawl_artifact)
+    outcome = generate_scenarios(candidates_artifact, crawl_artifact, StubDrafter(replaying(drafts)))
+    assert outcome.errors == []
+    for candidate in candidates_artifact.document["data"]["candidates"]:
+        scenario = published_by_candidate(outcome)[candidate["candidate_id"]]
+        step = reproduction_step(scenario, candidate)
+        baseline_id = f"{BASELINE_PREFIX}{step['step_id']}"
+        observed_status = requests[step["source_request_id"]]["response"]["status_code"]
+        assert scenario["assertions"] == [
+            {"check_id": "assertion_status", "kind": "response_status", "subject_ref": step["step_id"], "selector": None, "operator": "eq", "expected": observed_status},
+            {"check_id": "assertion_baseline", "kind": "baseline_match", "subject_ref": step["step_id"], "selector": None, "operator": "eq", "expected": baseline_id},
+            {"check_id": "assertion_owner", "kind": "resource_owner", "subject_ref": step["step_id"], "selector": None, "operator": "eq", "expected": baseline_id},
         ]
 
-    html_request_id = next(source for draft in drafts.values() for _, source in content_steps(draft))
-    requests = {r["request_id"]: r for r in crawl_artifact.document["data"]["requests"]}
+
+def test_baseline_step_replays_the_same_request_as_the_reference_account(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
+) -> None:
+    outcome = generate_scenarios(candidates_artifact, crawl_artifact, StubDrafter(replaying(drafts)))
+    accounts = {a["account_id"]: a for a in crawl_artifact.document["data"]["accounts"]}
+    for candidate in candidates_artifact.document["data"]["candidates"]:
+        scenario = published_by_candidate(outcome)[candidate["candidate_id"]]
+        step = reproduction_step(scenario, candidate)
+        position = scenario["steps"].index(step)
+        baseline = scenario["steps"][position - 1]
+        reference = accounts[candidate["reference_account_id"]]
+        assert baseline["step_id"] == f"{BASELINE_PREFIX}{step['step_id']}"
+        assert (baseline["account_id"], baseline["role_id"], baseline["session_ref"]) == (
+            reference["account_id"], reference["role_id"], reference["session_ref"]
+        )
+        assert baseline["source_request_id"] == step["source_request_id"]
+        assert baseline["request"]["method"] == step["request"]["method"]
+        assert [s["order"] for s in scenario["steps"]] == list(range(len(scenario["steps"])))
+        # 기준 계정 세션도 사전조건으로 확인한다(세션이 죽은 기준 응답과 비교하지 않게).
+        assert reference["account_id"] in [c["subject_ref"] for c in scenario["preconditions"]]
+
+
+def test_observed_status_is_the_expected_status_not_a_fixed_value(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
+) -> None:
+    # 기대 상태 코드는 근거 요청에서 관찰한 값이다(200으로 고정하지 않는다).
+    target_id = candidates_artifact.document["data"]["candidates"][0]["source_request_ids"][0]
+
+    def created(document: dict[str, Any]) -> None:
+        for request in document["data"]["requests"]:
+            if request["request_id"] == target_id:
+                request["response"]["status_code"] = 201
+
+    outcome = generate_scenarios(candidates_artifact, with_document(crawl_artifact, created), StubDrafter(replaying(drafts)))
+    scenario = published_by_candidate(outcome)[candidate_ids(candidates_artifact)[0]]
+    status_check = next(check for check in scenario["assertions"] if check["kind"] == "response_status")
+    assert status_check["expected"] == 201
+
+
+def test_non_json_source_gets_no_resource_owner_check(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
+) -> None:
+    # 식별자 비교는 JSON에만 적용된다. HTML 근거 응답이면 status·baseline_match만 만들고 오류 없이 발행한다.
+    target_id = candidates_artifact.document["data"]["candidates"][0]["source_request_ids"][0]
 
     def to_html(document: dict[str, Any]) -> None:
         for request in document["data"]["requests"]:
-            if request["request_id"] == html_request_id:
+            if request["request_id"] == target_id:
                 request["response"]["content_type"] = "text/html; charset=utf-8"
 
     outcome = generate_scenarios(candidates_artifact, with_document(crawl_artifact, to_html), StubDrafter(replaying(drafts)))
+    assert outcome.errors == []
+    scenario = published_by_candidate(outcome)[candidate_ids(candidates_artifact)[0]]
+    assert [check["kind"] for check in scenario["assertions"]] == ["response_status", "baseline_match"]
 
-    expected = [
-        (candidate_id, check_id)
-        for candidate_id in candidate_ids(candidates_artifact)
-        for check_id, source in content_steps(drafts[candidate_id])
-        if source == html_request_id
-    ]
-    assert expected
+
+def test_candidate_without_reference_account_is_reported_without_calling_the_model(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
+) -> None:
+    no_reference_id = candidate_ids(candidates_artifact)[-1]
+    candidates = with_document(
+        candidates_artifact, lambda doc: doc["data"]["candidates"][-1].update({"reference_account_id": None})
+    )
+    drafter = StubDrafter(replaying(drafts))
+    outcome = generate_scenarios(candidates, crawl_artifact, drafter)
+
+    assert no_reference_id not in [r["candidate"]["candidate_id"] for r in drafter.requests]
+    assert outcome.llm_calls == len(candidate_ids(candidates_artifact)) - 1
     assert [(e["code"], e["item_ref"]) for e in outcome.errors] == [
-        (GenerationErrorCode.ASSERTION_NON_JSON_RESPONSE, candidate_id) for candidate_id, _ in expected
+        (GenerationErrorCode.ASSERTION_BASELINE_UNAVAILABLE, no_reference_id)
     ]
-    published = {s["candidate_id"]: s for s in outcome.scenarios}
-    assert [s["candidate_id"] for s in outcome.scenarios] == candidate_ids(candidates_artifact)
-    for (candidate_id, check_id), error in zip(expected, outcome.errors):
-        remaining = published[candidate_id]["preconditions"] + published[candidate_id]["assertions"]
-        assert check_id not in [c["check_id"] for c in remaining]
-        assert check_id in error["message"]
-        # 메시지에는 check_id만: 원본 URL·content_type·parameter 값은 넣지 않는다.
-        source = requests[html_request_id]
-        assert source["url"] not in error["message"] and "text/html" not in error["message"]
-        assert all(str(p["value"]) not in error["message"] for p in source["parameters"] if p["value"])
+    assert no_reference_id not in published_by_candidate(outcome)
+    assert outcome.diagnostics == []
+
+
+def _with_state_change(draft: dict[str, Any]) -> None:
+    draft["steps"][-1]["state_change"] = "possible"
+
+
+@pytest.mark.parametrize("status", [302, 403])
+def test_non_2xx_source_cannot_be_reproduced(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any], status: int
+) -> None:
+    # 소유자도 정상(2xx)으로 받지 않은 요청은 "실행 계정도 받으면 재현"이라는 조건이 성립하지 않는다.
+    broken_id = candidate_ids(candidates_artifact)[0]
+    target_id = candidates_artifact.document["data"]["candidates"][0]["source_request_ids"][0]
+
+    def set_status(document: dict[str, Any]) -> None:
+        for request in document["data"]["requests"]:
+            if request["request_id"] == target_id:
+                request["response"]["status_code"] = status
+
+    outcome = generate_scenarios(candidates_artifact, with_document(crawl_artifact, set_status), StubDrafter(replaying(drafts)))
+    assert [(e["code"], e["item_ref"]) for e in outcome.errors] == [
+        (GenerationErrorCode.ASSERTION_BASELINE_UNAVAILABLE, broken_id)
+    ]
+    assert broken_id not in published_by_candidate(outcome)
+    assert outcome.diagnostics == []
+
+
+def test_state_changing_reproduction_step_cannot_get_a_baseline(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
+) -> None:
+    # 상태를 바꿀 수 있는 요청은 기준 계정이 먼저 보내면 상태가 달라져 같은 요청으로 기준 응답을 만들 수 없다.
+    broken_id = candidate_ids(candidates_artifact)[0]
+    base = replaying(drafts)
+
+    def behavior(request: dict[str, Any]) -> Draft:
+        draft = base(request)
+        if request["candidate"]["candidate_id"] == broken_id:
+            _with_state_change(draft.scenario)
+        return draft
+
+    outcome = generate_scenarios(candidates_artifact, crawl_artifact, StubDrafter(behavior))
+    assert [(e["code"], e["item_ref"]) for e in outcome.errors] == [
+        (GenerationErrorCode.ASSERTION_BASELINE_UNAVAILABLE, broken_id)
+    ]
+    assert broken_id not in published_by_candidate(outcome)
+
+
+def test_draft_without_actor_replay_is_invalid(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
+) -> None:
+    # 실행 계정이 후보 근거 요청을 재현하지 않으면 재현 조건을 붙일 단계가 없다(초안 탓 → DRAFT_INVALID, 진단 기록).
+    broken_id = candidate_ids(candidates_artifact)[0]
+    base = replaying(drafts)
+
+    def behavior(request: dict[str, Any]) -> Draft:
+        draft = base(request)
+        if request["candidate"]["candidate_id"] == broken_id:
+            for step in draft.scenario["steps"]:
+                step["account_role"] = "reference"
+        return draft
+
+    outcome = generate_scenarios(candidates_artifact, crawl_artifact, StubDrafter(behavior))
+    assert [(e["code"], e["item_ref"]) for e in outcome.errors] == [(GenerationErrorCode.DRAFT_INVALID, broken_id)]
+    assert [record["candidate_id"] for record in outcome.diagnostics] == [broken_id]
 
 
 def requests_by_id(crawl_artifact: LoadedArtifact) -> dict[str, dict[str, Any]]:
@@ -287,7 +418,8 @@ def test_url_template_is_built_by_the_program_from_the_source_request(
     published = {s["candidate_id"]: s for s in outcome.scenarios}
     binding_count = 0
     for candidate_id, draft in drafts.items():
-        for draft_step, step in zip(draft["steps"], published[candidate_id]["steps"], strict=True):
+        drafted_steps = [step for step in published[candidate_id]["steps"] if not step["step_id"].startswith(BASELINE_PREFIX)]
+        for draft_step, step in zip(draft["steps"], drafted_steps, strict=True):
             source = requests[step["source_request_id"]]
             restored = step["request"]["url_template"]
             for parameter in draft_step["request"]["parameters"]:

@@ -14,8 +14,8 @@ from jsonschema import Draft202012Validator
 from modules.scenario_generator.ollama_drafter import OllamaDrafterConfig, OllamaScenarioDrafter
 from modules.scenario_generator.scenario_drafter import build_draft_json_schema
 
-# m5 "구현 주의사항": 초안은 steps·assertions만, step은 아래 키만, request는 parameters만 담는다.
-SPEC_DRAFT_KEYS = {"steps", "assertions"}
+# m5 "구현 주의사항": 초안은 steps만, step은 아래 키만, request는 parameters만 담는다(판정 조건은 프로그램 몫).
+SPEC_DRAFT_KEYS = {"steps"}
 SPEC_STEP_KEYS = {"step_id", "order", "source_request_id", "account_role", "request", "bindings", "state_change"}
 SPEC_REQUEST_KEYS = {"parameters"}
 SPEC_ACCOUNT_ROLES = {"actor", "reference"}
@@ -52,8 +52,8 @@ def test_schema_requires_exactly_the_spec_keys_at_each_level() -> None:
 
 def test_every_object_in_the_schema_rejects_unknown_keys() -> None:
     objects = list(iter_object_schemas(build_draft_json_schema()))
-    # 초안·step·request·parameter·binding·check 여섯 종류가 모두 객체로 들어 있어야 한다.
-    assert len(objects) >= 6
+    # 초안·step·request·parameter·binding 다섯 종류가 모두 객체로 들어 있어야 한다.
+    assert len(objects) >= 5
     assert all(node.get("additionalProperties") is False for node in objects)
 
 
@@ -62,23 +62,19 @@ def test_enums_follow_the_output_contract() -> None:
     step = step_schema(build_draft_json_schema())
     parameter = step["properties"]["request"]["properties"]["parameters"]["items"]
     binding = step["properties"]["bindings"]["items"]
-    check = build_draft_json_schema()["properties"]["assertions"]["items"]
     assert set(step["properties"]["account_role"]["enum"]) == SPEC_ACCOUNT_ROLES
     assert step["properties"]["state_change"]["enum"] == defs["scenarioStep"]["properties"]["state_change"]["enum"]
     assert parameter["properties"]["location"]["enum"] == defs["parameterValue"]["properties"]["location"]["enum"]
     assert binding["properties"]["source_part"]["enum"] == defs["binding"]["properties"]["source_part"]["enum"]
-    assert check["properties"]["kind"]["enum"] == defs["check"]["properties"]["kind"]["enum"]
-    assert check["properties"]["operator"]["enum"] == defs["check"]["properties"]["operator"]["enum"]
 
 
 def test_nested_records_have_the_output_contract_keys() -> None:
-    # parameter·binding·check는 초안 값이 출력에 그대로 들어간다. 키가 출력 계약과 다르면 조립 뒤 Schema 위반이 된다.
+    # parameter·binding은 초안 값이 출력에 그대로 들어간다. 키가 출력 계약과 다르면 조립 뒤 Schema 위반이 된다.
     defs = output_defs()
     step = step_schema(build_draft_json_schema())
     parameter = step["properties"]["request"]["properties"]["parameters"]["items"]
     binding = step["properties"]["bindings"]["items"]
-    check = build_draft_json_schema()["properties"]["assertions"]["items"]
-    for node, definition in ((parameter, "parameterValue"), (binding, "binding"), (check, "check")):
+    for node, definition in ((parameter, "parameterValue"), (binding, "binding")):
         assert set(node["properties"]) == set(defs[definition]["properties"])
         assert set(node["required"]) == set(defs[definition]["required"])
 
@@ -98,7 +94,14 @@ def _nest_bindings_in_request(draft: dict[str, Any]) -> None:
 
 
 def _nest_assertions_in_step(draft: dict[str, Any]) -> None:
-    draft["steps"][0]["assertions"] = draft.pop("assertions")
+    draft["steps"][0]["assertions"] = []
+
+
+def _write_assertions(draft: dict[str, Any]) -> None:
+    # 작은 모델이 판정 기대값을 정상 동작(403)으로 적어 판정이 뒤집혔다. 판정 조건은 프로그램 몫이다.
+    draft["assertions"] = [
+        {"check_id": "a1", "kind": "response_status", "subject_ref": "s1", "selector": None, "operator": "eq", "expected": 403}
+    ]
 
 
 def _write_url_template(draft: dict[str, Any]) -> None:
@@ -113,10 +116,6 @@ def _copy_account_id(draft: dict[str, Any]) -> None:
     draft["steps"][0]["account_id"] = "account_a"
 
 
-def _unknown_check_kind(draft: dict[str, Any]) -> None:
-    draft["assertions"][0]["kind"] = "status_code"
-
-
 def _unknown_account_role(draft: dict[str, Any]) -> None:
     draft["steps"][0]["account_role"] = "owner"
 
@@ -125,33 +124,27 @@ def _empty_steps(draft: dict[str, Any]) -> None:
     draft["steps"] = []
 
 
-def _empty_assertions(draft: dict[str, Any]) -> None:
-    draft["assertions"] = []
-
-
 @pytest.mark.parametrize(
     "break_draft",
     [
         _nest_bindings_in_request,
         _nest_assertions_in_step,
+        _write_assertions,
         _write_url_template,
         _add_preconditions,
         _copy_account_id,
-        _unknown_check_kind,
         _unknown_account_role,
         _empty_steps,
-        _empty_assertions,
     ],
     ids=[
         "bindings and state_change inside request",
         "assertions inside step",
+        "assertions at top",
         "url_template in request",
         "preconditions at top",
         "account_id in step",
-        "unknown check kind",
         "unknown account_role",
         "empty steps",
-        "empty assertions",
     ],
 )
 def test_schema_rejects_shapes_small_models_produced(
@@ -168,7 +161,7 @@ def test_ollama_payload_constrains_output_with_the_draft_schema() -> None:
 
     def transport(url: str, payload: bytes, timeout: float) -> bytes:
         captured["body"] = json.loads(payload)
-        return json.dumps({"response": json.dumps({"steps": [], "assertions": []})}).encode("utf-8")
+        return json.dumps({"response": json.dumps({"steps": []})}).encode("utf-8")
 
     OllamaScenarioDrafter(OllamaDrafterConfig(model_id="test-model"), transport=transport).draft({"candidate": {}})
     # format="json"은 JSON인지만 강제한다. 초안 모양을 디코딩 단계에서 강제하려면 Schema를 넘겨야 한다.

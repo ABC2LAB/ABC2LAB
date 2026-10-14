@@ -12,10 +12,12 @@ from typing import Any, Protocol
 from modules.scenario_generator.candidate_matcher import MatchedCandidate
 from modules.scenario_generator.scenario_validator import OUTPUT_SCHEMA_PATH
 
-# 초안(LLM 몫)의 최상위 키. preconditions는 프로그램이 steps에서 세션 사전조건으로 생성한다.
+# 초안(LLM 몫)의 최상위 키. 초안은 steps만 고른다.
+# preconditions(세션 사전조건)·assertions(재현 조건)·기준 단계는 프로그램이 만든다(reproduction_checks).
+# 작은 모델이 판정 조건 기대값을 정상 동작(403)으로 적어 판정이 뒤집혔다(6차 입력 5건 중 4건).
 # steps의 식별자(account_id·role_id·session_ref·method·body_ref)도 프로그램이 원본에서 채운다.
 # 순서는 구조화 출력에서 모델이 키를 쓰는 순서가 된다.
-DRAFT_FIELDS = ("steps", "assertions")
+DRAFT_FIELDS = ("steps",)
 DRAFT_KEYS = frozenset(DRAFT_FIELDS)
 # 초안 step이 가져야 하는 키(축소형). 식별자 대신 선택(account_role)만 담는다.
 DRAFT_STEP_FIELDS = ("step_id", "order", "source_request_id", "account_role", "request", "bindings", "state_change")
@@ -30,7 +32,7 @@ ACCOUNT_ROLE_REFERENCE = "reference"
 ACCOUNT_ROLES = frozenset({ACCOUNT_ROLE_ACTOR, ACCOUNT_ROLE_REFERENCE})
 # 인증 헤더·쿠키 변경은 ParameterValue 계약이 허용하지 않으므로 LLM에게 보여 줄 이유가 없다.
 HIDDEN_PARAMETER_LOCATIONS = frozenset({"header", "cookie"})
-# 구조화 출력 문법에 넣는 JSON 값(parameter value·check expected). 출력 jsonValue는 재귀라 문법이 커지므로
+# 구조화 출력 문법에 넣는 JSON 값(parameter value). 출력 jsonValue는 재귀라 문법이 커지므로
 # 스칼라와 스칼라 배열까지만 허용한다. 출력 계약 검증은 scenario_validator가 출력 Schema로 따로 한다.
 _SCALAR_TYPES = ["string", "number", "boolean", "null"]
 _DRAFT_VALUE_SCHEMA = {"type": [*_SCALAR_TYPES, "array"], "items": {"type": _SCALAR_TYPES}}
@@ -51,7 +53,7 @@ class DrafterError(Exception):
 
 @dataclass(frozen=True)
 class Draft:
-    scenario: Any  # 신뢰하지 않는 값: {"steps", "assertions"} 모양이어야 한다
+    scenario: Any  # 신뢰하지 않는 값: {"steps"} 모양이어야 한다
     input_tokens: int | None = None
     output_tokens: int | None = None
 
@@ -143,14 +145,6 @@ def _build_draft_json_schema() -> dict[str, Any]:
         "source_part": {"enum": defs["binding"]["properties"]["source_part"]["enum"]},
         "selector": _NON_EMPTY_STRING_SCHEMA,
     })
-    check = _object_schema({
-        "check_id": _NON_EMPTY_STRING_SCHEMA,
-        "kind": {"enum": defs["check"]["properties"]["kind"]["enum"]},
-        "subject_ref": _NON_EMPTY_STRING_SCHEMA,
-        "selector": _NULLABLE_STRING_SCHEMA,
-        "operator": {"enum": defs["check"]["properties"]["operator"]["enum"]},
-        "expected": _DRAFT_VALUE_SCHEMA,
-    })
     request_properties = {"parameters": {"type": "array", "items": parameter}}
     step_properties = {
         "step_id": _NON_EMPTY_STRING_SCHEMA,
@@ -162,10 +156,7 @@ def _build_draft_json_schema() -> dict[str, Any]:
         "state_change": {"enum": defs["scenarioStep"]["properties"]["state_change"]["enum"]},
     }
     step = _object_schema({field: step_properties[field] for field in DRAFT_STEP_FIELDS})
-    draft_properties = {
-        "steps": {"type": "array", "minItems": 1, "items": step},
-        "assertions": {"type": "array", "minItems": 1, "items": check},
-    }
+    draft_properties = {"steps": {"type": "array", "minItems": 1, "items": step}}
     return _object_schema({field: draft_properties[field] for field in DRAFT_FIELDS})
 
 

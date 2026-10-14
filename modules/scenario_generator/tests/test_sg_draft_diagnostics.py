@@ -22,8 +22,8 @@ def _step(**overrides: Any) -> dict[str, Any]:
     return base
 
 
-def _draft(steps: list[dict[str, Any]], assertions: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    return {"steps": steps, "assertions": assertions or []}
+def _draft(steps: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"steps": steps}
 
 
 def test_field_diagnosis_reports_missing_and_extra_step_keys() -> None:
@@ -102,6 +102,6 @@ def test_drafter_failed_record_has_no_draft() -> None:
 
 def test_non_dict_draft_does_not_crash() -> None:
     record = build_draft_invalid_record("c1", "not a dict", ["문제"], MODEL_INFO)
-    assert record["field_diagnosis"]["top_level"]["missing"] == ["assertions", "steps"]
+    assert record["field_diagnosis"]["top_level"]["missing"] == ["steps"]
     assert record["binding_analysis"] == []
     assert record["draft"] == "not a dict"

@@ -26,11 +26,13 @@ HEADER_NAME_PATTERN = re.compile(r"^[^A-Z\s]+$")
 PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]*)\}")
 MAX_REPORTED_PROBLEMS = 5
 # 단계의 응답을 검사하는 조건. subject_ref가 steps의 step_id여야 평가할 수 있다.
-STEP_RESPONSE_CHECK_KINDS = frozenset({"response_status", "response_json"})
-# 실행 계정 단계에 함께 있어야 하는 판정 조건. 상태 코드만으로는 위반을 확정할 수 없어(명세 m7) 응답 내용도 본다.
-REQUIRED_ACTOR_ASSERTION_KINDS = frozenset({"response_status", "response_json"})
-# 응답이 JSON이 아닌 단계는 response_json을 적용할 수 없어(verifier 판단불가) 상태 조건만 요구한다.
-NON_JSON_ACTOR_ASSERTION_KINDS = frozenset({"response_status"})
+STEP_RESPONSE_CHECK_KINDS = frozenset(
+    {"response_status", "response_json", "resource_state", "resource_owner", "baseline_match"}
+)
+# 같은 시나리오의 기준 단계 응답과 비교하는 조건. expected가 다른 계정이 실행한 기준 단계 step_id다(m5 Check 규약).
+BASELINE_CHECK_KINDS = frozenset({"baseline_match", "resource_owner"})
+# 재현 단계에 늘 있어야 하는 판정 조건. 상태 코드만으로는 위반을 확정할 수 없어(명세 m7) 기준 응답과도 비교한다.
+REPRODUCTION_ASSERTION_KINDS = frozenset({"response_status", "baseline_match"})
 # 응답이 JSON인지 정하는 content_type 조각. collector 근거 파일·세션 창구와 같은 기준이다.
 JSON_CONTENT_TYPE_MARKER = "json"
 
@@ -48,6 +50,22 @@ def _get_scenario_validator() -> Draft202012Validator:
     return Draft202012Validator(
         {"$schema": schema["$schema"], "$ref": "#/$defs/scenario", "$defs": schema["$defs"]}
     )
+
+
+@functools.cache
+def _get_steps_validator() -> Draft202012Validator:
+    schema = json.loads(OUTPUT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    return Draft202012Validator(
+        {"$schema": schema["$schema"], "type": "array", "items": {"$ref": "#/$defs/scenarioStep"}, "$defs": schema["$defs"]}
+    )
+
+
+def find_steps_schema_problem(steps: list[Any]) -> str | None:
+    """조립한 steps가 출력 ScenarioStep 모양인지. 기준 단계·판정 조건을 만들기 전에 타입을 믿을 수 있게 한다."""
+    validator = _get_steps_validator()
+    if validator.is_valid(steps):
+        return None
+    return f"Schema 위반(steps): {summarize_schema_errors(validator, steps)}"
 
 
 def summarize_problems(problems: list[str]) -> str:
@@ -201,6 +219,7 @@ def _check_steps(scenario: dict[str, Any], context: ValidationContext) -> list[s
 def _check_conditions(scenario: dict[str, Any]) -> list[str]:
     problems = []
     step_ids = {step["step_id"] for step in scenario["steps"]}
+    account_by_step_id = {step["step_id"]: step["account_id"] for step in scenario["steps"]}
     for check in scenario["preconditions"] + scenario["assertions"]:
         check_id = check["check_id"]
         selector = check["selector"]
@@ -210,7 +229,16 @@ def _check_conditions(scenario: dict[str, Any]) -> list[str]:
             problems.append(f"조건 {check_id}는 응답 조건인데 subject_ref가 steps의 step_id가 아니다")
         if check["operator"] == "in" and not isinstance(check["expected"], list):
             problems.append(f"조건 {check_id}는 operator=in인데 expected가 배열이 아니다")
+        if check["kind"] in BASELINE_CHECK_KINDS and not _is_other_account_step(check, account_by_step_id):
+            problems.append(f"조건 {check_id}의 expected가 다른 계정이 실행한 기준 단계 step_id가 아니다")
     return problems
+
+
+def _is_other_account_step(check: dict[str, Any], account_by_step_id: dict[str, str]) -> bool:
+    baseline_step_id = check["expected"]
+    if not isinstance(baseline_step_id, str) or baseline_step_id not in account_by_step_id:
+        return False
+    return account_by_step_id[baseline_step_id] != account_by_step_id.get(check["subject_ref"])
 
 
 def _check_session_preconditions(scenario: dict[str, Any]) -> list[str]:
@@ -234,51 +262,52 @@ def _check_session_preconditions(scenario: dict[str, Any]) -> list[str]:
     return problems
 
 
-def _check_actor_assertions(scenario: dict[str, Any], context: ValidationContext) -> list[str]:
-    """실행 계정 단계 하나에 판정 조건이 있어야 한다: response_status, 그 단계 응답이 JSON이면 response_json도."""
-    actor_account_id = context.matched.actor_account["account_id"]
-    kinds_by_step_id: dict[str, set[str]] = {}
+def find_reproduction_step(steps: list[dict[str, Any]], matched: MatchedCandidate) -> dict[str, Any] | None:
+    """재현 단계: 실행 계정이 후보 근거 요청(source_request_ids)을 보내는 단계 중 마지막. 없으면 None."""
+    actor_account_id = matched.actor_account["account_id"]
+    source_request_ids = set(matched.candidate["source_request_ids"])
+    reproduction_steps = [
+        step for step in steps
+        if isinstance(step, dict) and step.get("account_id") == actor_account_id
+        and step.get("source_request_id") in source_request_ids
+    ]
+    return reproduction_steps[-1] if reproduction_steps else None
+
+
+def _check_reproduction_assertions(scenario: dict[str, Any], context: ValidationContext) -> list[str]:
+    """재현 단계에 판정 조건이 있어야 한다: response_status·baseline_match, 근거 응답이 JSON이면 resource_owner도.
+
+    baseline_match의 기준 단계는 기준 계정이 같은 근거 요청을 보낸 단계여야 한다(소유자의 정상 응답과 비교).
+    """
+    step = find_reproduction_step(scenario["steps"], context.matched)
+    if step is None:
+        return ["실행 계정이 후보 근거 요청을 재현하는 단계가 없다"]
+    checks_by_kind: dict[str, list[dict[str, Any]]] = {}
     for check in scenario["assertions"]:
-        kinds_by_step_id.setdefault(check["subject_ref"], set()).add(check["kind"])
-    for step in scenario["steps"]:
-        if step["account_id"] != actor_account_id:
-            continue
-        required = NON_JSON_ACTOR_ASSERTION_KINDS if _is_non_json_step(step, context.index) else REQUIRED_ACTOR_ASSERTION_KINDS
-        if required <= kinds_by_step_id.get(step["step_id"], set()):
-            return []
-    return ["실행 계정 단계에 response_status와 response_json 판정 조건이 함께 있어야 한다(JSON이 아닌 응답 단계는 response_status만)"]
+        if check["subject_ref"] == step["step_id"]:
+            checks_by_kind.setdefault(check["kind"], []).append(check)
+    required = set(REPRODUCTION_ASSERTION_KINDS)
+    source = context.index.requests_by_id.get(step["source_request_id"])
+    if source is not None and is_json_response(source):
+        required.add("resource_owner")
+    problems = [f"재현 단계 {step['step_id']}에 {kind} 판정 조건이 없다" for kind in sorted(required - set(checks_by_kind))]
+    reference = context.matched.reference_account
+    steps_by_id = {other["step_id"]: other for other in scenario["steps"]}
+    for check in checks_by_kind.get("baseline_match", []):
+        baseline = steps_by_id.get(check["expected"]) if isinstance(check["expected"], str) else None
+        is_owner_replay = (
+            baseline is not None and reference is not None
+            and baseline["account_id"] == reference["account_id"]
+            and baseline["source_request_id"] == step["source_request_id"]
+        )
+        if not is_owner_replay:
+            problems.append(f"조건 {check['check_id']}의 기준 단계는 기준 계정이 같은 근거 요청을 보낸 단계여야 한다")
+    return problems
 
 
 def is_json_response(request: dict[str, Any]) -> bool:
     content_type = request["response"].get("content_type") or ""
     return JSON_CONTENT_TYPE_MARKER in content_type.lower()
-
-
-def _is_non_json_step(step: dict[str, Any], index: CrawlIndex) -> bool:
-    # 원본 요청을 못 찾는 단계는 JSON으로 보고 엄격하게 둔다(없는 원본은 _check_step_request가 따로 거절한다).
-    request = index.requests_by_id.get(step["source_request_id"])
-    return request is not None and not is_json_response(request)
-
-
-def drop_non_json_response_checks(scenario: dict[str, Any], index: CrawlIndex) -> tuple[dict[str, Any], list[str]]:
-    """JSON이 아닌 응답 단계를 가리키는 response_json 조건을 버린 시나리오와 버린 check_id 목록을 돌려준다.
-
-    HTML 응답에 JSON 조건을 붙이면 verifier가 적용하지 못해 판단불가가 된다. 검증을 통과한 시나리오에만 쓴다.
-    """
-    non_json_step_ids = {step["step_id"] for step in scenario["steps"] if _is_non_json_step(step, index)}
-
-    def is_dropped(check: dict[str, Any]) -> bool:
-        return check["kind"] == "response_json" and check["subject_ref"] in non_json_step_ids
-
-    dropped = [check["check_id"] for check in scenario["preconditions"] + scenario["assertions"] if is_dropped(check)]
-    if not dropped:
-        return scenario, []
-    pruned = {
-        **scenario,
-        "preconditions": [check for check in scenario["preconditions"] if not is_dropped(check)],
-        "assertions": [check for check in scenario["assertions"] if not is_dropped(check)],
-    }
-    return pruned, dropped
 
 
 def find_scenario_problems(scenario: Any, context: ValidationContext) -> list[str]:
@@ -292,5 +321,5 @@ def find_scenario_problems(scenario: Any, context: ValidationContext) -> list[st
         + _check_steps(scenario, context)
         + _check_conditions(scenario)
         + _check_session_preconditions(scenario)
-        + _check_actor_assertions(scenario, context)
+        + _check_reproduction_assertions(scenario, context)
     )
