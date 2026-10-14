@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:abc2lab:collector:crawl_result:0.2.0",
+  "$id": "urn:abc2lab:collector:crawl_result:0.3.0",
   "title": "crawl_result (collector 출력 계약의 semantic_analyzer 입력 사본)",
   "description": "m1-collector.md v0.1 기준. collector가 생산하고 semantic_analyzer가 읽는 계약의 소비자 측 사본이다. 계약 변경은 생산자(collector)와 합의한다.",
   "type": "object",
@@ -21,7 +21,7 @@
     "data"
   ],
   "properties": {
-    "schema_version": { "const": "0.2.0" },
+    "schema_version": { "const": "0.3.0" },
     "artifact_type": { "const": "crawl_result" },
     "artifact_id": { "type": "string" },
     "run_id": { "type": "string" },
@@ -72,14 +72,52 @@
     "CrawlResultData": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["target_url", "roles", "accounts", "pages", "actions", "requests"],
+      "required": ["target_url", "roles", "accounts", "pages", "actions", "requests", "discovered_endpoints"],
       "properties": {
         "target_url": { "type": "string" },
         "roles": { "type": "array", "items": { "$ref": "#/$defs/Role" } },
         "accounts": { "type": "array", "items": { "$ref": "#/$defs/Account" } },
         "pages": { "type": "array", "items": { "$ref": "#/$defs/Page" } },
         "actions": { "type": "array", "items": { "$ref": "#/$defs/Action" } },
-        "requests": { "type": "array", "items": { "$ref": "#/$defs/ObservedRequest" } }
+        "requests": { "type": "array", "items": { "$ref": "#/$defs/ObservedRequest" } },
+        "discovered_endpoints": { "type": "array", "items": { "$ref": "#/$defs/DiscoveredEndpoint" } }
+      }
+    },
+    "DiscoveredEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discovered_id", "method", "url_template", "parameters", "source", "discovered_from", "basis", "evidence_refs"],
+      "properties": {
+        "discovered_id": { "type": "string" },
+        "method": { "type": "string" },
+        "url_template": { "type": "string" },
+        "parameters": { "type": "array", "items": { "$ref": "#/$defs/DiscoveredParameter" } },
+        "source": { "enum": ["form", "link", "js", "spec"] },
+        "discovered_from": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["page_id", "action_id"],
+            "properties": {
+              "page_id": { "type": "string" },
+              "action_id": { "type": "string" }
+            }
+          }
+        },
+        "basis": { "const": "inferred" },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }
+      }
+    },
+    "DiscoveredParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "location", "is_sensitive"],
+      "properties": {
+        "name": { "type": "string" },
+        "location": { "enum": ["path", "query", "body"] },
+        "is_sensitive": { "type": "boolean" }
       }
     },
     "Role": {
@@ -157,12 +195,29 @@
     "ResponseMeta": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status_code", "content_type", "headers", "body_ref"],
+      "required": ["status_code", "content_type", "headers", "body_ref", "identifiers", "identifiers_truncated"],
       "properties": {
         "status_code": { "type": ["integer", "null"] },
         "content_type": { "type": ["string", "null"] },
         "headers": { "type": "array", "items": { "$ref": "#/$defs/HeaderMeta" } },
-        "body_ref": { "anyOf": [{ "$ref": "#/$defs/EvidenceRef" }, { "type": "null" }] }
+        "body_ref": { "anyOf": [{ "$ref": "#/$defs/EvidenceRef" }, { "type": "null" }] },
+        "identifiers": { "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Identifier" } }, { "type": "null" }] },
+        "identifiers_truncated": { "type": "boolean" }
+      }
+    },
+    "Identifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pointer", "value"],
+      "properties": {
+        "pointer": { "type": "string", "pattern": "^(/([^~/]|~[01])*)+$" },
+        "value": {
+          "anyOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "string", "pattern": "^[0-9]+$" },
+            { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" }
+          ]
+        }
       }
     },
     "ObservedRequest": {

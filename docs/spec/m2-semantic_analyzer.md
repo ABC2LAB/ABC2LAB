@@ -12,18 +12,20 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-11
+## 현재 구현·연결 상태 — 2026-10-14
 
-기준 커밋 `30cb867`(dev)의 구현·공개 계약을 반영했다. PR #44·#57 병합 후 상태다.
+기준 dev 구현에 crawl_result **0.3.0 소비**를 반영했다(collector 0.3.0 생산자 PR과 동기화 머지 전제).
 
 | 구분 | 현재 상태 |
 | --- | --- |
 | 독립 구현 | `analyze` 공개 함수·CLI, 입력·출력 adapter, 출력 Schema·근거 재검증, 원자 저장 구현 완료 |
 | 모델·추론 | 요청 정규화, 자원(Resource) Type/Instance 분류, 행위 의미·역할 관계(ACCESS는 역할·계정 둘 다)·업무 흐름 추론 구현 완료 |
-| 공개 계약 | 입력 `crawl_result` 수신, 출력 `semantic_analysis` `0.2.0`(Resource 계약, KG와 정렬) |
+| 공개 계약 | 입력 `crawl_result` **0.3.0** 수신, 출력 `semantic_analysis` `0.2.0`(Resource 계약, KG와 정렬. 입력 버전과 독립) |
+| discovered_endpoints | crawl_result의 `discovered_endpoints`(요청 안 한 발견 엔드포인트)마다 Endpoint·Parameter 노드와 Page·Action→Endpoint CALL을 **basis=inferred**로 생성. ACCESS·normalized_requests는 만들지 않음 |
+| ResponseMeta.identifiers | 입력 스키마에 수신(선택). OWNS를 관찰 근거로 분리하는 작업에서 소비 예정(후속) |
 | LLM 설정 | 기본 `provider=fake`(네트워크 0 결정적). 커밋 파일을 고치지 않고 경로로 교체한다: CLI `--config` > 환경변수 `SEMANTIC_ANALYZER_CONFIG_PATH` > 기본 `configs/default.toml`. collector `COLLECTOR_CONFIG_PATH`와 같은 방식(PR #57) |
 | 설정 오류 처리 | 명시 경로(인자·환경변수)인데 파일이 없거나 `[llm]`·`provider` 키가 빠지면 `fake`로 조용히 떨어지지 않고 오류로 멈춘다. 기본 파일 부재만 `fake`로 동작(PR #57) |
-| 독립 회귀 | semantic_analyzer `47 passed`. 셸에 `SEMANTIC_ANALYZER_CONFIG_PATH`를 export한 상태로 전체 pytest를 돌려도 autouse 격리로 동일하게 통과 |
+| 독립 회귀 | semantic_analyzer `48 passed`. 셸에 `SEMANTIC_ANALYZER_CONFIG_PATH`를 export한 상태로 전체 pytest를 돌려도 autouse 격리로 동일하게 통과 |
 | 실제 전체 연결 | `pipeline.py` 12단계 전체 연결 확인(10/11). semantic_analyzer는 `SEMANTIC_ANALYZER_CONFIG_PATH`로 로컬 Ollama(llama3, CPU) 실모델 실행 포함. 실모델 추론 품질 평가는 후속 |
 
 상세 구현·회귀는 `modules/semantic_analyzer/`의 `tests/`·`configs/`를 따른다.
@@ -76,7 +78,7 @@
 
 | 입력 파일·정보 | 작성·제공 주체 | 사용할 내용 |
 | --- | --- | --- |
-| crawl_result.json | `collector` | data.roles·accounts·pages·actions·requests와 요청·응답의 evidence_refs. |
+| crawl_result.json | `collector` | data.roles·accounts·pages·actions·requests와 요청·응답의 evidence_refs. `discovered_endpoints`(요청 안 한 발견 엔드포인트)와 응답 `identifiers`(0.3.0). |
 | 실행 인자 / 자기 모델 설정 | `사용자 실행 인자 / modules 내 자기 configs` | 실행 식별 정보, 의미 분석 모델과 프롬프트 설정. |
 
 **입력 파일의 전체 필드:** [crawl_result.json 필드](m1-collector.md).
@@ -87,6 +89,7 @@
 2. LLM으로 요청의 자원·행위 의미와 역할 관계를 추론한다.
 3. User·Role·Page·Action·Endpoint·Parameter·Resource 노드와 관계, 업무 단계·의존 조건을 구성한다.
 4. 관찰·추론 출처와 근거를 연결하고 semantic_analysis.json을 생성한다.
+5. `discovered_endpoints`마다 Endpoint·Parameter 노드와 discovered_from의 Page·Action→Endpoint CALL을 `basis=inferred`로 만든다. 요청을 관찰한 게 아니므로 ACCESS 관계와 normalized_requests 항목은 만들지 않는다.
 
 ## 출력
 
@@ -245,6 +248,7 @@
 | 2026-10-07 | 입력 `crawl_result`에 Page `account_id` 미러, ACCESS를 역할·계정(User→Endpoint) 둘 다로 남기도록 명시, 검증 오류 메시지의 값 누출 차단 | PR #24. 출력 `schema_version`은 0.1.0 유지 |
 | 2026-10-08 | **0.1.0 → 0.2.0.** 출력 `schema_version`을 0.2.0으로 올리고 `node_type=Resource`의 `properties`에 ResourceProperties(`resource_key`·`resource_scope`·`match_key`) 계약을 추가(KG와 동시 전환) | PR #44. 소비자 knowledge_graph·reporter(이동찬)와 합의 |
 | 2026-10-11 | 현재 구현·연결 상태 절 추가, LLM 설정 경로(CLI `--config` > 환경변수 `SEMANTIC_ANALYZER_CONFIG_PATH` > 기본)와 명시 경로의 `[llm]`·`provider` 누락 시 오류 규칙을 명시 | PR #57. 기존 동작 문서화이며 계약·버전 변경 없음 |
+| 2026-10-14 | 입력 `crawl_result` **0.2.0 → 0.3.0** 소비: `discovered_endpoints`(요청 안 한 발견 엔드포인트)를 Endpoint·Parameter·CALL `basis=inferred`로 생성, `ResponseMeta.identifiers` 수신(선택). 출력 `semantic_analysis`는 0.2.0 불변(신규 출력 필드·enum 없음) | collector 0.3.0 생산자 PR과 동기화. crawl_result 소비자 전원 동시 전환. OWNS 관찰 근거 분리는 후속 |
 
 ---
 
