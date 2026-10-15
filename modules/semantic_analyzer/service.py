@@ -24,6 +24,8 @@ HTTP_OK_MAX = 300
 # query·body 파라미터를 인스턴스 식별자로 볼 기준(규칙 2 identifiers와 같음): 이름이 id형 + 값이 숫자/UUID.
 _ID_NAME_PATTERN = re.compile(r"(?:^id$|_id$|Id$)")
 _UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+# LLM 의미 추론에 힌트로 넘길 파라미터 위치. 쿠키·헤더는 자원 힌트가 아니라 LLM이 session 등을 자원으로 오인시킨다.
+_MEANING_PARAM_LOCATIONS = frozenset({"path", "query", "body"})
 
 
 @dataclass
@@ -79,7 +81,7 @@ def analyze_data(crawl_data: dict, client: LlmClient) -> dict:
     ]
     # 관찰 요청을 먼저 처리한 뒤, 요청하지 않고 발견만 한 엔드포인트를 추론 노드로 얹는다.
     _add_discovered_endpoints(graph, crawl_data.get("discovered_endpoints", []), page_ids, action_ids)
-    # 접근이 아니라 관찰 근거로 OWNS를 세운다(모든 요청을 본 뒤에 단일 접근·응답 반환을 따진다).
+    # 접근이 아니라 관찰 근거로 OWNS를 세운다(모든 요청을 본 뒤에 단일 접근·경로 식별자+2xx를 따진다).
     _add_ownership(graph, crawl_data["requests"], normalized_requests)
     workflows = _build_workflows(crawl_data["requests"], normalized_requests, crawl_data["accounts"])
 
@@ -152,9 +154,13 @@ def _process_request(graph: _Graph, request: dict, client: LlmClient,
     parameters = _process_parameters(graph, endpoint_id, request["parameters"], evidence)
 
     # ── 의미(추론, LLM) ──
+    # 쿠키·헤더·민감 파라미터는 의미 힌트가 아니라 LLM이 자원(resource:session 등)으로 오인하므로 제외한다.
+    # 구조 그래프의 Parameter 노드·USE·normalized_requests에는 그대로 남는다(관찰 사실).
     meaning = client.infer_request_meaning(RequestFeatures(
         method=method, path_template=path_template,
-        parameter_names=tuple(p["name"] for p in request["parameters"])))
+        parameter_names=tuple(
+            p["name"] for p in request["parameters"]
+            if not p["is_sensitive"] and p["location"] in _MEANING_PARAM_LOCATIONS)))
     resource_node_ids = _apply_meaning(graph, request, endpoint_id, meaning, evidence)
 
     return {
@@ -292,24 +298,32 @@ def _apply_meaning(graph: _Graph, request: dict, endpoint_id: str, meaning, evid
     return resource_node_ids
 
 
-def _response_returns_instance(request: dict, resource_node: dict) -> bool:
-    """요청의 2xx 응답이 그 인스턴스 자원을 실제로 돌려줬는지: 응답 identifiers에 인스턴스 식별값이 있으면 참."""
+def _has_path_identifier(request: dict) -> bool:
+    """요청이 경로 식별자(인스턴스 주소)를 가졌는지: location=path·비민감·비어있지 않은 값."""
+    for parameter in request["parameters"]:
+        if parameter["location"] != "path" or parameter["is_sensitive"]:
+            continue
+        value = parameter["value"]
+        if value is not None and str(value) != "":
+            return True
+    return False
+
+
+def _access_is_2xx(request: dict) -> bool:
+    """요청 응답이 2xx인지(접근이 허용·성공했는지)."""
     response = request.get("response") or {}
     status = response.get("status_code")
-    if not isinstance(status, int) or not (HTTP_OK_MIN <= status < HTTP_OK_MAX):
-        return False
-    response_values = {str(item["value"]) for item in (response.get("identifiers") or [])}
-    match_key = resource_node["properties"].get("match_key") or {}
-    instance_values = {str(item["value"]) for item in match_key.get("identifiers", [])}
-    return bool(instance_values & response_values)
+    return isinstance(status, int) and HTTP_OK_MIN <= status < HTTP_OK_MAX
 
 
 def _add_ownership(graph: _Graph, requests: list[dict], normalized_requests: list[dict]) -> None:
     """관찰 근거로만 OWNS를 세운다(접근만으로 만들지 않는다).
 
     규칙: 인스턴스 자원을 접근한 계정이 **단 하나**이고(크롤러는 자기 레인만 도므로 단일=소유, 다계정=공개),
-    그 계정의 응답이 해당 자원을 실제로 돌려줬을 때만 OWNS(basis=observed). 공개 카탈로그처럼 여러 계정이 본 자원은
-    제외해 과대귀속(접근=소유)을 막는다.
+    그 계정이 자원을 **경로 식별자(/x/{id})로 지목해 2xx**로 받았을 때만 OWNS(basis=observed).
+    경로 식별자(인스턴스 주소)가 핵심 근거라, 응답이 HTML이라 본문 id를 못 돌려줘도 소유를 세운다
+    (JSON 본문 id는 더 강한 신호일 뿐 필수 아님). 공개 카탈로그처럼 여러 계정이 본 자원과
+    경로 식별자 없는 body-id 자원은 제외해 과대귀속(접근=소유)을 막는다.
     """
     request_by_id = {request["request_id"]: request for request in requests}
     accessors_by_resource: dict[str, set[str]] = {}
@@ -317,12 +331,13 @@ def _add_ownership(graph: _Graph, requests: list[dict], normalized_requests: lis
     for normalized in normalized_requests:
         account_id = normalized["account_id"]
         raw_request = request_by_id.get(normalized["request_id"], {})
+        grants_ownership = _access_is_2xx(raw_request) and _has_path_identifier(raw_request)
         for resource_id in normalized["resource_ids"]:
             node = graph.nodes.get(resource_id)
             if node is None or node["properties"].get("resource_scope") != "instance":
                 continue
             accessors_by_resource.setdefault(resource_id, set()).add(account_id)
-            if _response_returns_instance(raw_request, node):
+            if grants_ownership:
                 evidence_by_pair[(resource_id, account_id)] = normalized["evidence_refs"]
     for resource_id, accounts in accessors_by_resource.items():
         if len(accounts) != 1:
