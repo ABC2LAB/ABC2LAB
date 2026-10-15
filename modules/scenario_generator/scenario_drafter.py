@@ -20,7 +20,8 @@ from modules.scenario_generator.scenario_validator import OUTPUT_SCHEMA_PATH
 DRAFT_FIELDS = ("steps",)
 DRAFT_KEYS = frozenset(DRAFT_FIELDS)
 # 초안 step이 가져야 하는 키(축소형). 식별자 대신 선택(account_role)만 담는다.
-DRAFT_STEP_FIELDS = ("step_id", "order", "source_request_id", "account_role", "request", "bindings", "state_change")
+# state_change도 프로그램이 원본 요청 method로 채운다(작은 모델이 GET 조회를 possible로 적어 기준 응답을 못 만들었다).
+DRAFT_STEP_FIELDS = ("step_id", "order", "source_request_id", "account_role", "request", "bindings")
 DRAFT_STEP_KEYS = frozenset(DRAFT_STEP_FIELDS)
 # 초안 step.request의 키. url_template·method·body_ref는 선택한 원본 요청에서 프로그램이 채운다.
 # 원본 URL을 LLM에게 베끼게 하면 작은 모델이 path 파라미터 이름을 {…}로 넣은 템플릿을 지어냈다(10/12 6차 입력 실행).
@@ -153,7 +154,6 @@ def _build_draft_json_schema() -> dict[str, Any]:
         "account_role": {"enum": [ACCOUNT_ROLE_ACTOR, ACCOUNT_ROLE_REFERENCE]},
         "request": _object_schema({field: request_properties[field] for field in DRAFT_REQUEST_FIELDS}),
         "bindings": {"type": "array", "items": binding},
-        "state_change": {"enum": defs["scenarioStep"]["properties"]["state_change"]["enum"]},
     }
     step = _object_schema({field: step_properties[field] for field in DRAFT_STEP_FIELDS})
     draft_properties = {"steps": {"type": "array", "minItems": 1, "items": step}}

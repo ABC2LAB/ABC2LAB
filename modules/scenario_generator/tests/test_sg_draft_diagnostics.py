@@ -16,7 +16,7 @@ def _step(**overrides: Any) -> dict[str, Any]:
     base = {
         "step_id": "s1", "order": 0, "source_request_id": "r1", "account_role": "actor",
         "request": {"parameters": []},
-        "bindings": [], "state_change": "none",
+        "bindings": [],
     }
     base.update(overrides)
     return base
@@ -30,10 +30,11 @@ def test_field_diagnosis_reports_missing_and_extra_step_keys() -> None:
     step = _step()
     del step["account_role"]          # 필수 선택값 누락
     step["account_id"] = "copied_a"   # 프로그램 몫 식별자를 LLM이 복사(금지 키)
+    step["state_change"] = "none"     # 프로그램 몫 추정값을 LLM이 적음(금지 키)
     record = build_draft_invalid_record("c1", _draft([step]), ["문제"], MODEL_INFO)
     step_diagnosis = record["field_diagnosis"]["steps"][0]
     assert "account_role" in step_diagnosis["missing"]
-    assert "account_id" in step_diagnosis["extra"]
+    assert {"account_id", "state_change"} <= set(step_diagnosis["extra"])
     assert record["failure"] == FAILURE_DRAFT_INVALID
     assert record["model_info"]["prompt_version"] == "ollama-scenario-v5"
 

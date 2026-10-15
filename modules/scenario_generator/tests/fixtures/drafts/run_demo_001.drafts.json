@@ -7,8 +7,7 @@
         "source_request_id": "req_b_list",
         "account_role": "reference",
         "request": { "parameters": [] },
-        "bindings": [],
-        "state_change": "none"
+        "bindings": []
       },
       {
         "step_id": "step_actor_detail",
@@ -22,8 +21,7 @@
         },
         "bindings": [
           { "binding_id": "binding_item_id", "source_step_id": "step_owner_list", "source_part": "response_body", "selector": "/0/id" }
-        ],
-        "state_change": "none"
+        ]
       }
     ]
   },
@@ -35,8 +33,7 @@
         "source_request_id": "req_b_list",
         "account_role": "actor",
         "request": { "parameters": [] },
-        "bindings": [],
-        "state_change": "none"
+        "bindings": []
       }
     ]
   }

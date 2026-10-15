@@ -16,7 +16,7 @@ from modules.scenario_generator.scenario_drafter import build_draft_json_schema
 
 # m5 "구현 주의사항": 초안은 steps만, step은 아래 키만, request는 parameters만 담는다(판정 조건은 프로그램 몫).
 SPEC_DRAFT_KEYS = {"steps"}
-SPEC_STEP_KEYS = {"step_id", "order", "source_request_id", "account_role", "request", "bindings", "state_change"}
+SPEC_STEP_KEYS = {"step_id", "order", "source_request_id", "account_role", "request", "bindings"}
 SPEC_REQUEST_KEYS = {"parameters"}
 SPEC_ACCOUNT_ROLES = {"actor", "reference"}
 OUTPUT_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "output" / "test_scenarios.schema.json"
@@ -63,7 +63,6 @@ def test_enums_follow_the_output_contract() -> None:
     parameter = step["properties"]["request"]["properties"]["parameters"]["items"]
     binding = step["properties"]["bindings"]["items"]
     assert set(step["properties"]["account_role"]["enum"]) == SPEC_ACCOUNT_ROLES
-    assert step["properties"]["state_change"]["enum"] == defs["scenarioStep"]["properties"]["state_change"]["enum"]
     assert parameter["properties"]["location"]["enum"] == defs["parameterValue"]["properties"]["location"]["enum"]
     assert binding["properties"]["source_part"]["enum"] == defs["binding"]["properties"]["source_part"]["enum"]
 
@@ -90,11 +89,15 @@ def test_schema_is_valid_and_accepts_the_replay_drafts(drafts: dict[str, Any]) -
 def _nest_bindings_in_request(draft: dict[str, Any]) -> None:
     step = draft["steps"][0]
     step["request"]["bindings"] = step.pop("bindings")
-    step["request"]["state_change"] = step.pop("state_change")
 
 
 def _nest_assertions_in_step(draft: dict[str, Any]) -> None:
     draft["steps"][0]["assertions"] = []
+
+
+def _write_state_change(draft: dict[str, Any]) -> None:
+    # 작은 모델이 GET 조회를 possible로 적어 기준 응답을 못 만들었다. state_change는 프로그램이 원본 요청 method로 채운다.
+    draft["steps"][0]["state_change"] = "none"
 
 
 def _write_assertions(draft: dict[str, Any]) -> None:
@@ -130,6 +133,7 @@ def _empty_steps(draft: dict[str, Any]) -> None:
         _nest_bindings_in_request,
         _nest_assertions_in_step,
         _write_assertions,
+        _write_state_change,
         _write_url_template,
         _add_preconditions,
         _copy_account_id,
@@ -137,9 +141,10 @@ def _empty_steps(draft: dict[str, Any]) -> None:
         _empty_steps,
     ],
     ids=[
-        "bindings and state_change inside request",
+        "bindings inside request",
         "assertions inside step",
         "assertions at top",
+        "state_change in step",
         "url_template in request",
         "preconditions at top",
         "account_id in step",
@@ -150,7 +155,7 @@ def _empty_steps(draft: dict[str, Any]) -> None:
 def test_schema_rejects_shapes_small_models_produced(
     drafts: dict[str, Any], break_draft: Callable[[dict[str, Any]], None]
 ) -> None:
-    # 6차 입력 qwen2.5:1.5b 초안에서 본 잘못된 중첩(앞의 둘)과 프로그램 몫 키·허용값 밖 값.
+    # 6차 입력 qwen2.5:1.5b 초안에서 본 잘못된 중첩(앞의 둘)과 프로그램 몫 키(state_change 포함)·허용값 밖 값.
     draft = copy.deepcopy(next(iter(drafts.values())))
     break_draft(draft)
     assert not Draft202012Validator(build_draft_json_schema()).is_valid(draft)
@@ -166,3 +171,5 @@ def test_ollama_payload_constrains_output_with_the_draft_schema() -> None:
     OllamaScenarioDrafter(OllamaDrafterConfig(model_id="test-model"), transport=transport).draft({"candidate": {}})
     # format="json"은 JSON인지만 강제한다. 초안 모양을 디코딩 단계에서 강제하려면 Schema를 넘겨야 한다.
     assert captured["body"]["format"] == build_draft_json_schema()
+    # state_change는 프로그램이 채우므로 모델이 낼 수 있는 모양에 없다(1.5b가 GET 조회를 possible로 적었다).
+    assert "state_change" not in captured["body"]["format"]["properties"]["steps"]["items"]["properties"]

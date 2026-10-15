@@ -25,6 +25,9 @@ BASELINE_CHECK_ID = "assertion_baseline"
 OWNER_CHECK_ID = "assertion_owner"
 # 기준 단계로 다시 보내도 상태가 바뀌지 않는 단계만 기준 응답을 만든다.
 STATE_CHANGE_NONE = "none"
+STATE_CHANGE_POSSIBLE = "possible"
+# 상태를 바꾸지 않는 HTTP method(RFC 9110 safe method). 그 밖은 바꿀 수 있다고 본다.
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # 정상 접근으로 관찰한 응답 상태 범위. 그 밖이면 "실행 계정도 이 응답을 받으면 재현"이라는 조건이 성립하지 않는다.
 SUCCESS_STATUS_MIN = 200
 SUCCESS_STATUS_MAX = 299
@@ -42,6 +45,15 @@ class ReproductionProblem:
     # True면 초안 탓이 아니라 이 후보로는 기준 응답을 만들 수 없다(ASSERTION_BASELINE_UNAVAILABLE).
     # False면 초안이 재현 단계를 고르지 않았거나 ID가 겹친다(DRAFT_INVALID).
     is_baseline_unavailable: bool
+
+
+def estimate_state_change(method: str) -> str:
+    """단계의 state_change 추정. LLM이 아니라 원본 요청 method로 정한다.
+
+    작은 모델이 GET 조회를 possible로 적어 기준 응답을 만들지 못했다(6차 입력 qwen2.5:1.5b 5건 중 4건, 10/15 local_web 실행).
+    crawl_result에는 요청별 상태 변경 정보가 없어 method만 본다. 최종 안전 평가는 safety_policy가 한다.
+    """
+    return STATE_CHANGE_NONE if method in SAFE_METHODS else STATE_CHANGE_POSSIBLE
 
 
 def find_baseline_blocker(matched: MatchedCandidate) -> str | None:
