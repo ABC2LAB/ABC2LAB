@@ -15,6 +15,9 @@
     candidate_count: "후보", confirmed_count: "확인", not_confirmed_count: "미재현",
     suspected_count: "의심", indeterminate_count: "판단불가", policy_blocked_count: "정책 차단",
     approval_pending_count: "승인 대기",
+    verification_success_count: "검증 조건 통과", verification_failure_count: "검증 미재현",
+    verification_indeterminate_count: "검증 판단불가", verification_blocked_count: "검증 미실행·차단",
+    reporter_confirmed_count: "Reporter 확정",
     policy_blocked: "정책 차단", approval_pending: "승인 대기", indeterminate: "판단불가",
   };
   const issueLabels = {
@@ -549,9 +552,35 @@
     if (artifact?.view) table(target, title, columns, rows);
   }
 
+  function renderDiagnosisOverview(target, byType) {
+    const section = element("section");
+    section.id = "diagnosis-overview";
+    section.append(element("h4", "탐지·검증·확정 현황"));
+    const candidates = byType.get("vulnerability_candidates");
+    const verification = byType.get("verification_results");
+    const report = byType.get("diagnosis_report");
+    const resultCount = (result) => verification?.view
+      ? verification.view.results.filter((row) => row.result === result).length : "미확인";
+    counts(section, {
+      candidate_count: candidates?.view ? candidates.view.candidates.length : "미확인",
+      verification_success_count: resultCount("success"),
+      verification_failure_count: resultCount("failure"),
+      verification_indeterminate_count: resultCount("indeterminate"),
+      verification_blocked_count: resultCount("blocked"),
+      reporter_confirmed_count: report?.view ? report.view.summary.confirmed_count : "미확인",
+    });
+    for (const [label, artifact] of [["후보", candidates], ["검증", verification], ["Reporter", report]]) {
+      section.append(element("p", label + " 산출물: " + stateText(artifact), "description"));
+    }
+    section.append(element("p", "후보는 candidate 수, 검증은 시나리오별 결과 수, 확정은 Reporter finding 수다. 서로 합산하거나 고유 취약점 수로 해석하지 않는다.", "description"),
+      element("p", "검증 조건 통과(success)는 시나리오 조건을 통과했다는 뜻이며 확정 취약점이 아니다. 확정 여부와 사유는 Reporter 결과를 그대로 표시한다. 미확인은 0건이 아니며 부분 결과는 전체 진단을 대표하지 않는다.", "description"));
+    target.append(section);
+  }
+
   function renderProcess(byType) {
     const target = document.getElementById("process-view");
     target.replaceChildren();
+    renderDiagnosisOverview(target, byType);
     const candidateArtifact = byType.get("vulnerability_candidates");
     const scenarioArtifact = byType.get("test_scenarios");
     const policyArtifact = byType.get("safety_decisions");
@@ -572,7 +601,10 @@
     target.append(element("h4", "Reporter 분류 요약 · 확정 외 상태 분리"), element("p", stateText(report), "description"));
     if (report?.view) {
       counts(target, report.view.summary);
-      table(target, "확정 외 리포트 상태(확인된 취약점 목록에서 제외)", [["리포트 ID", "finding_id"], ["후보 ID", "candidate_id"], ["시나리오 ID", "scenario_id"], ["상태", "status"]], report.view.other_findings);
+      table(target, "확정 외 리포트 상태(확인된 취약점 목록에서 제외)", [["리포트 ID", "finding_id"], ["후보 ID", "candidate_id"], ["시나리오 ID", "scenario_id"], ["상태", "status"],
+        ["Verifier 결과", (row) => verifierArtifact?.view ? results.find((result) => result.verification_id === row.verification_id
+          && result.candidate_id === row.candidate_id && result.scenario_id === row.scenario_id)?.result ?? "연결된 검증 결과 없음" : "공개 결과 확인 불가"],
+        ["Reporter 설명", "description"]], report.view.other_findings);
     }
   }
 

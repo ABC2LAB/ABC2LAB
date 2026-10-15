@@ -367,6 +367,28 @@ def test_report_does_not_load_evaluation_configuration(
     assert load_json(output_path)["data"]["summary"] == baseline.data.summary.to_mapping()
 
 
-def test_example_settings_satisfy_own_schema() -> None:
-    path = Path(__file__).parents[1] / "configs/shop_demo.evaluation.example.json"
+@pytest.mark.parametrize("filename", ["shop_demo.evaluation.example.json", "shop_demo.evaluation.json"])
+def test_supplied_settings_satisfy_own_schema(filename: str) -> None:
+    path = Path(__file__).parents[1] / "configs" / filename
     validate_schema(load_json(path), EVALUATION_CONFIG_SCHEMA)
+
+
+def test_shop_demo_profile_loads_explicitly_for_its_dataset(
+    evaluation_inputs: EvaluationInputs, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = Path(__file__).resolve().parents[3]
+    relative_path = "modules/reporter/configs/shop_demo.evaluation.json"
+    ground_truth = replace(evaluation_inputs.ground_truth, dataset_id="shop_demo", dataset_version="1.0.0")
+    assert load_evaluation_settings(project_root, ground_truth) == EvaluationSettings()
+
+    monkeypatch.setenv(EVALUATION_CONFIG_PATH_ENV, relative_path)
+    settings = load_evaluation_settings(project_root, ground_truth)
+
+    assert settings.actor_bindings == (
+        ActorBinding("alice", "account:user_a"), ActorBinding("bob", "account:user_b"),
+        ActorBinding("admin", "account:admin_a"), ActorBinding("guest", "account:guest"),
+    )
+    assert settings.relative_path == relative_path
+    assert settings.sha256 == calculate_sha256(project_root / relative_path)
+    with pytest.raises(ContractValidationError):
+        load_evaluation_settings(project_root, replace(ground_truth, dataset_id="another_dataset"))

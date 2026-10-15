@@ -408,13 +408,14 @@ def report_view(data: object) -> dict[str, object]:
         status = text_value(row["status"], {"confirmed", "suspected", "not_confirmed", "indeterminate", "policy_blocked", "approval_pending"})
         finding = {"finding_id": identifier(row["finding_id"]), "candidate_id": identifier(row["candidate_id"]),
                    "scenario_id": nullable_identifier(row["scenario_id"]),
-                   "verification_id": nullable_identifier(row["verification_id"]), "status": status}
+                   "verification_id": nullable_identifier(row["verification_id"]), "status": status,
+                   "description": text_value(row["description"])}
         status_counts[status] += 1
         candidate_ids.add(finding["candidate_id"])
         if status == "confirmed":
             finding.update({"category": text_value(row["category"], {"authorization", "business_logic"}),
                             "vulnerability_type": text_value(row["vulnerability_type"]),
-                            "title": text_value(row["title"]), "description": text_value(row["description"]),
+                            "title": text_value(row["title"]),
                             "evidence_refs": evidence(row["evidence_refs"])})
             confirmed.append(finding)
         else:

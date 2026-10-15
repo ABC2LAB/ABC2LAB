@@ -58,12 +58,43 @@ def test_public_views_are_whitelisted_and_connected_by_ids(artifact_root: Path) 
     report = by_type["diagnosis_report"]
     assert [row["finding_id"] for row in report["confirmed_findings"]] == ["finding-alpha"]
     assert {row["status"] for row in report["other_findings"]} == {"approval_pending", "indeterminate"}
+    assert all(row["description"] == "Reporter public description" for row in report["other_findings"])
     assert report["summary"]["approval_pending_count"] == 1
     assert by_type["test_scenarios"]["scenarios"][0]["candidate_id"] == "candidate-omega"
     assert next(row for row in by_type["safety_decisions"]["decisions"] if row["decision"] == "require_approval")["scenario_id"] == "scenario-delta"
     serialized = json.dumps(values)
     for forbidden in ("PASSWORD_SENTINEL", "PRIVATE_SESSION_SENTINEL", "url_template", "parameters", "session_ref", "match_key", "properties", "evidence/verifier/", str(artifact_root)):
         assert forbidden not in serialized
+
+
+def test_verifier_success_stays_distinct_from_reporter_suspected(artifact_root: Path) -> None:
+    verifier_bytes = artifact_file(artifact_root, "verification_results").read_bytes()
+    report = json.loads(artifact_file(artifact_root, "diagnosis_report").read_bytes())
+    finding = next(row for row in report["data"]["findings"] if row["status"] == "confirmed")
+    finding["status"] = "suspected"
+    finding["description"] = "위반 정황은 재현됐으나 기대 동작이 추론에 기반함"
+    report["data"]["summary"].update(confirmed_count=0, suspected_count=1)
+    rewrite(artifact_root, "diagnosis_report", report)
+
+    result = output(artifact_root, "diagnosis_report")
+    assert result["state"] == "completed"
+    assert result["view"]["confirmed_findings"] == []
+    assert result["view"]["summary"]["suspected_count"] == 1
+    displayed = next(row for row in result["view"]["other_findings"] if row["status"] == "suspected")
+    assert displayed["description"] == finding["description"]
+    verification = next(row for row in output(artifact_root, "verification_results")["view"]["results"]
+                        if row["verification_id"] == displayed["verification_id"])
+    assert verification["result"] == "success"
+    assert artifact_file(artifact_root, "verification_results").read_bytes() == verifier_bytes
+
+
+@pytest.mark.parametrize("description", [None, [], {"unexpected": "value"}])
+def test_nonconfirmed_reporter_description_requires_text(artifact_root: Path, description: object) -> None:
+    report = json.loads(artifact_file(artifact_root, "diagnosis_report").read_bytes())
+    finding = next(row for row in report["data"]["findings"] if row["status"] != "confirmed")
+    finding["description"] = description
+    rewrite(artifact_root, "diagnosis_report", report)
+    assert output(artifact_root, "diagnosis_report")["state"] == "invalid"
 
 
 @pytest.mark.parametrize("key,value", [("schema_version", "0.1.0"), ("run_id", "other-run"), ("mode", "diagnosis"),

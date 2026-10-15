@@ -215,6 +215,112 @@ def graph_explorer_page(
 
 @pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
 @pytest.mark.parametrize("width", [1280, 390])
+@pytest.mark.parametrize("state", ["completed", "partial"])
+def test_verification_success_is_not_a_confirmed_finding_in_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], width: int, state: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_diagnosis_payload(state)
+    page.set_viewport_size({"width": width, "height": 900})
+    page.locator("#refresh-results").click()
+    overview = page.locator("#diagnosis-overview")
+    for label, count in {"후보": 1, "검증 조건 통과": 1, "검증 미재현": 0,
+                         "검증 판단불가": 0, "검증 미실행·차단": 0, "Reporter 확정": 0}.items():
+        expect(overview.locator("dl > div").filter(has=page.get_by_text(label, exact=True)).locator("dd")).to_have_text(str(count))
+    expect(overview).to_contain_text("서로 합산하거나 고유 취약점 수로 해석하지 않는다")
+    expect(overview).to_contain_text("확정 취약점이 아니다")
+    if state == "partial":
+        expect(overview).to_contain_text("부분 결과")
+    report = page.get_by_role("table", name="확정 외 리포트 상태(확인된 취약점 목록에서 제외)")
+    expect(report).to_contain_text("suspected")
+    expect(report).to_contain_text("success")
+    expect(report).to_contain_text("기대 동작이 추론에 기반함")
+    expect(report).to_contain_text("<img src=x")
+    expect(report.locator("img")).to_have_count(0)
+    assert page.evaluate("typeof window.reason_xss") == "undefined"
+    expect(page.locator("#report-view tbody tr")).to_have_count(0)
+    expect(page.locator("#report-view")).not_to_contain_text("finding-ui")
+
+
+def build_diagnosis_payload(state: str = "completed") -> dict[str, object]:
+    """이미 검증된 공개 화면 모델 대역. Web이 판정이나 GT를 생성하지 않는다."""
+    candidate = {"candidate_id": "candidate-ui", "vulnerability_type": "horizontal_access",
+                 "actor_account_id": "account:actor", "actor_role_id": "role:member", "resource_ids": [],
+                 "hypothesis": "Public hypothesis", "expected_behavior": "Owner only", "expected_basis": "inferred"}
+    verification = {"verification_id": "verification-ui", "candidate_id": "candidate-ui", "scenario_id": "scenario-ui",
+                    "decision_id": "decision-ui", "policy_decision": "allow", "execution_status": "completed",
+                    "result": "success", "reason": "Verification public reason", "steps": [], "error_count": 0}
+    report = {"summary": {"candidate_count": 1, "confirmed_count": 0, "not_confirmed_count": 0,
+                          "suspected_count": 1, "indeterminate_count": 0, "policy_blocked_count": 0, "approval_pending_count": 0},
+              "confirmed_findings": [], "other_findings": [{"finding_id": "finding-ui", "candidate_id": "candidate-ui",
+                  "scenario_id": "scenario-ui", "verification_id": "verification-ui", "status": "suspected",
+                  "description": "위반 정황은 재현됐으나 기대 동작이 추론에 기반함 <img src=x onerror=window.reason_xss=1>"}],
+              "limitations": []}
+    return {"run_id": "web-graph-fixture", "state": state, "artifacts": [
+        {"artifact_type": artifact_type, "state": state, "error_count": int(state == "partial"), "view": view}
+        for artifact_type, view in (("vulnerability_candidates", {"candidates": [candidate]}),
+                                    ("verification_results", {"results": [verification]}), ("diagnosis_report", report))
+    ]}
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("artifact_type,label", [("verification_results", "검증 조건 통과"), ("diagnosis_report", "Reporter 확정")])
+@pytest.mark.parametrize("state", ["missing", "failed", "invalid"])
+def test_unavailable_diagnosis_counts_are_not_zero_in_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], artifact_type: str, label: str, state: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payload = build_diagnosis_payload()
+    unavailable = next(row for row in payload["artifacts"] if row["artifact_type"] == artifact_type)
+    unavailable.update(state=state, view=None, error_count=1, issue="ARTIFACT_INVALID")
+    payloads["value"] = payload
+    page.locator("#refresh-results").click()
+    overview = page.locator("#diagnosis-overview")
+    expect(overview.locator("dl > div").filter(has=page.get_by_text(label, exact=True)).locator("dd")).to_have_text("미확인")
+    available_label = "Reporter 확정" if artifact_type == "verification_results" else "검증 조건 통과"
+    available_count = "0" if artifact_type == "verification_results" else "1"
+    expect(overview.locator("dl > div").filter(has=page.get_by_text(available_label, exact=True)).locator("dd")).to_have_text(available_count)
+    payloads["value"] = build_diagnosis_payload()
+    page.locator("#refresh-results").click()
+    expect(overview.locator("dl > div").filter(has=page.get_by_text(label, exact=True)).locator("dd")).to_have_text("1" if artifact_type == "verification_results" else "0")
+    page.route("**/api/run-results", lambda route: route.abort())
+    page.locator("#refresh-results").click()
+    expect(page.locator("#results-status")).to_contain_text("결과 조회 실패")
+    expect(overview.locator("dd")).to_have_text(["미확인"] * 6)
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("result,label", [("failure", "검증 미재현"), ("indeterminate", "검증 판단불가"), ("blocked", "검증 미실행·차단")])
+def test_verification_outcome_counters_in_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], result: str, label: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payload = build_diagnosis_payload()
+    verification = next(row for row in payload["artifacts"] if row["artifact_type"] == "verification_results")
+    verification["view"]["results"][0].update(result=result,
+        execution_status="not_executed" if result == "blocked" else "completed",
+        policy_decision="require_approval" if result == "blocked" else "allow")
+    report = next(row for row in payload["artifacts"] if row["artifact_type"] == "diagnosis_report")["view"]
+    status = {"failure": "not_confirmed", "indeterminate": "indeterminate", "blocked": "approval_pending"}[result]
+    report["summary"].update(suspected_count=0)
+    report["summary"][status + "_count"] = 1
+    report["other_findings"][0].update(status=status, description="Reporter outcome description")
+    payloads["value"] = payload
+    page.locator("#refresh-results").click()
+    overview = page.locator("#diagnosis-overview")
+    expect(overview.locator("dl > div").filter(has=page.get_by_text(label, exact=True)).locator("dd")).to_have_text("1")
+    expect(overview.locator("dl > div").filter(has=page.get_by_text("검증 조건 통과", exact=True)).locator("dd")).to_have_text("0")
+    expect(overview.locator("dl > div").filter(has=page.get_by_text("Reporter 확정", exact=True)).locator("dd")).to_have_text("0")
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("width", [1280, 390])
 def test_large_graph_explorer_browser(graph_explorer_page: tuple[Page, dict[str, object]], width: int) -> None:
     from playwright.sync_api import expect
 
