@@ -18,6 +18,7 @@ from modules.reporter.models import (
 )
 from modules.reporter.utils.atomic_writer import write_json_atomically
 from modules.reporter.utils.hashing import calculate_sha256
+from modules.reporter.utils.paths import require_existing_file
 from modules.reporter.utils.validation import validate_schema
 
 EVALUATION_RESULTS_SCHEMA = (
@@ -119,6 +120,10 @@ def _validate_source_integrity(inputs: EvaluationInputs) -> None:
     )
     if ground_truth_sha256 != inputs.ground_truth.sha256:
         raise ContractValidationError("평가 중 ground_truth 파일이 변경됨")
+    if inputs.settings.relative_path is not None:
+        settings_path = require_existing_file(project_root, inputs.settings.relative_path)
+        if calculate_sha256(settings_path) != inputs.settings.sha256:
+            raise ContractValidationError("평가 중 계정 매핑 설정 파일이 변경됨")
 
 
 def _artifact(

@@ -5,7 +5,7 @@
 
 **목표:** 인가·비즈니스 로직 취약점에 특화된 AI DAST 개발
 
-**계약:** 8개 모듈 · 11개 JSON 파일 = 실행 산출물 10개(`schema_version` 0.2.0, `crawl_result`만 0.3.0) + 개발 평가 입력 `ground_truth.json` 1개(0.1.0).
+**계약:** 8개 모듈 · 11개 JSON 파일 = 실행 산출물 10개(`schema_version` 0.3.0) + 개발 평가 입력 `ground_truth.json` 1개(0.1.0).
 
 </aside>
 

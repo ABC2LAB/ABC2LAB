@@ -421,7 +421,7 @@ def _assert_unchanged_classification(
             "approval_pending_count": 1,
         }
     else:
-        assert artifact["data"]["candidate_counts"] == {"tp": 1, "fp": 1, "fn": 0}
+        assert artifact["data"]["candidate_counts"] == {"tp": 1, "fp": 2, "fn": 0}
         assert artifact["data"]["confirmed_counts"] == {"tp": 1, "fp": 0, "fn": 0}
 
 

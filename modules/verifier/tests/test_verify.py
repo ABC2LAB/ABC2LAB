@@ -249,12 +249,12 @@ def test_input_contract_invalid_failed_file(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("input_type", sorted(INPUT_RELS))
 def test_previous_contract_version_input_fails_without_sending(tmp_path: Path, input_type: str) -> None:
-    # 입력 3종은 생산자 0.2.0만 받는다. 0.1.0을 묵시 변환해 실행하면 바뀐 계약(예: resource_ids)을 모른 채 보낸다.
+    # 입력 3종은 생산자 계약 버전(0.3.0)만 받는다. 이전 버전을 묵시 변환해 실행하면 바뀐 계약을 모른 채 보낸다.
     run_root = tmp_path / "run_demo_001"
     paths = copy_committed_triple(run_root)
     target = run_root / INPUT_RELS[input_type]
     document = json.loads(target.read_bytes())
-    document["schema_version"] = "0.1.0"
+    document["schema_version"] = "0.2.0"  # 바로 이전 계약
     target.write_text(json.dumps(document), encoding="utf-8")
     # 해시 게이트가 대신 막지 않게 계획 해시를 다시 잇는다. 버전만 틀린 입력이 남는다.
     _relink_scenarios_hash(run_root)

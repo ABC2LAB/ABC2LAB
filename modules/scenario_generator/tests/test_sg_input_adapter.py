@@ -122,11 +122,11 @@ def test_wrong_artifact_type_is_rejected_by_schema(tmp_path: Path) -> None:
     expect_error(InputErrorCode.SCHEMA_INVALID, path, tmp_path)
 
 
-def test_each_input_has_its_own_supported_version(tmp_path: Path) -> None:
-    # crawl_result는 0.3.0, vulnerability_candidates는 0.2.0. 한쪽 버전으로 다른 쪽을 받지 않는다.
-    assert SUPPORTED_SCHEMA_VERSION_BY_TYPE == {"crawl_result": "0.3.0", "vulnerability_candidates": "0.2.0"}
+def test_each_input_accepts_only_the_current_contract_version(tmp_path: Path) -> None:
+    # 실행 산출물 0.3.0 통일(2026-10-14). 이전 계약 0.2.0은 두 입력 모두 묵시 변환 없이 거절한다.
+    assert SUPPORTED_SCHEMA_VERSION_BY_TYPE == {"crawl_result": "0.3.0", "vulnerability_candidates": "0.3.0"}
     crawl = read_fixture(CRAWL_RELATIVE_PATH)
-    crawl["schema_version"] = SUPPORTED_SCHEMA_VERSION_BY_TYPE["vulnerability_candidates"]
+    crawl["schema_version"] = "0.2.0"
     path = write_run_file(tmp_path, CRAWL_RELATIVE_PATH, crawl)
     expect_error(InputErrorCode.VERSION_UNSUPPORTED, path, tmp_path)
 

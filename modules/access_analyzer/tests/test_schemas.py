@@ -29,7 +29,7 @@ EVIDENCE = {
 
 def _result_envelope(status: str, errors: list, data) -> dict:
     return {
-        "schema_version": "0.2.0", "artifact_type": "graph_query_result", "artifact_id": "r1",
+        "schema_version": "0.3.0", "artifact_type": "graph_query_result", "artifact_id": "r1",
         "run_id": "run_demo_001", "iteration": 0, "producer": "knowledge_graph", "mode": "development",
         "created_at": "2026-10-07T00:03:00Z", "status": status, "input_refs": [], "errors": errors,
         "runtime_metrics": None, "data": data,
@@ -40,7 +40,7 @@ ITEM_1_MATCH_KEY = {"resource_key": "item", "identifiers": [{"key": "item_id", "
 
 
 def _completed_result_data() -> dict:
-    """KG 0.2.0의 행 종류를 다 담는다: instance 소유, instance·type·자원 없음 접근, Resource type·instance와 비Resource 노드."""
+    """KG 0.3.0의 행 종류를 다 담는다: instance 소유, instance·type·자원 없음 접근, Resource type·instance와 비Resource 노드."""
     ownership = {"query_id": "q_own", "query_key": "resource_ownership", "status": "completed", "errors": [], "rows": [
         {"resource_id": "resource:item_1", "resource_key": "item", "resource_scope": "instance", "match_key": ITEM_1_MATCH_KEY,
          "owner_account_id": "account_a", "basis": "inferred", "evidence_refs": [EVIDENCE]},
@@ -100,7 +100,7 @@ def _candidate() -> dict:
 
 def _candidates_envelope(candidates: list) -> dict:
     return {
-        "schema_version": "0.2.0", "artifact_type": "vulnerability_candidates", "artifact_id": "c1",
+        "schema_version": "0.3.0", "artifact_type": "vulnerability_candidates", "artifact_id": "c1",
         "run_id": "run_demo_001", "iteration": 0, "producer": "access_analyzer", "mode": "development",
         "created_at": "2026-10-07T00:04:00Z", "status": "completed", "input_refs": [], "errors": [],
         "runtime_metrics": None, "data": {"source_graph_revision": 1, "candidates": candidates, "model_info": None},
@@ -231,9 +231,9 @@ def test_candidate_valid() -> None:
 
 
 def test_producer_sample_validates_against_output_schema() -> None:
-    # 커밋된 생산자 샘플(실제 analyze 출력)이 자기 출력 스키마(0.2.0)를 통과하는지 고정한다.
+    # 커밋된 생산자 샘플(실제 analyze 출력)이 자기 출력 스키마(0.3.0)를 통과하는지 고정한다.
     doc = json.loads(CANDIDATES_FIXTURE.read_bytes())
-    assert doc["schema_version"] == "0.2.0"
+    assert doc["schema_version"] == "0.3.0"
     assert doc["run_id"] == "run_demo_001"
     assert doc["data"]["candidates"]  # 실제 실행 산출물: 후보가 비어 있지 않다(two_owners → 2건)
     assert schema_errors(CANDIDATES_SCHEMA, doc) == []

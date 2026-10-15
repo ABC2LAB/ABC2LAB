@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reporter_evaluation_settings.schema.json",
+  "title": "Reporter-only development evaluation settings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "dataset_id", "dataset_version", "actor_bindings"],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "dataset_id": {"$ref": "#/$defs/nonBlankString"},
+    "dataset_version": {"$ref": "#/$defs/nonBlankString"},
+    "actor_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actor_alias", "account_id"],
+        "properties": {
+          "actor_alias": {"$ref": "#/$defs/nonBlankString"},
+          "account_id": {"$ref": "#/$defs/nonBlankString"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonBlankString": {"type": "string", "minLength": 1, "pattern": "\\S"}
+  }
+}

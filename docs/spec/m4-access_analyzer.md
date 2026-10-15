@@ -21,7 +21,7 @@
 | 독립 구현 | `prepare_queries`·`analyze`, 공개 `run()`·CLI, 원자 저장 구현 완료. prepare_queries는 `resource_ownership`·`role_resource_access`·`workflow_dependencies`·`structure_snapshot`을 한 번씩 작성한다 |
 | 후보 규칙 | 구현된 규칙은 Rule A(`rule_same_role_other_owner`, 수평: 같은 역할의 다른 계정이 소유한 자원 접근) 하나뿐이다. 규칙 입력은 `resource_ownership`·`role_resource_access` 결과뿐이다. 운영자 접근 정책 입력이 없어 후보 `expected_basis`는 `inferred`다 |
 | 입력 대응 | analyze는 같은 실행 값으로 질의 계획을 다시 만들어 결과의 `(query_id, query_key)` 쌍이 계획과 정확히 같고, 입력 `input_refs`가 access_analyzer의 `graph_query` 하나를 가리킬 때만 후보를 만든다. 아니면 `QUERY_PLAN_MISMATCH`로 failed |
-| 공개 계약 | 출력 `graph_query`·`vulnerability_candidates`, 입력 `graph_query_result` 모두 `0.2.0` |
+| 공개 계약 | 출력 `graph_query`·`vulnerability_candidates`, 입력 `graph_query_result` 모두 `0.3.0`(2026-10-14 실행 산출물 0.3.0 통일, 필드 변경 없음) |
 | 독립 회귀 | access_analyzer `87 passed` |
 | 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행에서 prepare_queries → KG query → analyze가 completed로 끝나고 후보가 scenario_generator·reporter까지 전달됐다(2026-10-11) |
 
@@ -114,7 +114,7 @@
 
 ### graph_query.json
 
-- 고정 값: `artifact_type=graph_query`, `producer=access_analyzer`, `schema_version=0.2.0`(전원 동시 전환).
+- 고정 값: `artifact_type=graph_query`, `producer=access_analyzer`, `schema_version=0.3.0`(0.2.0 전원 동시 전환 뒤 2026-10-14 실행 산출물 0.3.0 통일).
 - 예상 Schema 경로: `modules/access_analyzer/schemas/output/graph_query.schema.json`.
 - 예상 출력 fixture 경로: `modules/access_analyzer/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/access_analyzer/graph_query.json`.
 
@@ -126,7 +126,7 @@
 
 ### vulnerability_candidates.json
 
-- 고정 값: `artifact_type=vulnerability_candidates`, `producer=access_analyzer`, `schema_version=0.2.0`(전원 동시 전환).
+- 고정 값: `artifact_type=vulnerability_candidates`, `producer=access_analyzer`, `schema_version=0.3.0`(0.2.0 전원 동시 전환 뒤 2026-10-14 실행 산출물 0.3.0 통일).
 - 예상 Schema 경로: `modules/access_analyzer/schemas/output/vulnerability_candidates.schema.json`.
 - 예상 출력 fixture 경로: `modules/access_analyzer/tests/fixtures/runs/run_demo_001/artifacts/iteration-000/access_analyzer/vulnerability_candidates.json`.
 
@@ -224,6 +224,7 @@
 | --- | --- | --- |
 | 2026-10-11 | 현재 구현·연결 상태 표 추가 | 문서만, 계약 변경 없음 |
 | 2026-10-12 | analyze 입력 대조 강화: 결과 `(query_id, query_key)`가 계획과 정확히 같고 `input_refs`에 access_analyzer의 graph_query가 하나일 때만 후보 생성, 아니면 오류 코드 `QUERY_PLAN_MISMATCH`(failed) | 동작 변경. 계약 필드 변경 없음(ErrorItem.code는 자유 문자열) |
+| 2026-10-14 | 실행 산출물 0.3.0 통일: 출력 `graph_query`·`vulnerability_candidates`와 입력 사본 `graph_query_result`의 `schema_version`만 0.2.0 → 0.3.0. 필드·의미 변경 없음 | 스키마 변경 PR(KG #82와 버전 정렬) |
 
 ### 0.1.0 → 0.2.0
 
