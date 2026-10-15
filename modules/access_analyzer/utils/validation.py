@@ -1,8 +1,8 @@
-"""자기 출력(graph_query.json)의 Schema·의미 검증.
+"""자기 출력(graph_query·vulnerability_candidates)과 입력(graph_query_result·crawl_result)의 Schema·의미 검증.
 
 문제를 예외로 하나씩 끊지 않고 ValidationIssue 목록으로 모아 돌려준다. 빈 목록이면 통과다.
 메시지에는 문서 값이 아니라 위치·규칙 이름만 넣는다(값 누출 방지). 다른 모듈 코드를 import하지 않고
-자기 schemas/와 함께 둔다. graph_query_result 입력 검증과 vulnerability_candidates 검증은 analyze(다음 PR)에서 더한다.
+자기 schemas/와 함께 둔다. 입력 Schema는 생산자 출력 Schema의 사본이다.
 """
 
 import json
@@ -20,6 +20,7 @@ SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schemas"
 GRAPH_QUERY_SCHEMA_NAME = "output/graph_query.schema.json"
 GRAPH_QUERY_FILE_NAME = "graph_query.json"
 GRAPH_QUERY_RESULT_SCHEMA_NAME = "input/graph_query_result.schema.json"
+CRAWL_RESULT_SCHEMA_NAME = "input/crawl_result.schema.json"
 CANDIDATES_SCHEMA_NAME = "output/vulnerability_candidates.schema.json"
 CANDIDATES_FILE_NAME = "vulnerability_candidates.json"
 ROOT_LOCATION = "$"
@@ -90,6 +91,37 @@ def validate_graph_query_result_bytes(raw: bytes) -> list[ValidationIssue]:
 
 def validate_graph_query_result_file(artifact_path: Path) -> list[ValidationIssue]:
     return validate_graph_query_result_bytes(artifact_path.read_bytes())
+
+
+def validate_crawl_result_bytes(raw: bytes) -> list[ValidationIssue]:
+    """입력 crawl_result.json을 우리 입력 사본 Schema와 의미(계정·요청 ID 유일)로 검사한다(collector 출력 계약과 같은 모양)."""
+    report = _Report()
+    document = _parse_strict_json(report, ROOT_LOCATION, raw)
+    if document is None or not _check_schema(report, ROOT_LOCATION, document, CRAWL_RESULT_SCHEMA_NAME):
+        return report.issues
+    _check_utc_timestamp(report, f"{ROOT_LOCATION}.created_at", document["created_at"])
+    if document["data"] is not None:
+        _check_crawl_semantics(report, document["data"])
+    return report.issues
+
+
+def validate_crawl_result_file(artifact_path: Path) -> list[ValidationIssue]:
+    return validate_crawl_result_bytes(artifact_path.read_bytes())
+
+
+def _check_crawl_semantics(report: _Report, data: dict[str, Any]) -> None:
+    """같은 ID가 둘이면 어느 쪽이 맞는지 알 수 없어 색인하지 않는다. 메시지에는 ID 종류만 넣는다."""
+    _check_unique_ids(report, data["accounts"], "account_id", f"{ROOT_LOCATION}.data.accounts")
+    _check_unique_ids(report, data["requests"], "request_id", f"{ROOT_LOCATION}.data.requests")
+
+
+def _check_unique_ids(report: _Report, records: list[dict[str, Any]], id_field: str, location: str) -> None:
+    seen: set[str] = set()
+    for index, record in enumerate(records):
+        record_id = record[id_field]
+        if record_id in seen:
+            report.add(IssueCode.DUPLICATE_ID, f"{location}[{index}].{id_field}", f"{id_field}가 중복됨")
+        seen.add(record_id)
 
 
 def validate_vulnerability_candidates_bytes(raw: bytes) -> list[ValidationIssue]:

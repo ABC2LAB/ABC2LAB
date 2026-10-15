@@ -93,7 +93,7 @@
 
 | 작성 파일 | 생성 operation | 출력 변경 협의 대상 — 직접 소비자 |
 | --- | --- | --- |
-| `crawl_result.json` | `collect` | semantic_analyzer · scenario_generator · verifier · reporter(개발 평가) |
+| `crawl_result.json` | `collect` | semantic_analyzer · access_analyzer(analyze 두 번째 입력, 2026-10-15) · scenario_generator · verifier · reporter(개발 평가) |
 
 정상·부분 완료 파일의 `data` 필드는 아래와 같다. `status=failed`이면 `data=null`로 기록한다. 공통 메타데이터·상태 규칙은 [공통 파일 형식](02-common-contract.md)을 적용한다.
 
@@ -131,7 +131,7 @@
 | `data.requests` | `array<ObservedRequest>` | 필수 | 역할·계정·화면·행동과 연결된 요청 및 응답 메타데이터. |
 | `data.discovered_endpoints` | `array<DiscoveredEndpoint>` | 필수 | 화면에서 발견했지만 요청을 보내지 않은 엔드포인트(0.3.0 추가). 없으면 빈 배열. `requests`에서 이미 관찰된 (method, origin, 경로 템플릿)은 넣지 않는다. |
 
-- **소비자 용도** — semantic_analyzer: `discovered_endpoints`로 Endpoint·Parameter를 `basis=inferred`로 만들고(접근을 관찰한 게 아니라 ACCESS·normalized_requests는 만들지 않음), `response.identifiers`를 소유 관계(OWNS)의 `observed` 근거로 쓴다. reporter: endpoint 지표를 semantic_analysis `nodes`의 Endpoint(inferred 포함)까지 세면 발견 엔드포인트가 반영된다.
+- **소비자 용도** — semantic_analyzer: `discovered_endpoints`로 Endpoint·Parameter를 `basis=inferred`로 만들고(접근을 관찰한 게 아니라 ACCESS·normalized_requests는 만들지 않음), `response.identifiers`를 소유 관계(OWNS)의 `observed` 근거로 쓴다. reporter: endpoint 지표를 semantic_analysis `nodes`의 Endpoint(inferred 포함)까지 세면 발견 엔드포인트가 반영된다. access_analyzer(2026-10-15): `accounts[].session_ref`가 전부 null인 역할을 비인증으로, `requests[].response.status_code`를 KG 접근 행의 `request_ids`에 조인해 2xx·거절 관찰로 쓴다(수직 규칙). `discovered_endpoints`는 쓰지 않는다.
 
 ## 중첩 레코드 필드
 
@@ -264,6 +264,7 @@
 | 2026-10-10 | 세션 공개 창구를 여는 공개 함수 `open_session_executor()`와 여는 중 오류 타입(`ValueError`·`RuntimeError`(`SessionTransportError`)·`OSError`)을 정함. 출력 계약 변경 없음 | #55·#60 |
 | 2026-10-12 | 요청 범위를 loopback 고정에서 설정 origin(target_url + extra_allowed_origins)으로 전환, 브라우저 리다이렉트 hop 차단·탐지, 오류 코드 REDIRECT_OUT_OF_SCOPE | 동작 변경. 계약 필드 변경 없음(ErrorItem.code는 자유 문자열). crawl_result가 partial로 올 수 있음 |
 | 2026-10-14 | **crawl_result 0.2.0 → 0.3.0**: `data.discovered_endpoints`, `ResponseMeta.identifiers`·`identifiers_truncated` 추가(아래 "0.2.0 → 0.3.0"). 근거 파일 0.2.0은 그대로 | 스키마 변경 PR. 소비자 SA·SG·verifier·reporter 입력 사본 0.3.0 동시 전환 |
+| 2026-10-15 | 직접 소비자에 access_analyzer 추가(analyze 두 번째 입력: `accounts[].session_ref`로 비인증 역할, `requests[].response.status_code`로 2xx·거절 관찰). 계약 변경 없음 | access_analyzer 수직 규칙 PR. 생산자·소비자 둘 다 최민준 |
 
 ### 0.2.0 → 0.3.0
 

@@ -9,7 +9,8 @@ access_analyzer다(명세 m4). 그래서 계획에는 포함해 KG가 reporter�
 
 analyze: graph_query_result를 받아 revision·상태와 질의 계획 대응을 판정하고 rules로 vulnerability_candidates의 data를
 만든다. 질의 실패·partial·오래된 revision·계획과 다른 결과를 "후보 0개"와 구분하는 것이 먼저다(명세 m4 완료 기준).
-model_info는 LLM을 쓰지 않아 null.
+crawl_result는 두 번째 입력이다: KG 결과에 없는 응답 상태·세션 유무를 규칙에 준다. 없거나 failed면 그 관찰이
+필요한 규칙만 건너뛰고 partial로 남긴다(정상 빈 결과로 숨기지 않는다). model_info는 LLM을 쓰지 않아 null.
 """
 
 from collections import Counter
@@ -18,6 +19,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from modules.access_analyzer import rules
+from modules.access_analyzer.observations import CrawlObservations, build_crawl_observations
 from modules.access_analyzer.utils.config import RuleConfig, load_rule_config
 from modules.access_analyzer.utils.envelope import ErrorCode, Status, make_error_item
 
@@ -85,11 +87,13 @@ def build_candidates_result(
     expected_graph_revision: int | None,
     run_id: str,
     config: RuleConfig | None = None,
+    crawl_artifact: dict[str, Any] | None = None,
 ) -> AnalyzeOutcome:
-    """graph_query_result로 vulnerability_candidates의 status·errors·data를 정한다.
+    """graph_query_result(+crawl_result)로 vulnerability_candidates의 status·errors·data를 정한다.
 
-    규칙(Rule A)으로 후보를 만든다. 실패·partial·stale·계획과 다른 결과를 정상 빈 결과와 구분하는 것이 먼저다.
-    입력은 이미 Schema·의미 검증을 통과했다고 본다(entrypoint가 먼저 검증).
+    규칙으로 후보를 만든다. 실패·partial·stale·계획과 다른 결과를 정상 빈 결과와 구분하는 것이 먼저다.
+    입력은 이미 Schema·의미 검증을 통과했다고 본다(entrypoint가 먼저 검증). crawl_artifact가 None이면 호출자가
+    crawl_result를 주지 않은 것이다.
     """
     rule_config = config or load_rule_config()
     input_status = input_artifact["status"]
@@ -106,6 +110,10 @@ def build_candidates_result(
     data = input_artifact["data"]
     if input_artifact["run_id"] != run_id:
         error = make_error_item(ErrorCode.RUN_ID_MISMATCH, "입력 결과의 run_id가 실행 run_id와 다름", is_retryable=False)
+        return AnalyzeOutcome(Status.FAILED, [error], None)
+    if crawl_artifact is not None and crawl_artifact["run_id"] != run_id:
+        # 다른 실행의 관찰로 이 실행의 접근 행을 해석하면 안 된다. 건너뛰지 않고 failed로 둔다.
+        error = make_error_item(ErrorCode.RUN_ID_MISMATCH, "입력 crawl_result의 run_id가 실행 run_id와 다름", is_retryable=False)
         return AnalyzeOutcome(Status.FAILED, [error], None)
     if data["graph_id"] != graph_id:
         error = make_error_item(ErrorCode.GRAPH_ID_MISMATCH, "입력 결과의 graph_id가 조회 graph_id와 다름", is_retryable=False)
@@ -128,7 +136,8 @@ def build_candidates_result(
         return AnalyzeOutcome(Status.FAILED, plan_errors, None)
 
     # 완료된 분석 쿼리 결과에 규칙을 적용한다. LLM은 쓰지 않아 model_info=null.
-    candidates, rule_errors = rules.apply_rules(data, rule_config)
+    observations, crawl_errors = _resolve_crawl_observations(crawl_artifact)
+    candidates, rule_errors = rules.apply_rules(data, rule_config, observations)
     candidates_data = {
         "source_graph_revision": graph_revision,
         "candidates": candidates,
@@ -148,9 +157,29 @@ def build_candidates_result(
         if input_status == "partial"
         else []
     )
-    errors = partial_errors + rule_errors
+    errors = partial_errors + crawl_errors + rule_errors
     status = Status.PARTIAL if errors else Status.COMPLETED
     return AnalyzeOutcome(status, errors, candidates_data)
+
+
+def _resolve_crawl_observations(crawl_artifact: dict[str, Any] | None) -> tuple[CrawlObservations | None, list[dict[str, Any]]]:
+    """crawl_result가 없거나 failed면 관찰 없음 + CRAWL_INPUT_UNAVAILABLE. partial은 data가 유효하므로 그대로 쓴다."""
+    if crawl_artifact is None:
+        error = make_error_item(
+            ErrorCode.CRAWL_INPUT_UNAVAILABLE,
+            "crawl_result 입력이 없어 crawl 관찰(응답 상태·세션 유무)이 필요한 규칙을 적용하지 않음",
+            is_retryable=True,
+        )
+        return None, [error]
+    if crawl_artifact["status"] == "failed":
+        count = len(crawl_artifact["errors"])
+        error = make_error_item(
+            ErrorCode.CRAWL_INPUT_UNAVAILABLE,
+            f"입력 crawl_result가 failed라 crawl 관찰이 필요한 규칙을 적용하지 않음 (입력 오류 {count}건)",
+            is_retryable=True,
+        )
+        return None, [error]
+    return build_crawl_observations(crawl_artifact["data"]), []
 
 
 def find_query_plan_mismatches(

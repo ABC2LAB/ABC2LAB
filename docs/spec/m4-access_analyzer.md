@@ -12,20 +12,20 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-12
+## 현재 구현·연결 상태 — 2026-10-15
 
-기준 커밋 `11291f2`에 analyze 입력 대조 강화를 더한 구현·공개 계약을 반영했다.
+기준 커밋 `15811bf`(dev, #89 병합 후) + 이 PR(수직 규칙·crawl_result 입력)의 구현·공개 계약을 반영했다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
-| 독립 구현 | `prepare_queries`·`analyze`, 공개 `run()`·CLI, 원자 저장 구현 완료. prepare_queries는 `resource_ownership`·`role_resource_access`·`workflow_dependencies`·`structure_snapshot`을 한 번씩 작성한다 |
-| 후보 규칙 | 구현된 규칙은 Rule A(`rule_same_role_other_owner`, 수평: 같은 역할의 다른 계정이 소유한 자원 접근) 하나뿐이다. 규칙 입력은 `resource_ownership`·`role_resource_access` 결과뿐이다. 운영자 접근 정책 입력이 없어 후보 `expected_basis`는 `inferred`다 |
-| 입력 대응 | analyze는 같은 실행 값으로 질의 계획을 다시 만들어 결과의 `(query_id, query_key)` 쌍이 계획과 정확히 같고, 입력 `input_refs`가 access_analyzer의 `graph_query` 하나를 가리킬 때만 후보를 만든다. 아니면 `QUERY_PLAN_MISMATCH`로 failed |
-| 공개 계약 | 출력 `graph_query`·`vulnerability_candidates`, 입력 `graph_query_result` 모두 `0.3.0`(2026-10-14 실행 산출물 0.3.0 통일, 필드 변경 없음) |
-| 독립 회귀 | access_analyzer `87 passed` |
-| 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행에서 prepare_queries → KG query → analyze가 completed로 끝나고 후보가 scenario_generator·reporter까지 전달됐다(2026-10-11) |
+| 독립 구현 | `prepare_queries`·`analyze`, 공개 `run()`·CLI, 원자 저장, 규칙 설정 파일(`ACCESS_ANALYZER_CONFIG_PATH`) 구현 완료. prepare_queries는 `resource_ownership`·`role_resource_access`·`workflow_dependencies`·`structure_snapshot`을 한 번씩 작성한다 |
+| 후보 규칙 | Rule A(`rule_same_role_other_owner`, 수평: 같은 역할의 다른 계정이 소유한 자원 접근)와 수직 규칙(`rule_vertical_access`: 낮은 역할 계정이 높은 역할만 2xx 받은 엔드포인트 접근, `function_level_access`·`forced_browsing`) 둘. 규칙 입력은 `resource_ownership`·`role_resource_access` 결과와 crawl_result 관찰(응답 상태·세션 유무)이다. 운영자 접근 정책 입력이 없어 후보 `expected_basis`는 `inferred`다 |
+| 입력 대응 | analyze는 같은 실행 값으로 질의 계획을 다시 만들어 결과의 `(query_id, query_key)` 쌍이 계획과 정확히 같고, 입력 `input_refs`가 access_analyzer의 `graph_query` 하나를 가리킬 때만 후보를 만든다. 아니면 `QUERY_PLAN_MISMATCH`로 failed. crawl_result는 artifact_type으로 가려 받고, 없거나 failed면 수직 규칙만 건너뛰고 `CRAWL_INPUT_UNAVAILABLE`(partial), 다른 run이면 `RUN_ID_MISMATCH`(failed). context 선택 키 `expected_sha256`으로 입력 바이트를 대조한다 |
+| 공개 계약 | 출력 `graph_query`·`vulnerability_candidates`, 입력 `graph_query_result`·`crawl_result`(2026-10-15 추가, collector 출력 Schema 사본) 모두 `0.3.0`. `Candidate.resource_ids` 의미를 "KG Resource node_id(type 또는 instance)"로 넓혔다(Schema 변경 없음) |
+| 독립 회귀 | access_analyzer `158 passed` |
+| 실제 전체 연결 | Rule A는 완료(루트 `pipeline.py` 실제 실행에서 후보가 scenario_generator·reporter까지 전달, 2026-10-11). 수직 규칙은 머지 후 실제 실행으로 확인 예정 |
 
-남은 것: 기능 수준·강제 브라우징·업무 흐름 규칙. 세부는 [모듈 README](../../modules/access_analyzer/README.md).
+남은 것: 업무 흐름 규칙, 발견만 된 엔드포인트(`discovered_endpoints`) 후보(강제 브라우징②, `source_request_ids` `minItems 1` 합의 필요), 비인증 실행 계정의 검증(collector 창구 guest-lease PR). 세부는 [모듈 README](../../modules/access_analyzer/README.md).
 
 ## 독립 동작·수정 책임
 
@@ -76,13 +76,14 @@
 | --- | --- | --- |
 | 실행 인자 / 자기 규칙 설정 | `사용자 실행 인자 / modules 내 자기 configs` | prepare_queries: KG 준비 상태·graph_id·graph_revision, 분석 범위와 Rule 설정. |
 | graph_query_result.json | `knowledge_graph` | analyze: data.graph_revision와 results의 query_id·query_key·status·errors·rows. |
+| crawl_result.json | `collector` | analyze(수직 규칙): `accounts[]`의 role_id·session_ref(null=비인증), `requests[]`의 request_id·response.status_code. 없으면 수직 규칙만 건너뛰고 partial. |
 
-**입력 파일의 전체 필드:** [graph_query_result.json 필드](m3-knowledge_graph.md).
+**입력 파일의 전체 필드:** [graph_query_result.json 필드](m3-knowledge_graph.md) · [crawl_result.json 필드](m1-collector.md).
 
 ## 구현할 일
 
 1. prepare_queries: 허용된 질의 키와 파라미터를 graph_query.json에 작성한다.
-2. KG query가 생성한 graph_query_result.json을 analyze 입력으로 받는다. 내부 KG 코드나 DB에 직접 접근하지 않는다.
+2. KG query가 생성한 graph_query_result.json과 collector의 crawl_result.json을 analyze 입력으로 받는다. 내부 KG 코드나 DB에 직접 접근하지 않는다.
 3. 질의 ID·키·revision을 대응시키고, 역할별 접근·자원 소유권·업무 의존 조건을 분석한다.
 4. 위반 가설, 실행 계정·역할, 대상 자원, 원본 요청과 기대 조건의 근거를 vulnerability_candidates.json에 작성한다.
 
@@ -109,6 +110,7 @@
 - Neo4j 연결과 실제 Cypher 실행은 knowledge_graph에 맡긴다. query_id·query_key·revision이 대응하지 않으면 오래된 결과로 후보를 만들지 않는다.
 - analyze는 결과의 `(query_id, query_key)` 쌍 집합을 계획과 정확히 대조한다. 계획한 질의 누락·계획에 없는 query_id·짝 바뀜·같은 query_key 중복·`input_refs`의 graph_query 참조 없음은 `QUERY_PLAN_MISMATCH`로 failed(후보 없음)이고, 계획한 질의가 다 있고 일부만 failed면 partial이다.
 - 질의 실패·부분 결과를 후보 없음으로 단정하지 않는다. 작업 오류와 분석하지 못한 범위를 공통 상태·errors로 추적한다.
+- **수직 규칙(`rule_vertical_access`)**: 역할의 접근 집합은 그 역할 계정이 2xx 받은 `endpoint_id` 집합이다(`AccessRow.request_ids`를 crawl_result 응답 상태로 조인. KG `access_observed`는 관찰 사실일 뿐 성공 여부가 아니다). 비인증 역할(crawl 계정이 전부 `session_ref=null`)은 모든 인증 역할보다 낮고, 인증 역할끼리는 접근 집합이 진부분집합일 때만 낮다(같거나 비교 불가면 후보 없음·경고. 설정 `role_order`가 둘 다 담으면 설정 우선, 정반대면 경고). 후보 엔드포인트는 높은 역할만 2xx 받은 것에서 비인증이 2xx 받은 것(공개)과 낮은 역할이 2xx 또는 거절(설정 `denied_status_codes`, 기본 401·403)로 관찰한 것을 뺀다. 그 밖의 상태(3xx·400·404 등)로만 관찰한 것은 인가 근거가 아니라 남긴다. 기준 계정은 그 엔드포인트에 2xx 행이 있는 가장 가까운 높은 역할의 계정, `source_request_ids`는 그 2xx 요청, `resource_ids`는 그 행들의 `resource_id` 전부(정렬·중복 제거). request_id가 crawl에 없는 행은 빼고 `ACCESS_REQUEST_UNRESOLVED`(partial). 발견만 된 엔드포인트(`discovered_endpoints`)는 접근 행이 없어 후보로 내지 않는다.
 
 ## 입력·출력 JSON 필드
 
@@ -208,7 +210,7 @@
 | `actor_account_id` | `string` | 필수 | 재현을 제안하는 실행 계정 ID. |
 | `actor_role_id` | `string` | 필수 | 실행 계정 역할 ID. |
 | `reference_account_id` | `nonEmptyString / null` | 필수 | 정상 소유자·상위 역할 등 비교 기준 계정. 없으면 null(빈 문자열 금지). |
-| `resource_ids` | `array<nonEmptyString>` (minItems 1) | 필수 | 검증 대상 자원 ID. **KG Resource instance node_id**(graph_query_result의 instance `resource_id`를 그대로). |
+| `resource_ids` | `array<nonEmptyString>` (minItems 1) | 필수 | 검증 대상 자원 ID. **KG Resource node_id(type 또는 instance)**(graph_query_result 행의 `resource_id`를 그대로, 2026-10-15 의미 확장). Rule A는 OwnershipRow가 instance만 와서 instance 하나, 수직 규칙은 기준 계정 2xx 행의 자원 전부라 type이 올 수 있다. 소비자는 node_id로 type/instance를 구분하지 않고(불투명), 필요하면 KG `structure_snapshot`의 `properties.resource_scope`를 본다. |
 | `source_request_ids` | `array<nonEmptyString>` (minItems 1) | 필수 | 후보와 연결된 수집 요청 ID. 못 채우면 후보를 발행하지 않는다. |
 | `workflow_id` | `nonEmptyString / null` | 필수 | 관련 업무 흐름 ID. 없으면 null(빈 문자열 금지). |
 | `hypothesis` | `string` | 필수 | 검증할 위반 가설. |
@@ -225,6 +227,7 @@
 | 2026-10-11 | 현재 구현·연결 상태 표 추가 | 문서만, 계약 변경 없음 |
 | 2026-10-12 | analyze 입력 대조 강화: 결과 `(query_id, query_key)`가 계획과 정확히 같고 `input_refs`에 access_analyzer의 graph_query가 하나일 때만 후보 생성, 아니면 오류 코드 `QUERY_PLAN_MISMATCH`(failed) | 동작 변경. 계약 필드 변경 없음(ErrorItem.code는 자유 문자열) |
 | 2026-10-14 | 실행 산출물 0.3.0 통일: 출력 `graph_query`·`vulnerability_candidates`와 입력 사본 `graph_query_result`의 `schema_version`만 0.2.0 → 0.3.0. 필드·의미 변경 없음 | 스키마 변경 PR(KG #82와 버전 정렬) |
+| 2026-10-15 | **수직 규칙 `rule_vertical_access` 추가**(위 "구현 주의사항"). analyze 입력에 `crawl_result`(0.3.0 사본) 추가, context 선택 키 `expected_sha256`. 오류 코드 `CRAWL_INPUT_UNAVAILABLE`·`ACCESS_REQUEST_UNRESOLVED`·`INPUT_HASH_MISMATCH`·`CONFIG_INVALID` 추가, `CANDIDATE_INCOMPLETE`는 수직 규칙(기준 행 자원 미연결)에도 사용. **`Candidate.resource_ids` 의미 확장**: instance → type 또는 instance(Schema·`minItems 1`·버전 변경 없음). `vulnerability_type`에 `function_level_access`·`forced_browsing`(GT 어휘) 사용. 발견만 된 엔드포인트 후보(`source_request_ids` minItems 완화)는 보류 | 스키마 변경 PR(의미 변경). 소비자 scenario_generator(m5 `resource_ids` 문구, 이경준)·reporter(type 노드 `name=resource_key` 평가, 이동찬) 리뷰. recall 상한(규칙이 수평 하나)이 원인 |
 
 ### 0.1.0 → 0.2.0
 

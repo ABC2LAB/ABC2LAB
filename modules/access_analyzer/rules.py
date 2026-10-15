@@ -1,14 +1,18 @@
-"""분석 규칙. 지금은 Rule A(same_role_other_owner) 하나.
+"""분석 규칙: Rule A(same_role_other_owner, 수평)와 수직 규칙(vertical_rule.py)을 순서대로 적용한다.
 
-구조로만 판단한다: 역할 이름·경로·필드명이 아니라 소유 관계(OwnershipRow)와 역할 ID 동일성(AccessRow.role_id)으로.
-후보는 검증 대상이지 확정 취약점이 아니다. 규칙 입력은 분석 쿼리(resource_ownership·role_resource_access) 결과뿐이다.
-structure_snapshot은 평가·감사용이라 규칙 입력으로 쓰지 않는다(명세 m4).
+구조로만 판단한다: 역할 이름·경로·필드명이 아니라 소유 관계(OwnershipRow)·역할 ID(AccessRow.role_id)·접근 집합으로.
+후보는 검증 대상이지 확정 취약점이 아니다. 규칙 입력은 분석 쿼리(resource_ownership·role_resource_access) 결과와
+crawl_result 관찰(응답 상태·세션 유무)뿐이다. structure_snapshot은 평가·감사용이라 규칙 입력으로 쓰지 않는다(명세 m4).
 """
 
 from typing import Any
 
+from modules.access_analyzer.candidate_ids import build_candidate_id
+from modules.access_analyzer.evidence import merge_evidence
+from modules.access_analyzer.observations import CrawlObservations
 from modules.access_analyzer.utils.config import RuleConfig
 from modules.access_analyzer.utils.envelope import ErrorCode, make_error_item
+from modules.access_analyzer.vertical_rule import apply_vertical_rule
 
 RULE_ID = "rule_same_role_other_owner"
 CATEGORY = "authorization"
@@ -19,13 +23,29 @@ HYPOTHESIS = "같은 역할의 다른 계정이 소유자의 자원에 접근할
 EXPECTED_BEHAVIOR = "소유자가 아닌 계정의 접근은 거절되어야 한다"
 
 
-def apply_rules(result_data: dict[str, Any], config: RuleConfig) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """완료된 분석 쿼리 결과로 후보와 규칙 오류를 만든다. (candidates, errors)."""
+def apply_rules(
+    result_data: dict[str, Any], config: RuleConfig, observations: CrawlObservations | None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """완료된 분석 쿼리 결과로 후보와 규칙 오류를 만든다. (candidates, errors). 출력 순서는 Rule A → 수직.
+
+    observations는 crawl_result 색인이다(없으면 None). Rule A는 소유 관계·역할 동일성만 보므로 쓰지 않고,
+    수직 규칙은 없으면 돌지 않는다(그 사실은 service가 CRAWL_INPUT_UNAVAILABLE로 남긴다).
+    """
     ownership_rows = _completed_rows(result_data["results"], "resource_ownership")
     access_rows = _completed_rows(result_data["results"], "role_resource_access")
-    if not config.same_role_other_owner.enabled:
-        return [], []
-    return _same_role_other_owner(ownership_rows, access_rows, config.same_role_other_owner.max_candidates)
+    candidates: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    if config.same_role_other_owner.enabled:
+        same_role_candidates, same_role_errors = _same_role_other_owner(
+            ownership_rows, access_rows, config.same_role_other_owner.max_candidates
+        )
+        candidates += same_role_candidates
+        errors += same_role_errors
+    if config.vertical_access.enabled and observations is not None:
+        vertical_candidates, vertical_errors = apply_vertical_rule(access_rows, observations, config.vertical_access)
+        candidates += vertical_candidates
+        errors += vertical_errors
+    return candidates, errors
 
 
 def _completed_rows(results: list[dict[str, Any]], query_key: str) -> list[dict[str, Any]]:
@@ -56,7 +76,7 @@ def _same_role_other_owner(
         for request_id in row["request_ids"]:
             if request_id not in request_bucket:
                 request_bucket.append(request_id)
-        _merge_evidence(evidence_by_owner_resource.setdefault(key, []), row["evidence_refs"])
+        merge_evidence(evidence_by_owner_resource.setdefault(key, []), row["evidence_refs"])
 
     candidates: list[dict[str, Any]] = []
     incomplete_errors: list[dict[str, Any]] = []
@@ -69,7 +89,7 @@ def _same_role_other_owner(
             continue
         peers = sorted(accounts_by_role.get(owner_role_id, set()) - {owner_account_id})
         for actor_account_id in peers:
-            candidate_id = f"{RULE_ID}:{actor_account_id}|{owner_account_id}|{resource_id}"
+            candidate_id = build_candidate_id(RULE_ID, actor_account_id, owner_account_id, resource_id)
             request_ids = request_ids_by_owner_resource.get((owner_account_id, resource_id))
             if not request_ids:
                 # 소유자가 그 자원에 접근한 요청을 못 찾으면 재현할 수집 요청이 없다. 발행하지 않고 오류로 남긴다(확정 답 2-c).
@@ -83,7 +103,7 @@ def _same_role_other_owner(
                 )
                 continue
             evidence_refs = list(ownership["evidence_refs"])
-            _merge_evidence(evidence_refs, evidence_by_owner_resource.get((owner_account_id, resource_id), []))
+            merge_evidence(evidence_refs, evidence_by_owner_resource.get((owner_account_id, resource_id), []))
             candidates.append(
                 {
                     "candidate_id": candidate_id,
@@ -119,12 +139,3 @@ def _same_role_other_owner(
             ),
         ]
     return candidates, errors
-
-
-def _merge_evidence(existing: list[dict[str, Any]], incoming: list[dict[str, Any]]) -> None:
-    """evidence_id 기준 중복 없이 이어 붙인다(순서 보존)."""
-    seen = {item["evidence_id"] for item in existing}
-    for item in incoming:
-        if item["evidence_id"] not in seen:
-            existing.append(item)
-            seen.add(item["evidence_id"])

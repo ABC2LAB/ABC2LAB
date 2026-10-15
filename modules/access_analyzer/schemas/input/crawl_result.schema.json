@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:abc2lab:collector:crawl_result:0.3.0",
+  "title": "crawl_result.json",
+  "description": "collector collect 출력. 필드는 명세 v0.1 m1-collector·02-common-contract 표를 따른다. 일반 객체는 미정의 키를 거절한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_id",
+    "run_id",
+    "iteration",
+    "producer",
+    "mode",
+    "created_at",
+    "status",
+    "input_refs",
+    "errors",
+    "runtime_metrics",
+    "data"
+  ],
+  "properties": {
+    "schema_version": { "const": "0.3.0" },
+    "artifact_type": { "const": "crawl_result" },
+    "artifact_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "iteration": { "type": "integer", "minimum": 0 },
+    "producer": { "const": "collector" },
+    "mode": { "enum": ["diagnosis", "development"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["completed", "partial", "failed"] },
+    "input_refs": { "type": "array", "items": { "$ref": "#/$defs/ArtifactRef" } },
+    "errors": { "type": "array", "items": { "$ref": "#/$defs/ErrorItem" } },
+    "runtime_metrics": {
+      "anyOf": [{ "$ref": "#/$defs/RuntimeMetrics" }, { "type": "null" }]
+    },
+    "data": {
+      "anyOf": [{ "$ref": "#/$defs/CrawlResultData" }, { "type": "null" }]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "errors": { "maxItems": 0 },
+          "data": { "type": "object" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "partial" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "errors": { "minItems": 1 },
+          "data": { "type": "object" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "failed" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "errors": { "minItems": 1 },
+          "data": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "CrawlResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_url", "roles", "accounts", "pages", "actions", "requests", "discovered_endpoints"],
+      "properties": {
+        "target_url": { "type": "string" },
+        "roles": { "type": "array", "items": { "$ref": "#/$defs/Role" } },
+        "accounts": { "type": "array", "items": { "$ref": "#/$defs/Account" } },
+        "pages": { "type": "array", "items": { "$ref": "#/$defs/Page" } },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/Action" } },
+        "requests": { "type": "array", "items": { "$ref": "#/$defs/ObservedRequest" } },
+        "discovered_endpoints": { "type": "array", "items": { "$ref": "#/$defs/DiscoveredEndpoint" } }
+      }
+    },
+    "Role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role_id", "name"],
+      "properties": {
+        "role_id": { "type": "string" },
+        "name": { "type": "string" }
+      }
+    },
+    "Account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["account_id", "role_id", "alias", "session_ref"],
+      "properties": {
+        "account_id": { "type": "string" },
+        "role_id": { "type": "string" },
+        "alias": { "type": "string" },
+        "session_ref": { "type": ["string", "null"] }
+      }
+    },
+    "Page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page_id", "account_id", "url", "title", "evidence_refs"],
+      "properties": {
+        "page_id": { "type": "string" },
+        "account_id": {
+          "description": "이 페이지를 관찰한 계정 ID. 명세 v0.1 대비 추가(2026-10-07, collector README '명세(v0.1) 대비 변경')",
+          "type": "string"
+        },
+        "url": { "type": "string" },
+        "title": { "type": ["string", "null"] },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }
+      }
+    },
+    "Action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action_id", "page_id", "kind", "label", "evidence_refs"],
+      "properties": {
+        "action_id": { "type": "string" },
+        "page_id": { "type": "string" },
+        "kind": { "enum": ["navigate", "click", "submit", "input", "other"] },
+        "label": { "type": ["string", "null"] },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }
+      }
+    },
+    "DiscoveredEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "discovered_id",
+        "method",
+        "url_template",
+        "parameters",
+        "source",
+        "discovered_from",
+        "basis",
+        "evidence_refs"
+      ],
+      "properties": {
+        "discovered_id": { "type": "string" },
+        "method": { "type": "string" },
+        "url_template": { "type": "string" },
+        "parameters": { "type": "array", "items": { "$ref": "#/$defs/DiscoveredParameter" } },
+        "source": { "enum": ["form", "link", "js", "spec"] },
+        "discovered_from": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/DiscoverySite" } },
+        "basis": { "const": "inferred" },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }
+      }
+    },
+    "DiscoveredParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "location", "is_sensitive"],
+      "properties": {
+        "name": { "type": "string" },
+        "location": { "enum": ["path", "query", "body"] },
+        "is_sensitive": { "type": "boolean" }
+      }
+    },
+    "DiscoverySite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page_id", "action_id"],
+      "properties": {
+        "page_id": { "type": "string" },
+        "action_id": { "type": "string" }
+      }
+    },
+    "ObservedParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "location", "value", "is_sensitive"],
+      "properties": {
+        "name": { "type": "string" },
+        "location": { "enum": ["path", "query", "body", "header", "cookie"] },
+        "value": { "$ref": "#/$defs/JsonValue" },
+        "is_sensitive": { "type": "boolean" }
+      },
+      "if": { "properties": { "is_sensitive": { "const": true } }, "required": ["is_sensitive"] },
+      "then": { "properties": { "value": { "type": "null" } } }
+    },
+    "HeaderMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value", "redacted"],
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "type": ["string", "null"] },
+        "redacted": { "type": "boolean" }
+      },
+      "if": { "properties": { "redacted": { "const": true } }, "required": ["redacted"] },
+      "then": { "properties": { "value": { "enum": [null, "[REDACTED]"] } } }
+    },
+    "ResponseMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status_code", "content_type", "headers", "body_ref", "identifiers", "identifiers_truncated"],
+      "properties": {
+        "status_code": { "type": ["integer", "null"] },
+        "content_type": { "type": ["string", "null"] },
+        "headers": { "type": "array", "items": { "$ref": "#/$defs/HeaderMeta" } },
+        "body_ref": { "anyOf": [{ "$ref": "#/$defs/EvidenceRef" }, { "type": "null" }] },
+        "identifiers": {
+          "description": "응답 근거(body_ref)의 identifiers와 같은 값. JSON 응답이 아니거나 읽지 못했으면 null",
+          "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Identifier" } }, { "type": "null" }]
+        },
+        "identifiers_truncated": {
+          "description": "깊이·개수 상한 때문에 식별자를 일부만 남겼으면 true. identifiers가 null이면 false",
+          "type": "boolean"
+        }
+      }
+    },
+    "Identifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pointer", "value"],
+      "properties": {
+        "pointer": {
+          "description": "응답 본문 안 위치. RFC 6901 JSON Pointer(~는 ~0, /는 ~1)",
+          "type": "string",
+          "pattern": "^(/([^~/]|~[01])*)+$"
+        },
+        "value": {
+          "description": "0 이상의 정수, 숫자로만 된 문자열, 또는 UUID 문자열. 응답의 원래 JSON 타입을 그대로 둔다(\"42\"는 문자열로)",
+          "anyOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "string", "pattern": "^[0-9]+$" },
+            { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" }
+          ]
+        }
+      }
+    },
+    "ObservedRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "account_id",
+        "role_id",
+        "session_ref",
+        "page_id",
+        "action_id",
+        "method",
+        "url",
+        "observed_at",
+        "parameters",
+        "headers",
+        "body_ref",
+        "response",
+        "evidence_refs"
+      ],
+      "properties": {
+        "request_id": { "type": "string" },
+        "account_id": { "type": "string" },
+        "role_id": { "type": "string" },
+        "session_ref": { "type": ["string", "null"] },
+        "page_id": { "type": ["string", "null"] },
+        "action_id": { "type": ["string", "null"] },
+        "method": { "type": "string" },
+        "url": { "type": "string" },
+        "observed_at": { "type": "string", "format": "date-time" },
+        "parameters": { "type": "array", "items": { "$ref": "#/$defs/ObservedParameter" } },
+        "headers": { "type": "array", "items": { "$ref": "#/$defs/HeaderMeta" } },
+        "body_ref": { "anyOf": [{ "$ref": "#/$defs/EvidenceRef" }, { "type": "null" }] },
+        "response": { "$ref": "#/$defs/ResponseMeta" },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/EvidenceRef" } }
+      }
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_type", "iteration", "path", "sha256"],
+      "properties": {
+        "artifact_id": { "type": "string" },
+        "artifact_type": { "type": "string" },
+        "iteration": { "type": "integer", "minimum": 0 },
+        "path": { "type": "string" },
+        "sha256": { "$ref": "#/$defs/Sha256" }
+      }
+    },
+    "EvidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "kind", "path", "sha256", "redacted"],
+      "properties": {
+        "evidence_id": { "type": "string" },
+        "kind": { "enum": ["request", "response", "dom", "screenshot", "state", "execution_log"] },
+        "path": { "type": "string" },
+        "sha256": { "$ref": "#/$defs/Sha256" },
+        "redacted": { "type": "boolean" }
+      }
+    },
+    "ErrorItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "item_ref", "retryable"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "item_ref": { "type": ["string", "null"] },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "RuntimeMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duration_ms", "llm_calls", "input_tokens", "output_tokens", "peak_memory_mb"],
+      "properties": {
+        "duration_ms": { "type": ["integer", "null"] },
+        "llm_calls": { "type": ["integer", "null"] },
+        "input_tokens": { "type": ["integer", "null"] },
+        "output_tokens": { "type": ["integer", "null"] },
+        "peak_memory_mb": { "type": ["number", "null"] }
+      }
+    },
+    "Sha256": {
+      "description": "실제 바이트의 SHA-256, 소문자 16진 64자",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "JsonValue": {
+      "description": "JSON의 문자열·숫자·boolean·object·array·null",
+      "type": ["string", "number", "boolean", "object", "array", "null"]
+    }
+  }
+}

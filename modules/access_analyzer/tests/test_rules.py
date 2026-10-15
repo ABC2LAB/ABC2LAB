@@ -4,17 +4,28 @@ firing 케이스는 손 fixture(two_owners)로, 변이 케이스는 리터럴 �
 코드 상수가 아니라 여기에 리터럴로 적는다. 커밋 테스트는 우리 폴더 Schema만 읽는다.
 """
 
+import dataclasses
 import json
 from pathlib import Path
 
 from modules.access_analyzer import entrypoint as ep, service
-from modules.access_analyzer.tests.helpers import make_context, output_dir_for, schema_errors
-from modules.access_analyzer.utils.config import RuleConfig, SameRoleRuleConfig
+from modules.access_analyzer.tests.helpers import (
+    CRAWL_FIXTURE_DIR,
+    CRAWL_INPUT_REL,
+    RESULT_INPUT_REL,
+    make_context,
+    make_crawl_artifact,
+    output_dir_for,
+    schema_errors,
+)
+from modules.access_analyzer.utils.config import DEFAULT_RULE_CONFIG, SameRoleRuleConfig
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "graph_query_result"
-INPUT_REL = "artifacts/iteration-000/knowledge_graph/graph_query_result.json"
+INPUT_REL = RESULT_INPUT_REL
 CANDIDATES_SCHEMA = "output/vulnerability_candidates.schema.json"
 RESULT_SCHEMA = "input/graph_query_result.schema.json"
+CRAWL_SCHEMA = "input/crawl_result.schema.json"
+OBSERVED_SUCCESS_STATUS = 200
 # 리터럴 입력도 실제 KG 출력 모양을 따른다: 우리 graph_query를 가리키는 참조 하나와 계획한 네 질의의 결과.
 # 규칙과 상관없는 두 질의(workflow_dependencies·structure_snapshot)는 빈 결과로 채운다.
 GRAPH_QUERY_REF = {
@@ -29,8 +40,13 @@ UNUSED_RESULTS = [
 ]
 
 
-def _config(enabled: bool = True, max_candidates: int = 100) -> RuleConfig:
-    return RuleConfig(SameRoleRuleConfig(enabled=enabled, max_candidates=max_candidates))
+def _config(enabled: bool = True, max_candidates: int = 100):
+    # Rule A만 본다. 수직 규칙은 끈다(공존은 test_vertical_rule에서 본다).
+    return dataclasses.replace(
+        DEFAULT_RULE_CONFIG,
+        same_role_other_owner=SameRoleRuleConfig(enabled=enabled, max_candidates=max_candidates),
+        vertical_access=dataclasses.replace(DEFAULT_RULE_CONFIG.vertical_access, enabled=False),
+    )
 
 
 def _artifact(results, status="completed", errors=None, revision=1):
@@ -86,10 +102,20 @@ def _acc_row(account, role, resource_id, request_ids, scope="instance"):
     }
 
 
+def _crawl_for(artifact):
+    """접근 행에 맞는 crawl_result: 행의 계정은 로그인 계정, 행의 요청은 전부 2xx JSON. Rule A 테스트는 crawl 내용에 기대지 않는다."""
+    access_rows = next(r["rows"] for r in artifact["data"]["results"] if r["query_key"] == "role_resource_access")
+    accounts = sorted({(row["account_id"], row["role_id"], f"sess_{row['account_id']}") for row in access_rows})
+    requests = sorted({(request_id, row["account_id"], OBSERVED_SUCCESS_STATUS) for row in access_rows for request_id in row["request_ids"]})
+    return make_crawl_artifact(accounts, requests)
+
+
 def _run(artifact, config=None):
-    # 전제: 규칙 입력은 KG가 낼 수 있는 모양이어야 한다(예: type 소유 행은 계약상 없음).
+    # 전제: 규칙 입력은 KG·collector가 낼 수 있는 모양이어야 한다(예: type 소유 행은 계약상 없음).
     assert schema_errors(RESULT_SCHEMA, artifact) == []
-    return service.build_candidates_result(artifact, "graph_demo_001", 1, "run_demo_001", config=config)
+    crawl = _crawl_for(artifact)
+    assert schema_errors(CRAWL_SCHEMA, crawl) == []
+    return service.build_candidates_result(artifact, "graph_demo_001", 1, "run_demo_001", config=config, crawl_artifact=crawl)
 
 
 # --- firing: 손 fixture end-to-end ---
@@ -99,7 +125,10 @@ def test_two_owners_emit_ordered_pair_candidates(tmp_path: Path) -> None:
     target = run_root / INPUT_REL
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes((FIXTURE_DIR / "two_owners.json").read_bytes())
-    result = ep.run("analyze", [INPUT_REL], output_dir_for(run_root), make_context(run_root))
+    crawl_target = run_root / CRAWL_INPUT_REL
+    crawl_target.parent.mkdir(parents=True, exist_ok=True)
+    crawl_target.write_bytes((CRAWL_FIXTURE_DIR / "completed.json").read_bytes())
+    result = ep.run("analyze", [INPUT_REL, CRAWL_INPUT_REL], output_dir_for(run_root), make_context(run_root))
     doc = json.loads((output_dir_for(run_root) / "vulnerability_candidates.json").read_bytes())
     assert result["status"] == "completed"
     candidates = doc["data"]["candidates"]

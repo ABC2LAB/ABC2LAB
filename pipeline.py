@@ -282,8 +282,12 @@ class PipelineRun:
         return outcome
 
     def _analyze_access(self, step_id: str) -> StepOutcome:
-        input_paths = [self._absolute("graph_query_result")]
-        response = self._call("access_analyzer", "analyze", input_paths, self._graph_context(self._query_revision))
+        # crawl_result는 수직 규칙(응답 상태·세션 유무)용 두 번째 입력. access_analyzer가 artifact_type으로 가른다.
+        input_types = ("graph_query_result", "crawl_result")
+        input_paths = [self._absolute(name) for name in input_types]
+        expected_sha256 = {name: self._artifacts[name].sha256 for name in input_types}
+        context = {**self._graph_context(self._query_revision), "expected_sha256": expected_sha256}
+        response = self._call("access_analyzer", "analyze", input_paths, context)
         return self._artifact_outcome(step_id, response, "vulnerability_candidates")
 
     def _generate(self, step_id: str) -> StepOutcome:

@@ -13,15 +13,25 @@ from typing import Any
 import pytest
 
 from modules.access_analyzer import entrypoint as ep
-from modules.access_analyzer.tests.helpers import make_context, output_dir_for, schema_errors
+from modules.access_analyzer.tests.helpers import (
+    CRAWL_FIXTURE_DIR,
+    CRAWL_INPUT_REL,
+    RESULT_INPUT_REL,
+    make_context,
+    make_crawl_artifact,
+    output_dir_for,
+    schema_errors,
+)
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "graph_query_result"
-INPUT_REL = "artifacts/iteration-000/knowledge_graph/graph_query_result.json"
+INPUT_REL = RESULT_INPUT_REL
 CANDIDATES_SCHEMA = "output/vulnerability_candidates.schema.json"
 QUERY_PLAN_MISMATCH = "QUERY_PLAN_MISMATCH"
 # 결과 rows에만 있는 값. 오류 메시지에 rows 내용이 섞이면 안 된다.
 ROW_ONLY_VALUES = ("acc_alice", "resource:order_001", "role_user")
 OTHER_PRODUCER_GRAPH_QUERY_PATH = "artifacts/iteration-000/knowledge_graph/graph_query.json"
+# crawl fixture(acc_alice·acc_bob, 요청 4개 전부 2xx)에 맞는 두 입력.
+BOTH_INPUTS = [INPUT_REL, CRAWL_INPUT_REL]
 
 
 def _place_input(run_root: Path, fixture_name: str) -> Path:
@@ -31,14 +41,39 @@ def _place_input(run_root: Path, fixture_name: str) -> Path:
     return target
 
 
+def _place_crawl(run_root: Path, fixture_name: str = "completed") -> Path:
+    target = run_root / CRAWL_INPUT_REL
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(CRAWL_FIXTURE_DIR / f"{fixture_name}.json", target)
+    return target
+
+
+def _write_json(run_root: Path, relative: str, document: dict[str, Any]) -> Path:
+    target = run_root / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(document), encoding="utf-8")
+    return target
+
+
 def _analyze(run_root: Path, fixture_name: str, **ctx_overrides):
     _place_input(run_root, fixture_name)
+    _place_crawl(run_root)
     context = make_context(run_root, **ctx_overrides)
-    return ep.run("analyze", [INPUT_REL], output_dir_for(run_root), context)
+    return ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), context)
 
 
 def _published(run_root: Path) -> dict:
     return json.loads((output_dir_for(run_root) / "vulnerability_candidates.json").read_bytes())
+
+
+def _crawl_fixture_accounts() -> list[tuple[str, str, str | None]]:
+    document = json.loads((CRAWL_FIXTURE_DIR / "completed.json").read_bytes())
+    return [(a["account_id"], a["role_id"], a["session_ref"]) for a in document["data"]["accounts"]]
+
+
+def _crawl_fixture_requests() -> list[tuple[str, str, int | None]]:
+    document = json.loads((CRAWL_FIXTURE_DIR / "completed.json").read_bytes())
+    return [(r["request_id"], r["account_id"], r["response"]["status_code"]) for r in document["data"]["requests"]]
 
 
 def test_completed_emits_empty_candidates(tmp_path: Path) -> None:
@@ -54,17 +89,164 @@ def test_completed_emits_empty_candidates(tmp_path: Path) -> None:
     assert ep._exit_code(result) == ep.EXIT_COMPLETED
 
 
-def test_completed_links_input_ref(tmp_path: Path) -> None:
+def test_completed_links_both_input_refs(tmp_path: Path) -> None:
     run_root = tmp_path / "run_demo_001"
     input_path = _place_input(run_root, "completed")
+    crawl_path = _place_crawl(run_root)
     context = make_context(run_root)
-    result = ep.run("analyze", [INPUT_REL], output_dir_for(run_root), context)
+    # 경로 순서를 바꿔 넘겨도 input_refs는 종류 순서(graph_query_result, crawl_result)다.
+    result = ep.run("analyze", [CRAWL_INPUT_REL, INPUT_REL], output_dir_for(run_root), context)
     doc = _published(run_root)
-    [ref] = doc["input_refs"]
-    assert ref["artifact_type"] == "graph_query_result"
-    assert ref["path"] == INPUT_REL
-    assert ref["sha256"] == hashlib.sha256(input_path.read_bytes()).hexdigest()
+    assert [(ref["artifact_type"], ref["path"]) for ref in doc["input_refs"]] == [
+        ("graph_query_result", INPUT_REL), ("crawl_result", CRAWL_INPUT_REL),
+    ]
+    assert doc["input_refs"][0]["sha256"] == hashlib.sha256(input_path.read_bytes()).hexdigest()
+    assert doc["input_refs"][1]["sha256"] == hashlib.sha256(crawl_path.read_bytes()).hexdigest()
     assert result["status"] == "completed"
+
+
+# --- crawl_result 입력 (명세 m4: 없으면 crawl 관찰 규칙만 건너뛰고 partial, 다른 실행 것이면 failed) ---
+
+
+def test_without_crawl_result_rule_a_runs_but_partial(tmp_path: Path) -> None:
+    run_root = tmp_path / "run_demo_001"
+    _place_input(run_root, "two_owners")
+    result = ep.run("analyze", [INPUT_REL], output_dir_for(run_root), make_context(run_root))
+    doc = _published(run_root)
+    assert result["status"] == "partial"
+    assert [e["code"] for e in doc["errors"]] == ["CRAWL_INPUT_UNAVAILABLE"]
+    # 소유 관계만 보는 Rule A는 crawl 없이도 돈다. 후보를 비우지 않는다.
+    assert len(doc["data"]["candidates"]) == 2
+    assert [ref["artifact_type"] for ref in doc["input_refs"]] == ["graph_query_result"]
+    assert schema_errors(CANDIDATES_SCHEMA, doc) == []
+
+
+def test_crawl_result_from_other_run_rejected(tmp_path: Path) -> None:
+    run_root = tmp_path / "run_demo_001"
+    _place_input(run_root, "two_owners")
+    _write_json(run_root, CRAWL_INPUT_REL, make_crawl_artifact(_crawl_fixture_accounts(), _crawl_fixture_requests(), run_id="run_other"))
+    result = ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), make_context(run_root))
+    assert result["status"] == "failed"
+    assert _published(run_root)["data"] is None
+    assert result["errors"][0]["code"] == "RUN_ID_MISMATCH"
+
+
+def test_failed_crawl_result_skips_crawl_rules_but_keeps_rule_a(tmp_path: Path) -> None:
+    run_root = tmp_path / "run_demo_001"
+    _place_input(run_root, "two_owners")
+    _write_json(run_root, CRAWL_INPUT_REL, make_crawl_artifact([], [], status="failed"))
+    result = ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), make_context(run_root))
+    doc = _published(run_root)
+    assert result["status"] == "partial"
+    assert [e["code"] for e in doc["errors"]] == ["CRAWL_INPUT_UNAVAILABLE"]
+    assert len(doc["data"]["candidates"]) == 2
+    assert [ref["artifact_type"] for ref in doc["input_refs"]] == ["graph_query_result", "crawl_result"]
+
+
+def test_partial_crawl_result_is_used_as_normal_input(tmp_path: Path) -> None:
+    # partial은 data가 유효하다. partial이라는 이유로 crawl 관찰 규칙을 건너뛰지 않는다.
+    run_root = tmp_path / "run_demo_001"
+    _place_input(run_root, "two_owners")
+    partial = make_crawl_artifact(_crawl_fixture_accounts(), _crawl_fixture_requests(), status="partial")
+    _write_json(run_root, CRAWL_INPUT_REL, partial)
+    result = ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), make_context(run_root))
+    doc = _published(run_root)
+    assert result["status"] == "completed"
+    assert doc["errors"] == []
+    assert len(doc["data"]["candidates"]) == 2
+
+
+def test_crawl_result_contract_invalid_rejected(tmp_path: Path) -> None:
+    run_root = tmp_path / "run_demo_001"
+    _place_input(run_root, "completed")
+    document = json.loads((CRAWL_FIXTURE_DIR / "completed.json").read_bytes())
+    document["data"]["surprise"] = "x"  # 미정의 키
+    _write_json(run_root, CRAWL_INPUT_REL, document)
+    result = ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), make_context(run_root))
+    assert result["status"] == "failed"
+    assert result["errors"][0]["code"] == "INPUT_CONTRACT_INVALID"
+
+
+def test_input_of_unknown_artifact_type_rejected(tmp_path: Path) -> None:
+    run_root = tmp_path / "run_demo_001"
+    _place_input(run_root, "completed")
+    document = json.loads((CRAWL_FIXTURE_DIR / "completed.json").read_bytes())
+    document["artifact_type"] = "semantic_analysis"
+    _write_json(run_root, CRAWL_INPUT_REL, document)
+    result = ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), make_context(run_root))
+    assert result["status"] == "failed"
+    assert result["errors"][0]["code"] == "INPUT_CONTRACT_INVALID"
+
+
+def test_crawl_result_from_earlier_iteration_is_accepted(tmp_path: Path) -> None:
+    # 다음 회차 analyze는 회차 0의 crawl_result를 그대로 읽는다. 입력 경로 검사는 run_root 안인지만 보고 iteration 폴더에 묶지 않는다.
+    run_root = tmp_path / "run_demo_001"
+    later_result_rel = INPUT_REL.replace("iteration-000", "iteration-001")
+    _write_json(run_root, later_result_rel, json.loads((FIXTURE_DIR / "two_owners.json").read_bytes()))
+    _place_crawl(run_root)  # iteration-000에 그대로
+    context = make_context(run_root, iteration=1)
+    result = ep.run("analyze", [later_result_rel, CRAWL_INPUT_REL], output_dir_for(run_root, iteration=1), context)
+    doc = json.loads((output_dir_for(run_root, iteration=1) / "vulnerability_candidates.json").read_bytes())
+    assert result["status"] == "completed"
+    assert doc["iteration"] == 1
+    assert [ref["path"] for ref in doc["input_refs"]] == [later_result_rel, CRAWL_INPUT_REL]
+    assert len(doc["data"]["candidates"]) == 2
+
+
+def test_crawl_result_alone_is_missing_graph_result(tmp_path: Path) -> None:
+    run_root = tmp_path / "run_demo_001"
+    _place_crawl(run_root)
+    result = ep.run("analyze", [CRAWL_INPUT_REL], output_dir_for(run_root), make_context(run_root))
+    assert result["status"] == "failed"
+    assert result["errors"][0]["code"] == "INPUT_MISSING"
+
+
+# --- expected_sha256 (런너가 넘긴 파일 바이트가 그대로인지) ---
+
+
+def _sha256_of(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_matching_expected_sha256_accepted(tmp_path: Path) -> None:
+    run_root = tmp_path / "run_demo_001"
+    input_path = _place_input(run_root, "completed")
+    crawl_path = _place_crawl(run_root)
+    expected = {"graph_query_result": _sha256_of(input_path), "crawl_result": _sha256_of(crawl_path)}
+    result = ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), make_context(run_root, expected_sha256=expected))
+    assert result["status"] == "completed"
+
+
+@pytest.mark.parametrize("artifact_type", ["graph_query_result", "crawl_result"])
+def test_mismatching_expected_sha256_rejected(tmp_path: Path, artifact_type: str) -> None:
+    run_root = tmp_path / "run_demo_001"
+    _place_input(run_root, "completed")
+    _place_crawl(run_root)
+    expected = {artifact_type: "0" * 64}
+    result = ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), make_context(run_root, expected_sha256=expected))
+    assert result["status"] == "failed"
+    assert _published(run_root)["data"] is None
+    assert result["errors"][0]["code"] == "INPUT_HASH_MISMATCH"
+    assert "0" * 64 not in result["errors"][0]["message"]  # 해시값은 메시지에 넣지 않는다
+
+
+@pytest.mark.parametrize(
+    "expected_sha256",
+    [
+        pytest.param("abc", id="not_a_mapping"),
+        pytest.param({"semantic_analysis": "0" * 64}, id="unknown_input_type"),
+        pytest.param({"crawl_result": "0" * 63}, id="short_hex"),
+        pytest.param({"crawl_result": "A" * 64}, id="uppercase_hex"),
+    ],
+)
+def test_malformed_expected_sha256_writes_no_file(tmp_path: Path, expected_sha256: Any) -> None:
+    run_root = tmp_path / "run_demo_001"
+    _place_input(run_root, "completed")
+    _place_crawl(run_root)
+    result = ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), make_context(run_root, expected_sha256=expected_sha256))
+    assert result["status"] == "failed"
+    assert result["artifact_path"] is None
+    assert result["errors"][0]["code"] == "CONTEXT_INVALID"
 
 
 def test_partial_keeps_errors_not_zero_candidates(tmp_path: Path) -> None:
@@ -133,7 +315,18 @@ def test_missing_input_writes_failed_file(tmp_path: Path) -> None:
     assert ep._exit_code(result) == ep.EXIT_FAILED_WITH_FILE
 
 
-def test_two_inputs_rejected(tmp_path: Path) -> None:
+def test_three_inputs_rejected(tmp_path: Path) -> None:
+    run_root = tmp_path / "run_demo_001"
+    _place_input(run_root, "completed")
+    _place_crawl(run_root)
+    context = make_context(run_root)
+    result = ep.run("analyze", [*BOTH_INPUTS, INPUT_REL], output_dir_for(run_root), context)
+    assert result["status"] == "failed"
+    assert result["errors"][0]["code"] == "INPUT_UNEXPECTED"
+
+
+def test_same_input_type_twice_rejected(tmp_path: Path) -> None:
+    # 두 파일이 다 graph_query_result면 어느 쪽이 맞는지 알 수 없다. 뒤 것을 조용히 덮어쓰지 않는다.
     run_root = tmp_path / "run_demo_001"
     _place_input(run_root, "completed")
     context = make_context(run_root)
@@ -160,8 +353,9 @@ def test_input_contract_invalid_rejected(tmp_path: Path) -> None:
     document = json.loads((FIXTURE_DIR / "completed.json").read_bytes())
     document["data"]["surprise"] = "x"  # 미정의 키
     target.write_text(json.dumps(document), encoding="utf-8")
+    _place_crawl(run_root)
     context = make_context(run_root)
-    result = ep.run("analyze", [INPUT_REL], output_dir_for(run_root), context)
+    result = ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), context)
     assert result["status"] == "failed"
     assert result["errors"][0]["code"] == "INPUT_CONTRACT_INVALID"
 
@@ -181,7 +375,7 @@ def test_republish_rejected(tmp_path: Path) -> None:
     first = _analyze(run_root, "completed")
     assert first["status"] == "completed"
     context = make_context(run_root)
-    second = ep.run("analyze", [INPUT_REL], output_dir_for(run_root), context)
+    second = ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), context)
     assert second["status"] == "failed"
     assert second["artifact_path"] is None
     assert second["errors"][0]["code"] == "ARTIFACT_EXISTS"
@@ -195,10 +389,9 @@ def _completed_document() -> dict[str, Any]:
 
 
 def _analyze_document(run_root: Path, document: dict[str, Any]) -> dict[str, Any]:
-    target = run_root / INPUT_REL
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(document), encoding="utf-8")
-    return ep.run("analyze", [INPUT_REL], output_dir_for(run_root), make_context(run_root))
+    _write_json(run_root, INPUT_REL, document)
+    _place_crawl(run_root)
+    return ep.run("analyze", BOTH_INPUTS, output_dir_for(run_root), make_context(run_root))
 
 
 def _result_index(document: dict[str, Any], query_key: str) -> int:

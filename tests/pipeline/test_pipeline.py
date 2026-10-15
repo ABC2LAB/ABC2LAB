@@ -265,7 +265,9 @@ def test_path_list_and_name_to_path_inputs_are_absolute_previous_outputs(harness
     assert harness.call("collector.collect").input_paths == []
     assert harness.call("semantic_analyzer.analyze").input_paths == {"crawl_result": absolute["collector.collect"]}
     assert harness.call("access_analyzer.prepare_queries").input_paths == []
-    assert harness.call("access_analyzer.analyze").input_paths == [absolute["knowledge_graph.query"]]
+    assert harness.call("access_analyzer.analyze").input_paths == [
+        absolute["knowledge_graph.query"], absolute["collector.collect"],
+    ]
     assert harness.call("scenario_generator.generate").input_paths == {
         "vulnerability_candidates": absolute["access_analyzer.analyze"],
         "crawl_result": absolute["collector.collect"],
@@ -323,7 +325,15 @@ def test_context_keys_and_graph_values_per_step(harness: Harness) -> None:
         "knowledge_graph.ingest": base,
         "access_analyzer.prepare_queries": {**base, "graph_id": GRAPH_ID, "expected_graph_revision": INGEST_REVISION},
         "knowledge_graph.query": base,
-        "access_analyzer.analyze": {**base, "graph_id": GRAPH_ID, "expected_graph_revision": QUERY_REVISION},
+        "access_analyzer.analyze": {
+            **base,
+            "graph_id": GRAPH_ID,
+            "expected_graph_revision": QUERY_REVISION,
+            "expected_sha256": {
+                "graph_query_result": sha_of("knowledge_graph.query"),
+                "crawl_result": sha_of("collector.collect"),
+            },
+        },
         "scenario_generator.generate": {
             **base,
             "expected_sha256": {
