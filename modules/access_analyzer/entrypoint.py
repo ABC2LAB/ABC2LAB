@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from modules.access_analyzer import service
+from modules.access_analyzer.utils.config import RuleConfigError
 from modules.access_analyzer.utils.envelope import (
     ARTIFACT_TYPE_CANDIDATES,
     ARTIFACT_TYPE_GRAPH_QUERY,
@@ -233,14 +234,18 @@ def _analyze_work(
     if failure:
         return WorkResult(Status.FAILED, failure, None, _elapsed_ms(started)), []
     crawl = loaded_by_type.get(CRAWL_RESULT_TYPE)
-    outcome = service.build_candidates_result(
-        loaded_by_type[GRAPH_QUERY_RESULT_TYPE].document,
-        run_context.graph_id,
-        run_context.expected_graph_revision,
-        run_context.run_id,
-        crawl_artifact=crawl.document if crawl is not None else None,
-    )
     input_refs = [loaded_by_type[t].input_ref for t in ANALYZE_INPUT_TYPES if t in loaded_by_type]
+    try:
+        outcome = service.build_candidates_result(
+            loaded_by_type[GRAPH_QUERY_RESULT_TYPE].document,
+            run_context.graph_id,
+            run_context.expected_graph_revision,
+            run_context.run_id,
+            crawl_artifact=crawl.document if crawl is not None else None,
+        )
+    except RuleConfigError as error:
+        # 설정이 틀리면 규칙을 일부만 적용한 결과를 내지 않는다. 설정 값에는 비밀값이 없다.
+        return WorkResult(Status.FAILED, [make_error_item(ErrorCode.CONFIG_INVALID, str(error))], None, _elapsed_ms(started)), input_refs
     return WorkResult(outcome.status, outcome.errors, outcome.data, _elapsed_ms(started)), input_refs
 
 

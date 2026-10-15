@@ -4,6 +4,7 @@ firing 케이스는 손 fixture(two_owners)로, 변이 케이스는 리터럴 �
 코드 상수가 아니라 여기에 리터럴로 적는다. 커밋 테스트는 우리 폴더 Schema만 읽는다.
 """
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from modules.access_analyzer.tests.helpers import (
     output_dir_for,
     schema_errors,
 )
-from modules.access_analyzer.utils.config import RuleConfig, SameRoleRuleConfig
+from modules.access_analyzer.utils.config import DEFAULT_RULE_CONFIG, SameRoleRuleConfig
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "graph_query_result"
 INPUT_REL = RESULT_INPUT_REL
@@ -39,8 +40,13 @@ UNUSED_RESULTS = [
 ]
 
 
-def _config(enabled: bool = True, max_candidates: int = 100) -> RuleConfig:
-    return RuleConfig(SameRoleRuleConfig(enabled=enabled, max_candidates=max_candidates))
+def _config(enabled: bool = True, max_candidates: int = 100):
+    # Rule A만 본다. 수직 규칙은 끈다(공존은 test_vertical_rule에서 본다).
+    return dataclasses.replace(
+        DEFAULT_RULE_CONFIG,
+        same_role_other_owner=SameRoleRuleConfig(enabled=enabled, max_candidates=max_candidates),
+        vertical_access=dataclasses.replace(DEFAULT_RULE_CONFIG.vertical_access, enabled=False),
+    )
 
 
 def _artifact(results, status="completed", errors=None, revision=1):

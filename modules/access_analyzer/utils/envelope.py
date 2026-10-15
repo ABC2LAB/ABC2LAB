@@ -43,6 +43,10 @@ class ErrorCode(StrEnum):
     INPUT_RESULT_FAILED = "INPUT_RESULT_FAILED"
     # crawl_result가 없거나 failed라 crawl 관찰(응답 상태·세션 유무)이 필요한 규칙을 적용하지 못함(partial)
     CRAWL_INPUT_UNAVAILABLE = "CRAWL_INPUT_UNAVAILABLE"
+    # KG 접근 행의 request_id가 crawl_result에 없어 그 행을 crawl 관찰 규칙에서 제외함(partial)
+    ACCESS_REQUEST_UNRESOLVED = "ACCESS_REQUEST_UNRESOLVED"
+    # 규칙 설정 파일 값이 쓸 수 있는 모양이 아님(failed)
+    CONFIG_INVALID = "CONFIG_INVALID"
     GRAPH_REVISION_STALE = "GRAPH_REVISION_STALE"
     QUERY_PLAN_MISMATCH = "QUERY_PLAN_MISMATCH"
     GRAPH_ID_MISMATCH = "GRAPH_ID_MISMATCH"
