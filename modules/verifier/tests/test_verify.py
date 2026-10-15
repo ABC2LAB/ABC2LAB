@@ -12,6 +12,7 @@ import pytest
 
 from modules.verifier import entrypoint as ep
 from modules.verifier.executor import ReplayResponse
+from modules.verifier.utils import evidence as evidence_module
 from modules.verifier.tests.helpers import (
     INPUT_RELS,
     ScriptedExecutor,
@@ -275,3 +276,45 @@ def test_republish_rejected(tmp_path: Path) -> None:
                     session_executor=ScriptedExecutor({ORDERS_7: ReplayResponse(200, body={})}))
     assert second["artifact_path"] is None
     assert second["errors"][0]["code"] == "ARTIFACT_EXISTS"
+
+
+def test_evidence_write_failure_is_a_scenario_error_not_a_crash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # 근거 파일 쓰기(publish_file)가 한 번 실패해도 run()은 예외 없이 verification_results.json을 발행한다.
+    # 실패한 시나리오만 EVIDENCE_WRITE_FAILED·indeterminate, 나머지 시나리오는 그대로 판정한다.
+    run_root = tmp_path / "run_demo_001"
+    scenarios = [
+        scenario("s1", "c1", [step("st1", "acc_user", "role_user", "sess_user")],
+                 assertions=[check("a1", "response_status", "st1", "eq", 200),
+                             check("a2", "response_json", "st1", "exists", True, selector="/owner_id")]),
+        scenario("s2", "c2", [step("st2", "acc_user", "role_user", "sess_user")],
+                 assertions=[check("b1", "response_status", "st2", "eq", 200),
+                             check("b2", "response_json", "st2", "exists", True, selector="/owner_id")]),
+    ]
+    decisions = [decision("d1", "s1", "allow", ["acc_user"]), decision("d2", "s2", "allow", ["acc_user"])]
+    paths = write_triple(run_root, scenarios, decisions, [account()])
+    executor = ScriptedExecutor({ORDERS_7: ReplayResponse(200, body={"owner_id": 3})})
+
+    real_publish = evidence_module.publish_file
+    calls = {"count": 0}
+
+    def flaky_publish(directory, file_name, raw):
+        # 두 번째 publish = s1의 응답 근거. 요청은 이미 보낸 뒤라 단계 error(전송 1건)로 남아야 한다.
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise OSError("disk full")
+        return real_publish(directory, file_name, raw)
+
+    monkeypatch.setattr(evidence_module, "publish_file", flaky_publish)
+    result, executor = _run(run_root, paths, executor)
+
+    doc = _published(run_root)
+    assert result["artifact_path"] is not None
+    assert schema_errors(OUTPUT_SCHEMA, doc) == []
+    # 시나리오 실행 오류는 항목 errors에만 남고 envelope status는 envelope_errors로만 정한다(10/15 결정, envelope 승격은 별도 건).
+    assert result["status"] == "completed"
+    s1, s2 = _item(doc, "s1"), _item(doc, "s2")
+    assert (s1["result"], s1["execution_status"]) == ("indeterminate", "error")
+    assert [e["code"] for e in s1["errors"]] == ["EVIDENCE_WRITE_FAILED"]
+    assert s1["steps"][0]["request_ref"] is not None and s1["steps"][0]["response_ref"] is None
+    assert (s2["result"], s2["execution_status"]) == ("success", "completed")
+    assert executor.send_calls == 2  # s1·s2 둘 다 보냈고, s1만 응답 근거를 못 썼다

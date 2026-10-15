@@ -78,6 +78,7 @@ CLI:
 - `state_change≠none` 단계는 보내지 않는다 — `allow_state_change=false`면 `STATE_CHANGE_NOT_ALLOWED`, true여도 초기화 훅이 PR3이라 `STATE_RESET_UNAVAILABLE`.
 - `body_ref`가 필요한 단계는 원문을 역참조하지 않으므로 보내지 않는다(`BODY_REF_UNAVAILABLE`). 본문 뺀 요청으로 판정하지 않는다.
 - 세션 무효·만료·통신 오류는 `indeterminate`(`SESSION_INVALID`/`SESSION_EXPIRED`/`TRANSPORT_ERROR`)로 남긴다. failure로 합치지 않는다. lease는 계정별로 캐시하되 단계마다 `is_valid()`를 다시 확인하고, 끝나면 반드시 release한다.
+- 요청·응답 근거 파일을 쓰지 못하면(`EVIDENCE_WRITE_FAILED`: 디스크·권한·중복 이름) 그 단계는 error, 남은 단계는 skipped, 시나리오는 `indeterminate`다. 요청 근거를 못 쓰면 보내지 않고, 응답 근거를 못 쓰면 보낸 사실(`request_ref`)만 남긴다. 다른 시나리오는 계속 실행하고 생 예외를 모듈 밖으로 내보내지 않는다(2026-10-15).
 - `ExecutedStep.request_ref`·`response_ref`는 EvidenceWriter로 만든 비밀 제거 근거다. 미전송 단계는 두 참조와 `request_url`이 null.
 - **execution_status 규칙**(result 분류와 독립, `execution_status_for`): 중단 없이 전부 전송되면 `completed`, 중단됐으면 전송 0건은 `not_executed`·1건 이상은 `error`.
 

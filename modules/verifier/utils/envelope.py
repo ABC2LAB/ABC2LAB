@@ -51,6 +51,8 @@ class ErrorCode(StrEnum):
     TRANSPORT_ERROR = "TRANSPORT_ERROR"
     LIMIT_EXCEEDED = "LIMIT_EXCEEDED"
     SESSION_UNAVAILABLE = "SESSION_UNAVAILABLE"
+    # 요청·응답 근거 파일을 쓰지 못함(디스크·권한·중복 이름). 근거 없는 실행을 판정하지 않고 그 단계에서 멈춘다.
+    EVIDENCE_WRITE_FAILED = "EVIDENCE_WRITE_FAILED"
     # 참인 assertion이 상태 코드·세션 유효성뿐이라 응답 내용 확인 없이 success로 올리지 않음(m7 51행).
     ASSERTION_STATUS_ONLY = "ASSERTION_STATUS_ONLY"
     # Check를 그 응답에 적용할 수 없음(비JSON 본문·selector 없음·허용 안 된 operator 등). 미재현이 아니라 판단불가(절대 규칙 9).
