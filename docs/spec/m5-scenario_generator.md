@@ -154,7 +154,7 @@
 | `scenario_id` | `string` | 필수 | 재현 시나리오 ID. |
 | `candidate_id` | `string` | 필수 | 원본 검증 후보 ID. |
 | `expected_basis` | `enum: rule, inferred, unknown` | 필수 | 원본 후보의 기대 조건 근거. |
-| `resource_ids` | `array<string>` (minItems 1, 항목은 빈 문자열 금지) | 필수 | 검증 대상 자원 ID. 원본 후보 `Candidate.resource_ids`(KG Resource instance `node_id`)를 순서·값 그대로 복사한다. 프로그램이 채우고 LLM 초안은 쓰지 않는다. 형식을 가정하지 않는 불투명 문자열이다. |
+| `resource_ids` | `array<string>` (minItems 1, 항목은 빈 문자열 금지) | 필수 | 검증 대상 자원 ID. 원본 후보 `Candidate.resource_ids`(KG Resource `node_id`, type 또는 instance — 2026-10-15 access_analyzer 의미 확장)를 순서·값 그대로 복사한다. 프로그램이 채우고 LLM 초안은 쓰지 않는다. 형식을 가정하지 않는 불투명 문자열이다. |
 | `preconditions` | `array<Check>` | 필수 | 실행 전 확인할 세션·자원·기준 상태 조건. 하나라도 거짓·판단불가면 verifier는 재현 여부를 판정하지 않는다(indeterminate). |
 | `steps` | `array<ScenarioStep>` | 필수 | 순서가 있는 재현 요청 목록. 비어 있으면 안 된다. |
 | `assertions` | `array<Check>` | 필수 | 위반 재현 여부를 판단할 응답·상태·최종 결과 조건. **모두 참이면 위반이 재현된 것**으로 읽는다. 비어 있으면 안 된다. |
@@ -229,6 +229,7 @@
 | 2026-10-14 | 판정 조건(`assertions`)과 기준 단계를 프로그램이 후보에서 생성(위 "판정 조건 필수 규칙"). 초안은 `steps`만(초안에 `assertions`가 있으면 `DRAFT_INVALID`), 프롬프트 v7. `resource_state`·`resource_owner`·`baseline_match`의 `subject_ref`·`selector`·`expected` 규약 확정(위 "Check 규약", verifier #78). 오류 코드 `ASSERTION_BASELINE_UNAVAILABLE` 추가, `ASSERTION_NON_JSON_RESPONSE` 삭제(비JSON 단계에 `response_json`을 만들지 않음). 출력 필드·enum·`schema_version` 변경 없음. 출력 의미 변화: 시나리오에 기준 계정 단계가 하나 더 들어가고(요청 수 +1), 기준 계정이 없는 후보는 시나리오가 나오지 않는다. 상단 담당 범위·"구현할 일"을 현재 동작에 맞춤 | 6·7차·local_web 실행에서 작은 모델이 `response_status` 기대값을 정상 동작(403)으로 적어 판정이 뒤집힘(6차 입력 5건 중 4건). 재현 조건은 후보에서 정해지는 값이라 #77(URL)과 같이 프로그램 몫으로 옮김 |
 | 2026-10-14 | 입력 `crawl_result` 사본 0.2.0 → 0.3.0(collector 계약 변경 미러). 새 필드(`discovered_endpoints`·`response.identifiers`)는 쓰지 않음. 출력 변경 없음 | collector 스키마 변경 PR |
 | 2026-10-14 | 실행 산출물 0.3.0 통일: 출력 `test_scenarios`와 입력 사본 `vulnerability_candidates`의 `schema_version`만 0.2.0 → 0.3.0. 필드·의미 변경 없음 | 스키마 변경 PR(KG·policy·reporter #82와 버전 정렬) |
+| 2026-10-15 | 입력 `vulnerability_candidates`의 `Candidate.resource_ids`(따라서 출력 `Scenario.resource_ids`) 의미가 "KG Resource instance node_id" → "KG Resource node_id(type 또는 instance)"로 넓어짐. 이 모듈은 값을 그대로 복사하므로 코드·Schema·버전 변경 없음(문구만) | access_analyzer 수직 규칙 PR(m4 변경 이력 2026-10-15). 생산자 최민준, 리뷰 이경준 |
 | 2026-10-15 | `ScenarioStep.state_change`를 LLM 초안이 아니라 **프로그램이 원본 요청 method로 채움**(GET·HEAD·OPTIONS → `none`, 그 밖 → `possible`). 초안 step 키에서 `state_change` 제거(7개 → 6개, 초안에 있으면 `DRAFT_INVALID`), 프롬프트 v8. 출력 필드·enum·`schema_version` 변경 없음(스키마 변경 아님). 한계: 키워드성 GET은 관찰 요청에 없어 지금은 안 걸리고, 들어와도 safety_policy가 독립 재평가한다. 관찰 요청에 상태 변경 정보를 실으려면 `crawl_result` 계약 변경이 필요(다음) | 10/15 local_web 실행에서 qwen2.5:1.5b가 `GET /api/users/{id}` 후보를 `possible`로 적어 `ASSERTION_BASELINE_UNAVAILABLE`. 6차 입력에서도 같은 GET 단계를 1.5b 4/5 `possible`, 7b 5/5 `none`. 판정에 들어가는 값은 프로그램 몫(#79와 같은 원칙) |
 
 ### 0.2.0 `Scenario.resource_ids` (소비자 입력 사본 미러 기준)
@@ -244,7 +245,7 @@
 }
 ```
 
-- **값 출처:** 이 시나리오의 원본 후보(`candidate_id`가 같은 `vulnerability_candidates.data.candidates[]`)의 `resource_ids`를 순서·값 그대로 복사한다. 값은 KG Resource instance `node_id`이고 형식(접두어·구분자)을 가정하지 않는다.
+- **값 출처:** 이 시나리오의 원본 후보(`candidate_id`가 같은 `vulnerability_candidates.data.candidates[]`)의 `resource_ids`를 순서·값 그대로 복사한다. 값은 KG Resource `node_id`(0.2.0 합의 때는 instance만, 2026-10-15부터 access_analyzer 수직 규칙이 type도 냄)이고 형식(접두어·구분자)을 가정하지 않는다. 이 모듈은 type/instance를 구분하지 않는다.
 - **채우는 주체:** scenario_generator 프로그램이 채운다. LLM 초안은 `steps` 한 키만 가지며(10/12부터 `preconditions`, 10/14부터 `assertions`·기준 단계도 프로그램이 만든다), 초안에 `resource_ids` 키가 있으면 값이 원본과 같아도 그 초안을 버린다(`DRAFT_INVALID`, `item_ref=candidate_id`). 채운 값이 원본 후보와 다르면 그 시나리오는 발행하지 않는다.
 - **소비자 쪽:** 입력 사본에 위 조각을 같은 위치에 넣고 `schema_version` const를 `0.2.0`으로 둔다. 원본 후보와의 값 일치는 생산자가 보장하므로 소비자가 후보 파일과 다시 대조할 필요는 없다.
 

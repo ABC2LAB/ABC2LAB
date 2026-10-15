@@ -319,8 +319,8 @@ class ScenarioDrafter(Protocol):
 
 | 대상 | 현재 동작 | 이 모듈에 주는 영향 |
 |---|---|---|
-| access_analyzer | 후보 규칙은 `rule_same_role_other_owner`(authorization / horizontal_access) 하나 | 업무 흐름(workflow) 후보는 아직 들어오지 않는다 |
-| access_analyzer ↔ knowledge_graph | access_analyzer 입력·출력 모두 `0.3.0`. `Candidate.resource_ids`는 KG Resource instance `node_id`다 | 이 모듈은 그 값을 `Scenario.resource_ids`로 그대로 복사한다. 형식은 가정하지 않는다 |
+| access_analyzer | 후보 규칙은 `rule_same_role_other_owner`(authorization / horizontal_access)와 `rule_vertical_access`(authorization / function_level_access·forced_browsing, 10/15) | 업무 흐름(workflow) 후보는 아직 들어오지 않는다. 수직 후보의 실행 계정은 비인증(`session_ref=null`)일 수 있고 이 모듈은 그대로 시나리오를 만든다(세션 사전조건 포함) |
+| access_analyzer ↔ knowledge_graph | access_analyzer 입력·출력 모두 `0.3.0`. `Candidate.resource_ids`는 KG Resource `node_id`(type 또는 instance, 10/15 의미 확장) | 이 모듈은 그 값을 `Scenario.resource_ids`로 그대로 복사한다. 형식·type/instance는 가정하지 않는다 |
 | safety_policy | 등록된 요청 규칙이 없으면 GET이어도 `require_approval`. URL에 fragment·공백·`//`·`.`/`..` 세그먼트·잘못된 `%` 인코딩이 있으면 허용하지 않음 | 이 모듈은 위 URL 형식을 미리 거르지 않는다. 허용 여부는 safety_policy가 정한다 |
 | verifier | `state_change≠none` 단계와 `body_ref`가 있는 단계는 보내지 않는다(DB 초기화 훅·본문 역참조가 다음 PR). `baseline_match`·`resource_owner`는 JSON이면 판정, 텍스트(HTML)면 기록만 한다(#78) | 지금 끝까지 판정되는 것은 **GET + `state_change=none` + JSON 응답 읽기 시나리오**다. `state_change`는 10/15부터 프로그램이 method로 채우므로 GET(HEAD·OPTIONS) 조회 후보는 모델과 무관하게 `none`으로 verifier까지 간다. HTML 응답이 2xx면 control 단계 전까지 판단불가(`indeterminate`) |
 | verifier ↔ knowledge_graph | KG 0.2는 검증 관계의 target으로 앞 단계에서 받은 Resource instance `node_id`만 받는다 | `test_scenarios` 0.2.0의 `Scenario.resource_ids`로 전달한다(위 "명세 대비 변경 이력"). verifier가 이 값을 `graph_updates`에 쓰는 것은 verifier 쪽 작업이다 |

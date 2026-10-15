@@ -63,7 +63,7 @@
 
 | 파일 | 작성·재발행 주체 | 읽기 주체 |
 | --- | --- | --- |
-| `crawl_result.json` | collector | semantic_analyzer · scenario_generator · verifier · reporter(개발 평가) |
+| `crawl_result.json` | collector | semantic_analyzer · access_analyzer · scenario_generator · verifier · reporter(개발 평가) |
 | `semantic_analysis.json` | semantic_analyzer | knowledge_graph · reporter(개발 평가) |
 | `graph_query.json` | access_analyzer | knowledge_graph |
 | `graph_query_result.json` | knowledge_graph | access_analyzer · reporter |

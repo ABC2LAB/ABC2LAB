@@ -196,7 +196,7 @@ KG 입력(`modules/knowledge_graph/schemas/input/verification_results.schema.jso
 | --- | --- | --- | --- |
 | `relationship_id` | `string`(빈 문자열 금지) | 필수 | 검증 관계 ID. |
 | `source_account_id` | `string`(빈 문자열 금지) | 필수 | 실제로 요청을 보낸(접근한) 계정의 원본 `account_id`. User node_id가 아니다. 출처는 그 결과 시나리오의 실행 계정 단계(`steps[].account_id`). KG가 같은 run/graph의 User(`properties.account_id`)로 해석해 연결한다. |
-| `target_id` | `string`(빈 문자열 금지) | 필수 | 대상 Resource instance의 KG node_id. 출처는 그 결과 시나리오의 `Scenario.resource_ids`([m5](m5-scenario_generator.md) 0.2.0) 중 하나다. Resource 종류 이름·URL·상품 번호를 대신 넣지 않는다. |
+| `target_id` | `string`(빈 문자열 금지) | 필수 | 대상 Resource instance의 KG node_id. 출처는 그 결과 시나리오의 `Scenario.resource_ids`([m5](m5-scenario_generator.md) 0.2.0) 중 하나다. Resource 종류 이름·URL·상품 번호를 대신 넣지 않는다. 2026-10-15부터 `Scenario.resource_ids`에 type 자원 node_id도 올 수 있는데 KG `apply_verification`은 instance target만 받으므로, type 자원 후보의 검증 관계를 어떻게 적재할지는 `graph_updates` 구현(PR3-c) 때 KG와 정한다. |
 | `relation_type` | `enum: VERIFIED_ACCESS, VERIFIED_DENIAL` | 필수 | 접근 재현 / 거부 확인. |
 | `properties` | `object` (값은 JsonValue) | 필수 | 추가 속성 JSON map. |
 | `basis` | `const: verified` | 필수 | 실제 실행으로 확인한 관계만. |
