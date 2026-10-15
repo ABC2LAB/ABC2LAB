@@ -11,6 +11,7 @@ from modules.scenario_generator.reproduction_checks import (
     Reproduction,
     ReproductionProblem,
     build_reproduction,
+    estimate_state_change,
     find_baseline_blocker,
 )
 
@@ -142,7 +143,16 @@ def test_missing_reference_account_is_unavailable_before_drafting() -> None:
     assert find_baseline_blocker(_matched()) is None
 
 
+def test_state_change_is_estimated_from_the_method_alone() -> None:
+    # 안전 method(RFC 9110)만 none. 그 밖은 바꿀 수 있다고 보고 possible로 통일한다(expected·unknown은 쓰지 않는다).
+    for method in ("GET", "HEAD", "OPTIONS"):
+        assert estimate_state_change(method) == "none"
+    for method in ("POST", "PUT", "PATCH", "DELETE"):
+        assert estimate_state_change(method) == "possible"
+
+
 def test_state_changing_target_is_unavailable() -> None:
+    # 가드는 조립된 단계 값을 본다. 지금은 method 추정값이지만, 나중에 collector가 요청별 상태 변경 정보를 주면 그 값이 올 자리다.
     index = _index(_request("req_detail", "/items/7"))
     for state_change in ("possible", "expected", "unknown"):
         problem = _problem([_step("s1", 0, ACTOR, "req_detail", f"{ORIGIN}/items/7", state_change=state_change)], index)

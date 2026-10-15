@@ -13,7 +13,12 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 from modules.scenario_generator.candidate_matcher import CrawlIndex, MatchedCandidate, build_crawl_index, match_candidates
 from modules.scenario_generator.draft_diagnostics import build_draft_invalid_record, build_drafter_failed_record
 from modules.scenario_generator.input_adapter import InputErrorCode, LoadedArtifact
-from modules.scenario_generator.reproduction_checks import ReproductionProblem, build_reproduction, find_baseline_blocker
+from modules.scenario_generator.reproduction_checks import (
+    ReproductionProblem,
+    build_reproduction,
+    estimate_state_change,
+    find_baseline_blocker,
+)
 from modules.scenario_generator.scenario_drafter import (
     ACCOUNT_ROLE_ACTOR,
     ACCOUNT_ROLE_REFERENCE,
@@ -130,7 +135,7 @@ def _compose_url_template(source: dict[str, Any], draft_parameters: Any, step_id
 
 
 def _compose_step(draft_step: Any, matched: MatchedCandidate, index: CrawlIndex) -> tuple[dict[str, Any] | None, str | None]:
-    """초안 step(선택만)을 출력 step으로 조립한다. 식별자·method·url_template·body_ref는 원본에서 채운다."""
+    """초안 step(선택만)을 출력 step으로 조립한다. 식별자·method·url_template·body_ref·state_change는 원본에서 채운다."""
     if not isinstance(draft_step, dict) or set(draft_step) != DRAFT_STEP_KEYS:
         return None, f"step 키는 {sorted(DRAFT_STEP_KEYS)}여야 한다"
     account = _resolve_step_account(draft_step["account_role"], matched)
@@ -160,7 +165,7 @@ def _compose_step(draft_step: Any, matched: MatchedCandidate, index: CrawlIndex)
             "body_ref": source["body_ref"],
         },
         "bindings": draft_step["bindings"],
-        "state_change": draft_step["state_change"],
+        "state_change": estimate_state_change(source["method"]),
     }
     return composed, None
 

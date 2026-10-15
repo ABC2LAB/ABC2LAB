@@ -16,24 +16,24 @@ from typing import Any
 
 from modules.scenario_generator.scenario_drafter import Draft, DrafterError, build_draft_json_schema
 
-PROMPT_VERSION = "ollama-scenario-v7"
+PROMPT_VERSION = "ollama-scenario-v8"
 _GENERATE_PATH = "/api/generate"
 
-# 식별자(account_id·role_id·session_ref)·method·url_template·body_ref와 preconditions·assertions·기준 단계는 프로그램이 만든다.
-# 초안은 "무엇을 어느 계정으로 실행할지"만 고른다. 작은 모델이 식별자를 지어내거나 판정 기대값을 정상 동작(403)으로
-# 적는 일을 막으려고 범위를 좁혔다(v7: 판정 조건도 프로그램 몫).
+# 식별자(account_id·role_id·session_ref)·method·url_template·body_ref·state_change와 preconditions·assertions·기준 단계는
+# 프로그램이 만든다. 초안은 "무엇을 어느 계정으로 실행할지"만 고른다. 작은 모델이 식별자를 지어내거나 판정 기대값을
+# 정상 동작(403)으로 적는 일을 막으려고 범위를 좁혔다(v7: 판정 조건도 프로그램 몫, v8: state_change도 프로그램 몫).
 _SYSTEM = (
     "You draft the request steps of ONE reproduction plan for an access-control/business-logic finding, as STRICT JSON.\n"
     "Output ONLY a JSON object with EXACTLY one top-level key: steps. "
     "Do NOT output assertions, preconditions, scenario_id, candidate_id, expected_basis, resource_ids, or any other key. "
     "No prose, no markdown.\n"
-    "The PROGRAM fills identifiers and the URL, adds the owner's baseline request, and builds the success conditions; "
-    "you only SELECT steps. Do NOT output account_id, role_id, session_ref, method, url_template, or body_ref.\n"
+    "The PROGRAM fills identifiers, the URL and the state-change estimate, adds the owner's baseline request, "
+    "and builds the success conditions; you only SELECT steps. "
+    "Do NOT output account_id, role_id, session_ref, method, url_template, body_ref, or state_change.\n"
     "Each STEP object has EXACTLY: step_id(string, unique), order(integer, contiguous from 0), "
     "source_request_id(one of source_requests[].request_id), "
     "account_role(\"actor\" or \"reference\"), request(object), "
-    "bindings(array, usually []; may only reference earlier steps), "
-    "state_change(none|possible|expected|unknown; your estimate of whether this request changes server state).\n"
+    "bindings(array, usually []; may only reference earlier steps).\n"
     "account_role=\"actor\" is the account whose authorization is under test; it EXECUTES the resource request. "
     "For IDOR you replay the owner's observed resource request AS the actor — never as the request's original owner. "
     "Use \"reference\" ONLY for a setup step that must run as the owner, and ONLY if reference_account is not null.\n"
@@ -52,7 +52,7 @@ _SYSTEM = (
     '{"steps":[{"step_id":"s1","order":0,"source_request_id":"the_chosen_request_id",'
     '"account_role":"actor",'
     '"request":{"parameters":[]},'
-    '"bindings":[],"state_change":"none"}]}'
+    '"bindings":[]}]}'
 )
 
 Transport = Callable[[str, bytes, float], bytes]

@@ -356,7 +356,7 @@ class _InvalidDrafter:
             "steps": [{
                 "step_id": "s1", "order": 0, "source_request_id": "no_such_request",
                 "request": {"url_template": "http://wrong.example/x", "parameters": []},
-                "bindings": [], "state_change": "none",
+                "bindings": [],
             }],
         })
 

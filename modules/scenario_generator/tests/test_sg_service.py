@@ -324,10 +324,6 @@ def test_candidate_without_reference_account_is_reported_without_calling_the_mod
     assert outcome.diagnostics == []
 
 
-def _with_state_change(draft: dict[str, Any]) -> None:
-    draft["steps"][-1]["state_change"] = "possible"
-
-
 @pytest.mark.parametrize("status", [302, 403])
 def test_non_2xx_source_cannot_be_reproduced(
     candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any], status: int
@@ -349,24 +345,61 @@ def test_non_2xx_source_cannot_be_reproduced(
     assert outcome.diagnostics == []
 
 
-def test_state_changing_reproduction_step_cannot_get_a_baseline(
+def test_state_change_comes_from_the_source_request_method_not_the_draft(
     candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
 ) -> None:
+    # 초안에는 state_change가 없다. GET 조회 근거면 모든 단계(기준 단계 포함)가 none으로 채워져 기준 응답을 만든다
+    # (1.5b가 GET /api/users/{id}를 possible로 적어 시나리오가 안 나오던 문제).
+    assert all("state_change" not in step for draft in drafts.values() for step in draft["steps"])
+    sources = requests_by_id(crawl_artifact)
+
+    outcome = generate_scenarios(candidates_artifact, crawl_artifact, StubDrafter(replaying(drafts)))
+
+    assert outcome.errors == []
+    steps = [step for scenario in outcome.scenarios for step in scenario["steps"]]
+    assert steps and all(sources[step["source_request_id"]]["method"] == "GET" for step in steps)
+    assert {step["state_change"] for step in steps} == {"none"}
+
+
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+def test_state_changing_source_request_cannot_get_a_baseline(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any], method: str
+) -> None:
     # 상태를 바꿀 수 있는 요청은 기준 계정이 먼저 보내면 상태가 달라져 같은 요청으로 기준 응답을 만들 수 없다.
+    # 초안이 아니라 원본 요청 method가 근거라, 초안 탓(DRAFT_INVALID·진단 기록)이 아니다.
+    broken_id = candidate_ids(candidates_artifact)[0]
+    target_id = candidates_artifact.document["data"]["candidates"][0]["source_request_ids"][0]
+
+    def set_method(document: dict[str, Any]) -> None:
+        for request in document["data"]["requests"]:
+            if request["request_id"] == target_id:
+                request["method"] = method
+
+    outcome = generate_scenarios(candidates_artifact, with_document(crawl_artifact, set_method), StubDrafter(replaying(drafts)))
+    assert [(e["code"], e["item_ref"]) for e in outcome.errors] == [
+        (GenerationErrorCode.ASSERTION_BASELINE_UNAVAILABLE, broken_id)
+    ]
+    assert broken_id not in published_by_candidate(outcome)
+    assert outcome.diagnostics == []
+
+
+def test_draft_carrying_state_change_is_rejected_even_with_the_estimated_value(
+    candidates_artifact: LoadedArtifact, crawl_artifact: LoadedArtifact, drafts: dict[str, Any]
+) -> None:
     broken_id = candidate_ids(candidates_artifact)[0]
     base = replaying(drafts)
 
     def behavior(request: dict[str, Any]) -> Draft:
         draft = base(request)
         if request["candidate"]["candidate_id"] == broken_id:
-            _with_state_change(draft.scenario)
+            # 프로그램이 채울 값과 같아도 받지 않는다. 초안이 이 키를 쓰면 모델 크기에 따라 판정이 갈린다.
+            for step in draft.scenario["steps"]:
+                step["state_change"] = "none"
         return draft
 
     outcome = generate_scenarios(candidates_artifact, crawl_artifact, StubDrafter(behavior))
-    assert [(e["code"], e["item_ref"]) for e in outcome.errors] == [
-        (GenerationErrorCode.ASSERTION_BASELINE_UNAVAILABLE, broken_id)
-    ]
-    assert broken_id not in published_by_candidate(outcome)
+    assert [(e["code"], e["item_ref"]) for e in outcome.errors] == [(GenerationErrorCode.DRAFT_INVALID, broken_id)]
+    assert [record["candidate_id"] for record in outcome.diagnostics] == [broken_id]
 
 
 def test_draft_without_actor_replay_is_invalid(
