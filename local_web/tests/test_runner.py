@@ -31,6 +31,29 @@ def wait_for_finish(store: RunnerStore, owner: str) -> dict[str, object]:
     pytest.fail("Runner test double did not finish")
 
 
+@pytest.mark.parametrize("config_path", [None, "", "configs/evaluation.json", " ", "missing.json"])
+def test_reporter_config_forwarded_to_child_without_reading_or_changing_parent(
+    input_settings: InputSettings, runner_settings: RunnerSettings, input_payload: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch, config_path: str | None,
+) -> None:
+    if config_path is None:
+        monkeypatch.delenv("REPORTER_EVALUATION_CONFIG_PATH", raising=False)
+    else:
+        monkeypatch.setenv("REPORTER_EVALUATION_CONFIG_PATH", config_path)
+    monkeypatch.setenv("LOCAL_WEB_TEST_REPORTER_CONFIG", json.dumps(config_path or None))
+    monkeypatch.setenv("LOCAL_WEB_TEST_RUNNER_CASE", "completed")
+    inputs, runs = InputStore(input_settings), RunnerStore(runner_settings)
+    try:
+        record = runs.start(inputs, prepared_authorization(inputs, input_payload), None)
+        result = wait_for_finish(runs, record.owner_token)
+        assert result["state"] == "completed"
+        assert "REPORTER_EVALUATION_CONFIG_PATH" not in json.dumps(result)
+        assert os.environ.get("REPORTER_EVALUATION_CONFIG_PATH") == config_path
+    finally:
+        runs.close()
+        inputs.close()
+
+
 @pytest.mark.parametrize("case, state, exit_code", [
     ("completed", "completed", 0), ("partial", "partial", 1),
     ("failed", "failed", 2), ("session_failed", "partial", 1),

@@ -2,11 +2,12 @@
 
 진단 결과를 정리해 `diagnosis_report.json`과 로컬 HTML을 생성하고, development 모드에서 Ground Truth 기반 평가 결과를 생성하는 모듈이다.
 
-## 현재 상태 — 2026-10-14
+## 현재 상태 — 2026-10-15
 
-기준 커밋 `913a0df`(PR #82 병합) + 이번 작업 트리 기준이다.
-실행 계약 `0.3.0`·GT `0.1.0`·Endpoint/Parameter 발견율을 유지하며 개발 평가의
-계정 매핑과 Precision 계산을 보완했다. 기존 산출물 Schema·다른 모듈·원본 GT는 변경하지 않았다.
+기준 커밋 `cb9dc8e` + 이번 작업 트리 기준이다.
+개발 평가의 snapshot 관계 비교를 보완하고 기존 계정 매핑 설정을 local_web에서
+전달하도록 연결했다. 실행 계약 `0.3.0`·GT `0.1.0`·default-v1·report 분류는 유지한다.
+기존 산출물 Schema·다른 진단 모듈·원본 GT는 변경하지 않았다.
 
 | 구분 | 현재 상태 |
 |---|---|
@@ -14,12 +15,16 @@
 | 공개 계약 | 실행 입력 7종·출력 2종 `0.3.0`만 지원; Ground Truth는 기존 `0.1.0` 유지 |
 | 입력 호환 | Collector 발견 엔드포인트·응답 식별자 필드 수용; KG·Safety 출력과 입력 사본 일치 확인 |
 | 평가 | Endpoint 노드·Endpoint→USE→Parameter(추론 포함)와 normalized_requests를 정규화 키로 비교; 중복 분자 증가 없음 |
+| 관계 평가 | 실제 snapshot에서 Page.url→비교용 path, USE의 Endpoint 문맥을 사용; 실제 node_id·관계 종류·방향 일치 필수. notes에 탈락 건수 기록 |
 | 계정 매핑 | 선택적 Reporter 전용 설정으로 논리 actor→원본 account_id 연결; Candidate·User·관계에 동일하게 적용 |
 | Precision | 양성 GT 최대 일대일 매칭 후 FP=prediction 수−TP; 음성·미매칭·중복 prediction 포함 |
-| 독립 회귀 | `533 passed`; 계정/FP 회귀 47건 추가, 담당 3개 합동 `1098 passed, 12 skipped` |
-| 실제 전체 연결 | 기존 단일 회차 Runner 호출 연결은 유지. 새 `0.3.0` 전체 실행은 외부 모듈 전환 후 재검증 필요 |
+| 독립 회귀 | Reporter `558 passed`; 담당 3개 `1123 passed, 12 skipped`; Reporter+Web `844 passed, 18 skipped`; Runner 대역 `58 passed` |
+| 실제 전체 연결 | 지정 진단의 공개 0.3 산출물 10개 completed, report·evaluate까지 연결 확인. 정책 차단 2개·검증 요청 0건·확정 0개로 실제 재현 성공과 구분 |
 
-Verifier의 계정 source 필드 전환은 완료됐지만 버전 0.3 수용과 실제 검증 관계 생성은 남아 있다.
+`web-49ebec8c2f328963ecc3a7f46ebcf022`를 읽기 전용 재평가했다. 관계 3/52→32/52,
+명시적 계정 매핑 적용 시 User 0/1→1/1·후보 TP 0→1이다. 이는 같은 입력의 평가 누락
+수정이지 탐지 엔진 성능 향상이 아니다. 실제 검증 관계는 해당 run에서 0개다.
+운영 Docker 재빌드·실제 .env 변경·새 진단은 이번 작업에서 수행하지 않았다.
 현재 리포트 렌더링은 HTML이며 PDF 출력은 구현하지 않았다. 현재 명세는
 [m8-reporter](../../docs/spec/m8-reporter.md)를 참고한다.
 
@@ -377,6 +382,25 @@ USE가 없거나 방향·노드 종류가 맞지 않으면 해당 노드를 평�
 default-v1, 공개 출력 필드·버전은 유지한다. 발견율 변화 자체를 탐지 모델의 성능
 향상이나 실제 검증 성공으로 판단하지 않는다.
 
+### 실제 snapshot의 관계 평가
+
+`relationship_recall`은 `graph_query_result.structure_snapshot`만 사용한다.
+개별 Page/Endpoint/Parameter 발견율에 쓰는 crawl/semantic 데이터를 가져와 KG 관계를
+만들지 않는다. 구현은 `relationship_matching.py`의 비교 전용 view에 한정된다.
+
+- Page에 path가 없으면 url을 비교용 path로 제공하고 기존 경로 정규화를 적용한다.
+  기존 path·url 조건은 유지하며 URL이나 node_id를 다시 생성하지 않는다.
+- Parameter는 실제 `Endpoint → USE → Parameter`의 method·path_template·name·location을
+  비교한다. 기존 속성도 보존하고 endpoint 객체·endpoint_method/endpoint_path_template·
+  method/path_template 형태의 비교 키를 지원한다. 필수 값 누락은 추론하지 않는다.
+- 같은 Parameter 노드를 여러 Endpoint가 사용해도, 다른 Endpoint에서 얻은 문맥으로
+  USE 관계를 정답 처리하지 않는다. 실제 source_id·target_id·relation_type·방향이 맞아야 한다.
+- 중복 edge는 GT 관계 하나의 분자를 늘리지 않는다. User는 기존 actor binding을 재사용하고,
+  Role·Resource 비교 및 자원 이름 원문 비교는 유지한다.
+- notes에는 일치 / 출발 노드만 미매칭 / 도착 노드만 미매칭 / 양쪽 미매칭 /
+  양끝은 일치하지만 관계 미매칭 건수를 남긴다. 다섯 건수의 합은 GT 관계 분모다.
+  미매칭은 snapshot과 GT 비교 결과이며 실제 취약/정상 판정이 아니다.
+
 ### 평가 대상
 
 주요 평가 대상:
@@ -446,6 +470,11 @@ REPORTER_EVALUATION_CONFIG_PATH=modules/reporter/configs/shop_demo.evaluation.ex
 
 예시의 dataset 버전·계정 ID는 실제 평가 환경과 대조해야 한다. GT 원본에
 실행별 account_id를 추가하거나 GT 계약 버전을 올리지 않는다.
+
+local_web Compose도 같은 환경변수를 전달한다. Docker에서는 `/app` 기준 상대 경로를
+사용한다. Web은 설정 내용을 읽지 않고 자식 Runner에 상속하며, 선택적 빈 값은 자식
+환경에서 제거한다. 비어 있지 않은 잘못된 값은 Reporter가 기존대로 거절한다.
+실제 적용 절차와 완료 산출물 불변 원칙은 [local_web README](../../local_web/README.md)를 따른다.
 
 ### Candidate·confirmed TP/FP/FN
 
@@ -548,7 +577,7 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-533 passed
+558 passed
 ```
 
 계약 테스트:
@@ -1223,3 +1252,47 @@ KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph mo
 report/HTML·진단 분류, 실행 산출물 0.3.0·GT 0.1.0·default-v1·의존성은 유지한다.
 마지막에 m8 현재 상태·계산식·설정·변경 이력을 갱신했다. 새 pipeline·Docker·실제 진단
 성능은 미검증이며 Resource canonicalization·non-JSON assertion·Policy 판단은 수정하지 않았다.
+
+### 2026-10-15 — snapshot 관계 비교·Web 평가 설정 전달 보완
+
+`cb9dc8e` 기준 Page.path↔KG Page.url과 Parameter의 Endpoint 문맥 누락을 수정했다.
+비교용 속성만 구성하고 snapshot·GT·node_id·실제 관계는 보존한다. 공유 Parameter의
+Endpoint 혼동, 잘못된 방향/종류, 필드 누락, 중복 관계, legacy 키, 비변이 및 공개 evaluate
+Schema·해시·저장 회귀 25건을 추가했다. 기존 actor binding·TP/FP/FN 계산을 재사용한다.
+관계 탈락 정보는 기존 notes에 추가했으며 출력 필드·버전·report 분류를 바꾸지 않았다.
+
+local_web Compose/.env.example에 선택적 `REPORTER_EVALUATION_CONFIG_PATH` 연결을
+추가했다. Web은 비어 있는 설정만 자식 환경에서 제거하고 잘못된 비어 있지 않은 설정을
+숨기지 않는다. 실제 자식 프로세스로 미설정·빈 값·명시 경로·공백·없는 경로 전달 5건을 검증했다.
+
+```bash
+.venv/bin/python -m pytest modules/reporter -q --tb=short
+# 558 passed
+.venv/bin/python -m pytest modules/reporter local_web/tests -q --tb=short
+# 844 passed, 18 skipped (Chromium·읽기 전용 마운트 선택 테스트)
+KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter -q --tb=short -rs
+# 1123 passed, 12 skipped (실제 Neo4j)
+.venv/bin/python -m pytest tests/pipeline -q --tb=short
+# 58 passed (Runner 대역)
+```
+
+수정 전 회귀는 13 failed·60 passed로 문제를 재현했다. Web HTTP 테스트는 샌드박스
+소켓 제한을 해제한 실행에서 통과했다. Compose config 검증도 통과했다.
+
+지정 run을 임시 컨테이너에 읽기 전용으로 마운트하고 Reporter의 입력 검증→메모리 평가만
+실행했다. 공개 산출물 10개와 GT의 SHA-256 11개 불변을 확인했다. 원본은 발행·덮어쓰기하지 않았다.
+
+| 지표 | 저장된 원본 | 관계 수정만 | 관계 수정 + 명시적 기존 계정 설정 |
+| --- | --- | --- | --- |
+| User recall | 0/1 | 0/1 | 1/1 |
+| Relationship recall | 3/52 | 32/52 | 32/52 |
+| Candidate TP/FP/FN | 0/2/5 | 0/2/5 | 1/1/4 |
+| Workflow recall | 0/5 | 0/5 | 0/5 |
+| Confirmed recall | 0/5 | 0/5 | 0/5 |
+
+계정 설정은 `configs/shop_demo.evaluation.example.json`을 비교 실행에서 명시했고
+운영 .env·Docker 서비스는 변경하지 않았다. 관계 미매칭 20개·Flow 이름/순서 불일치·
+정책 차단은 남아 있다. 의미 분석의 자원 canonicalization(user/id, product/products,
+order/orders), scenario_generator의 non-JSON response_json assertion,
+Safety Policy의 block/require_approval은 이번 수정 범위 밖이다. inferred 후보의 report
+분류를 confirmed로 올리거나 GT에 맞춰 upstream 오류를 보정하지 않았다.

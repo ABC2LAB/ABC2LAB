@@ -281,6 +281,9 @@ class RunnerStore:
         run_id = "web-" + secrets.token_hex(16)
         run_root = self.settings.runs_dir / run_id
         environment = prepared.make_collector_environment(os.environ)
+        # Compose's optional blank means unset; invalid nonempty values belong to Reporter validation.
+        if environment.get("REPORTER_EVALUATION_CONFIG_PATH") == "":
+            environment.pop("REPORTER_EVALUATION_CONFIG_PATH")
         environment.update({
             "SEMANTIC_ANALYZER_CONFIG_PATH": str(self.settings.semantic_config_path),
             "SCENARIO_GENERATOR_CONFIG_PATH": str(self.settings.scenario_config_path),

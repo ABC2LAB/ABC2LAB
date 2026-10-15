@@ -12,9 +12,11 @@ from modules.reporter.matching import (
     ActorMatcher,
     ObservedEntity,
     case_signature,
+    has_parameter_match_fields,
     mapping_signature,
     matches_key,
     normalize_text,
+    parameter_comparison_properties,
     require_supported_profile,
     workflow_signature,
 )
@@ -30,6 +32,7 @@ from modules.reporter.models import (
     Metric,
     UnverifiedCounts,
 )
+from modules.reporter.relationship_matching import RelationshipScore, score_relationships
 from modules.reporter.service import build_diagnosis_report
 
 ENTITY_TYPES = (
@@ -108,7 +111,11 @@ def _build_evaluation_data(
     if inputs.graph_snapshot is None:
         raise ContractValidationError("평가할 KG snapshot이 없음")
     observations, measured_types = _build_observations(inputs)
-    metrics = _build_structure_metrics(inputs, observations, measured_types)
+    relationship_score = score_relationships(
+        inputs.graph_snapshot, inputs.ground_truth.entities,
+        inputs.ground_truth.relationships, _actor_matcher(inputs),
+    )
+    metrics = _build_structure_metrics(inputs, observations, measured_types, relationship_score)
     candidate_score = _score_candidates(inputs, inputs.report_inputs.candidates)
     confirmed_ids = {
         item.candidate_id
@@ -130,6 +137,7 @@ def _build_evaluation_data(
         confirmed_score,
         finding_counts,
     )
+    notes.append(relationship_score.to_note())
     return EvaluationData(
         ground_truth=inputs.ground_truth,
         source_graph_revision=inputs.graph_snapshot.graph_revision,
@@ -269,7 +277,7 @@ def _add_semantic_observations(
                             f"{request['endpoint_id']}:{parameter['parameter_id']}"
                         ),
                         entity_type="Parameter",
-                        properties=_parameter_comparison_properties(
+                        properties=parameter_comparison_properties(
                             endpoint_properties, parameter,
                         ),
                     )
@@ -324,7 +332,7 @@ def _add_parameter_node_observations(
             or parameter["node_type"] != "Parameter"
         ):
             continue
-        if not _has_parameter_match_fields(
+        if not has_parameter_match_fields(
             endpoint["properties"], parameter["properties"],
         ):
             continue
@@ -332,42 +340,11 @@ def _add_parameter_node_observations(
             ObservedEntity(
                 entity_id=parameter["node_id"],
                 entity_type="Parameter",
-                properties=_parameter_comparison_properties(
+                properties=parameter_comparison_properties(
                     endpoint["properties"], parameter["properties"],
                 ),
             )
         )
-
-
-def _has_parameter_match_fields(
-    endpoint: Mapping[str, Any],
-    parameter: Mapping[str, Any],
-) -> bool:
-    values = (
-        endpoint.get("method"),
-        endpoint.get("path_template"),
-        parameter.get("name"),
-        parameter.get("location"),
-    )
-    return all(isinstance(value, str) and bool(value.strip()) for value in values)
-
-
-def _parameter_comparison_properties(
-    endpoint: Mapping[str, Any],
-    parameter: Mapping[str, Any],
-) -> dict[str, Any]:
-    return {
-        "endpoint": {
-            "method": endpoint["method"],
-            "path_template": endpoint["path_template"],
-        },
-        "endpoint_method": endpoint["method"],
-        "endpoint_path_template": endpoint["path_template"],
-        "method": endpoint["method"],
-        "path_template": endpoint["path_template"],
-        "name": parameter["name"],
-        "location": parameter["location"],
-    }
 
 
 def _add_snapshot_observations(
@@ -394,6 +371,7 @@ def _build_structure_metrics(
     inputs: EvaluationInputs,
     observations: Mapping[str, Sequence[ObservedEntity]],
     measured_types: Mapping[str, bool],
+    relationship_score: RelationshipScore,
 ) -> list[Metric]:
     metrics: list[Metric] = []
     actor_matcher = _actor_matcher(inputs)
@@ -420,12 +398,15 @@ def _build_structure_metrics(
                 measured=measured_types[entity_type],
             )
         )
-    metrics.append(_relationship_metric(inputs))
+    metrics.append(_relationship_metric(inputs, relationship_score))
     metrics.append(_workflow_metric(inputs))
     return metrics
 
 
-def _relationship_metric(inputs: EvaluationInputs) -> Metric:
+def _relationship_metric(
+    inputs: EvaluationInputs,
+    score: RelationshipScore | None = None,
+) -> Metric:
     snapshot = inputs.graph_snapshot
     if snapshot is None:
         return _metric(
@@ -434,32 +415,14 @@ def _relationship_metric(inputs: EvaluationInputs) -> Metric:
             len(inputs.ground_truth.relationships),
             measured=False,
         )
-    matched_node_ids: dict[str, set[str]] = {}
-    actor_matcher = _actor_matcher(inputs)
-    for entity in inputs.ground_truth.entities:
-        matched_node_ids[entity["gt_id"]] = {
-            node["node_id"]
-            for node in snapshot.nodes
-            if node["node_type"] == entity["entity_type"]
-            and actor_matcher.matches_entity(
-                entity["entity_type"], entity["match_key"], node["properties"],
-            )
-        }
-    matched_count = 0
-    for expected in inputs.ground_truth.relationships:
-        source_ids = matched_node_ids[expected["source_gt_id"]]
-        target_ids = matched_node_ids[expected["target_gt_id"]]
-        if any(
-            item["source_id"] in source_ids
-            and item["target_id"] in target_ids
-            and normalize_text(item["relation_type"])
-            == normalize_text(expected["relation_type"])
-            for item in snapshot.relationships
-        ):
-            matched_count += 1
+    if score is None:
+        score = score_relationships(
+            snapshot, inputs.ground_truth.entities,
+            inputs.ground_truth.relationships, _actor_matcher(inputs),
+        )
     return _metric(
         "relationship_recall",
-        matched_count,
+        score.matched_count,
         len(inputs.ground_truth.relationships),
     )
 

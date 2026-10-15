@@ -13,6 +13,7 @@ services:
       LOCAL_WEB_DATASETS_PATH: /app/datasets
       LOCAL_WEB_RUNS_PATH: /app/runs
       LOCAL_WEB_MATCHING_PROFILE: ${LOCAL_WEB_MATCHING_PROFILE:-default-v1}
+      REPORTER_EVALUATION_CONFIG_PATH: ${REPORTER_EVALUATION_CONFIG_PATH:-}
       SEMANTIC_ANALYZER_CONFIG_PATH: /config/semantic_analyzer.toml
       SCENARIO_GENERATOR_CONFIG_PATH: /config/scenario_generator.toml
       SAFETY_POLICY_CONFIG_PATH: /config/policy.json

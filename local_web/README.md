@@ -1079,6 +1079,7 @@ MVP의 임시 API·표현 모델이며 최종 Web-facing 계약이나 버전을 
 | `LOCAL_WEB_SCENARIO_CONFIG_PATH` | `/config/scenario_generator.toml` · 읽기 전용 | `SCENARIO_GENERATOR_CONFIG_PATH`로 모듈에 전달 |
 | `LOCAL_WEB_POLICY_CONFIG_PATH` | `/config/policy.json` · 읽기 전용 | `SAFETY_POLICY_CONFIG_PATH`로 모듈에 전달. 정책 내용·private 배치는 Safety Policy 소유 |
 | `LOCAL_WEB_MATCHING_PROFILE` | CLI `--matching-profile` | 현재 Reporter 공개 profile `default-v1` 기본. Web은 매칭을 수행하지 않음 |
+| `REPORTER_EVALUATION_CONFIG_PATH` | 같은 이름의 자식 환경변수 | 선택적 Reporter 평가 계정 매핑. `/app` 기준 상대 경로; Web은 내용을 읽지 않음. 상세 절차는 19.15 |
 
 Collector 설정·datasets까지 포함해 읽기 전용 bind 5개와 결과 bind 1개다.
 모든 bind는 `create_host_path=false`이므로 누락된 파일/폴더를 자동 생성하지 않는다.
@@ -1512,10 +1513,50 @@ git diff --check
 - 실행 중인 Docker Web의 이미지 재빌드·서비스 재시작은 별도 작업이다. 기존
   실행 소유권·결과 파일·DB/모델 volume은 이 화면 수정으로 변경하지 않는다.
 
+### 19.15 Reporter 평가 계정 설정 연결 — 2026-10-15
+
+GT의 논리 actor와 실제 실행 계정의 alias가 다를 때, Reporter의 기존 평가 전용
+설정으로 연결한다. GT를 변경하거나 Web에서 평가값을 다시 계산하지 않는다.
+
+1. 운영자가 Reporter 설정의 dataset_id·dataset_version·account_id가 해당 평가와
+   일치하는지 확인한다. 비밀번호·쿠키·토큰은 설정에 넣지 않는다.
+2. `local_web/.env`의 `REPORTER_EVALUATION_CONFIG_PATH`에 **컨테이너 `/app` 기준 상대
+   경로**를 지정한다. 호스트 절대 경로나 `/config/...` 경로는 이 설정에 사용할 수 없다.
+   이미지에 포함된 다음 예시는 해당 dataset/계정과 일치할 때만 명시적으로 사용한다.
+
+   ```dotenv
+   REPORTER_EVALUATION_CONFIG_PATH=modules/reporter/configs/shop_demo.evaluation.example.json
+   ```
+
+   다른 환경에서는 Reporter 설정 Schema에 맞는 별도 JSON을 `/app` 안의 읽기 가능한
+   위치에 준비한다. 이미지에 포함하거나 해당 상대 위치에 읽기 전용 마운트해야 한다.
+   경로 지정만으로 호스트 파일이 자동 마운트되지는 않는다.
+3. 진단이 실행 중이지 않을 때 변경 코드를 빌드하고 ABC2LAB 서비스를 재생성한다.
+
+   ```bash
+   docker compose --env-file local_web/.env -f local_web/compose.yml up -d --build --no-deps abc2lab
+   ```
+
+4. 새 진단의 성능 평가 메뉴에서 Reporter notes의 설정 경로·SHA-256·binding 수를
+   확인한다. 기존 완료 산출물과 화면의 과거 결과는 자동 재계산하거나 덮어쓰지 않는다.
+
+미설정/빈 값은 기존 alias 비교를 유지한다. Web은 빈 값만 자식 환경에서 제거하고,
+공백·없는 경로·dataset 불일치 등은 Reporter 검증에서 거절한다. 부모 환경은 변경하지
+않는다. report와 진단 엔진에는 GT 매칭 로직을 추가하지 않고, Web은 공개 평가 결과만 표시한다.
+
+이번 수정에서 실제 .env·운영 컨테이너·완료 산출물은 변경하지 않았다. 별도 읽기 전용
+비교에서 지정 진단의 관계 recall은 3/52→32/52, 기존 계정 설정 명시 시 User recall은
+0/1→1/1이었다. 이는 평가 누락 수정이며 탐지·검증 성능 향상으로 해석하지 않는다.
+
+검증: Reporter+Web `844 passed, 18 skipped`, Runner 대역 `58 passed`, Compose config
+검증 통과. 새 환경 전달 회귀 5건을 포함하며 Chromium·읽기 전용 마운트 선택 테스트는
+실행하지 않았다. Reporter 내부 관계 비교는 모듈 README·m8에 기록한다.
+
 ## 20. 변경 이력
 
 | 날짜 | 변경 | 구현·계약 영향 |
 | --- | --- | --- |
+| 2026-10-15 | 선택적 Reporter 평가 설정 환경변수를 Compose에서 자식 Runner까지 연결; 빈 값만 미설정 처리 | Reporter+Web 844 passed·18 skipped, Runner 대역 58 passed, Compose config 검증. 신규 환경 전달 회귀 5건. GT·진단 엔진·공개 Schema·부모 환경 유지, 운영 .env·컨테이너 재배포 없음 |
 | 2026-10-11 | 기존 책임 경계를 유지하고 Docker·사전 설정·실모델·지표 중심 통합 검증 MVP와 7단계 계획 추가 | README만 변경. Web/Docker 코드는 미구현. 모듈·Runner·Schema·의존성·기존 산출물 계약 변경 없음 |
 | 2026-10-12 | MVP 2단계 Web 화면·Docker 분리 배치·CPU 기본 Ollama·선택 GPU 설정과 공개 경계 구현·검증 | 94 passed, Docker 빌드·3개 서비스 healthy·호스트 접속·메뉴 4개·모바일 폭 확인. 입력·Runner·산출물 연결·모델 추론·전체 진단은 후속 단계. 모듈·Runner·Schema·루트 의존성 변경 없음 |
 | 2026-10-12 | MVP 3단계 읽기 전용 Collector 설정·데이터셋과 URL·복수 계정 입력 준비, 브라우저별 비밀값 임시 보관·폐기 구현 | Web·Runner 158 passed·2 skipped, 해당 Docker 환경 2 passed. 원본 설정 보존·GT 비열람·CSRF·만료·비밀값 비노출 확인. 실제 진단·평가·Runner 실행은 4단계 이후. 모듈·Schema·루트 설정·의존성 변경 없음 |
