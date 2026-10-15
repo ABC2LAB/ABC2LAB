@@ -18,7 +18,7 @@ from modules.semantic_analyzer.llm.adapter import LlmError, RequestFeatures, Req
 PROMPT_VERSION = "ollama-meaning-v1"
 _GENERATE_PATH = "/api/generate"
 
-_SYSTEM = (
+SYSTEM_PROMPT = (
     "You label one observed HTTP request. "
     "Return ONLY JSON: {\"action_meaning\": string, \"resource_keys\": [string]}. "
     "action_meaning is a short verb_noun like read_order. "
@@ -75,11 +75,7 @@ class OllamaClient:
         }
 
     def _build_payload(self, features: RequestFeatures) -> bytes:
-        prompt = (
-            f"method: {features.method}\n"
-            f"path_template: {features.path_template}\n"
-            f"parameter_names: {list(features.parameter_names)}"
-        )
+        prompt = build_prompt(features)
         options: dict[str, object] = {}
         if self._config.temperature is not None:
             options["temperature"] = self._config.temperature
@@ -87,13 +83,22 @@ class OllamaClient:
             options["seed"] = self._config.seed
         body = {
             "model": self._config.model_id,
-            "system": _SYSTEM,
+            "system": SYSTEM_PROMPT,
             "prompt": prompt,
             "stream": False,
             "format": "json",
             "options": options,
         }
         return json.dumps(body).encode("utf-8")
+
+
+def build_prompt(features: RequestFeatures) -> str:
+    """요청 특징을 프롬프트 본문으로. OpenRouter provider도 같은 본문을 쓴다(모델만 바꿔 비교)."""
+    return (
+        f"method: {features.method}\n"
+        f"path_template: {features.path_template}\n"
+        f"parameter_names: {list(features.parameter_names)}"
+    )
 
 
 def _parse_meaning(raw: bytes) -> RequestMeaning:

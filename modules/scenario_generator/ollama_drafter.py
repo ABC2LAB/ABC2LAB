@@ -22,7 +22,7 @@ _GENERATE_PATH = "/api/generate"
 # 식별자(account_id·role_id·session_ref)·method·url_template·body_ref·state_change와 preconditions·assertions·기준 단계는
 # 프로그램이 만든다. 초안은 "무엇을 어느 계정으로 실행할지"만 고른다. 작은 모델이 식별자를 지어내거나 판정 기대값을
 # 정상 동작(403)으로 적는 일을 막으려고 범위를 좁혔다(v7: 판정 조건도 프로그램 몫, v8: state_change도 프로그램 몫).
-_SYSTEM = (
+SYSTEM_PROMPT = (
     "You draft the request steps of ONE reproduction plan for an access-control/business-logic finding, as STRICT JSON.\n"
     "Output ONLY a JSON object with EXACTLY one top-level key: steps. "
     "Do NOT output assertions, preconditions, scenario_id, candidate_id, expected_basis, resource_ids, or any other key. "
@@ -110,7 +110,7 @@ class OllamaScenarioDrafter:
             options["seed"] = self._config.seed
         body = {
             "model": self._config.model_id,
-            "system": _SYSTEM,
+            "system": SYSTEM_PROMPT,
             "prompt": json.dumps(request, ensure_ascii=False),
             "stream": False,
             # "json"은 JSON인지만 강제한다. 초안 Schema를 넘겨 키·중첩·허용값을 디코딩 단계에서 막는다

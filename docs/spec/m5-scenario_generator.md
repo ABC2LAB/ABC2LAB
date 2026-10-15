@@ -14,14 +14,14 @@
 
 ## 현재 구현·연결 상태 — 2026-10-15
 
-기준 커밋 `559e3ae`(dev, 실행 산출물 0.3.0 통일 #85 병합 후) + 이 PR(`state_change`를 프로그램이 원본 요청 method로 결정)의 구현·공개 계약을 반영했다.
+기준 커밋 `15811bf`(dev, #89 병합 후) + 이 PR(OpenRouter 초안 생성기 추가)의 구현·공개 계약을 반영했다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
-| 독립 구현 | `generate`, 공개 `run()`·CLI, 초안 생성기 `none`·`ollama`·`replay`, 재현 조건·기준 단계 생성, 초안 검증(판정 조건 필수 규칙), 실패 초안 진단, 원자 저장 구현 완료 |
+| 독립 구현 | `generate`, 공개 `run()`·CLI, 초안 생성기 `none`·`ollama`·`openrouter`(모델 비교용 외부 API)·`replay`, 재현 조건·기준 단계 생성, 초안 검증(판정 조건 필수 규칙), 실패 초안 진단, 원자 저장 구현 완료 |
 | 초안 경계 | LLM 초안은 `steps`만. step은 `source_request_id`+`account_role`(actor/reference) 등 **선택만** 담고, 식별자(`account_id`·`role_id`·`session_ref`)·`method`·`url_template`·`body_ref`·`state_change`(원본 요청 method로 추정)와 세션 `preconditions`는 **프로그램이 원본에서 조립**한다(#57 요청 반영). 판정 조건(`assertions`)과 기준 단계도 **프로그램이 후보에서 만든다**(아래 "판정 조건 필수 규칙"). 경로 바인딩은 path 파라미터의 `binding_ref`로 표현하고 프로그램이 URL에 넣는다. Ollama는 초안 JSON Schema를 `format`으로 받아 초안 모양을 디코딩 단계에서 지킨다 |
 | 공개 계약 | 출력 `test_scenarios` `0.3.0`(`Scenario.resource_ids` 포함), 입력 `vulnerability_candidates`·`crawl_result` `0.3.0` 미러(crawl_result의 새 필드 `discovered_endpoints`·`response.identifiers`는 쓰지 않음). 출력 Scenario 모양은 불변(조립 주체만 바뀜) |
-| 독립 회귀 | scenario_generator `326 passed` |
+| 독립 회귀 | scenario_generator `348 passed` |
 | 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행(로컬 ollama 모델)에서 시나리오를 발행했고 safety_policy·verifier·reporter가 받아 처리했다(2026-10-11) |
 | 모델 크기 비교 | 6차 실행 입력(후보 5)으로 `generate`만 다시 실행: qwen2.5:1.5b·7b 모두 수정 전 0/5(초안 키 구조·미선언 바인딩) → 수정 후 5/5(2026-10-12). 같은 입력에서 GET 조회 단계의 `state_change`를 1.5b는 5개 중 4개를 `possible`, 7b는 5개 모두 `none`으로 적었다 → 2026-10-15부터 프로그램이 method로 채워 모델과 무관 |
 
@@ -231,6 +231,7 @@
 | 2026-10-14 | 실행 산출물 0.3.0 통일: 출력 `test_scenarios`와 입력 사본 `vulnerability_candidates`의 `schema_version`만 0.2.0 → 0.3.0. 필드·의미 변경 없음 | 스키마 변경 PR(KG·policy·reporter #82와 버전 정렬) |
 | 2026-10-15 | 입력 `vulnerability_candidates`의 `Candidate.resource_ids`(따라서 출력 `Scenario.resource_ids`) 의미가 "KG Resource instance node_id" → "KG Resource node_id(type 또는 instance)"로 넓어짐. 이 모듈은 값을 그대로 복사하므로 코드·Schema·버전 변경 없음(문구만) | access_analyzer 수직 규칙 PR(m4 변경 이력 2026-10-15). 생산자 최민준, 리뷰 이경준 |
 | 2026-10-15 | `ScenarioStep.state_change`를 LLM 초안이 아니라 **프로그램이 원본 요청 method로 채움**(GET·HEAD·OPTIONS → `none`, 그 밖 → `possible`). 초안 step 키에서 `state_change` 제거(7개 → 6개, 초안에 있으면 `DRAFT_INVALID`), 프롬프트 v8. 출력 필드·enum·`schema_version` 변경 없음(스키마 변경 아님). 한계: 키워드성 GET은 관찰 요청에 없어 지금은 안 걸리고, 들어와도 safety_policy가 독립 재평가한다. 관찰 요청에 상태 변경 정보를 실으려면 `crawl_result` 계약 변경이 필요(다음) | 10/15 local_web 실행에서 qwen2.5:1.5b가 `GET /api/users/{id}` 후보를 `possible`로 적어 `ASSERTION_BASELINE_UNAVAILABLE`. 6차 입력에서도 같은 GET 단계를 1.5b 4/5 `possible`, 7b 5/5 `none`. 판정에 들어가는 값은 프로그램 몫(#79와 같은 원칙) |
+| 2026-10-15 | 초안 생성기 `provider=openrouter` 추가(`openrouter_drafter.py`, OpenRouter `/chat/completions`). 프롬프트·`PROMPT_VERSION`·초안 Schema는 Ollama와 공유(`response_format` json_schema strict, `provider.require_parameters`). API key는 `OPENROUTER_API_KEY` 환경변수로만 받고 설정·로그·출력에 넣지 않음. 설정 키는 ollama와 같음. 출력 필드·enum·`schema_version` 변경 없음(스키마 변경 아님). 기본·폐쇄망 운영은 ollama 유지 | 모델 비교 요청(이동찬, local_web OpenRouter 설정 창구 #89) |
 
 ### 0.2.0 `Scenario.resource_ids` (소비자 입력 사본 미러 기준)
 

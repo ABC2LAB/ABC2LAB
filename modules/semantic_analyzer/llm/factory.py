@@ -10,9 +10,11 @@ from pathlib import Path
 
 from modules.semantic_analyzer.llm.adapter import FakeClient, LlmClient, LlmError
 from modules.semantic_analyzer.llm.ollama_client import OllamaClient, OllamaConfig
+from modules.semantic_analyzer.llm.openrouter_client import OpenRouterClient, OpenRouterConfig, read_api_key
 
 PROVIDER_FAKE = "fake"
 PROVIDER_OLLAMA = "ollama"
+PROVIDER_OPENROUTER = "openrouter"
 # 설정 파일 경로 우선순위: 명시 인자(CLI --config) > 환경변수 > 모듈 기본. collector의 COLLECTOR_CONFIG_PATH와 같은 방식.
 ENV_CONFIG_PATH = "SEMANTIC_ANALYZER_CONFIG_PATH"
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "configs" / "default.toml"
@@ -63,4 +65,15 @@ def build_llm_client(config: dict | None = None, config_path: str | Path | None 
             timeout_seconds=config.get("timeout_seconds", 30.0),
             model_version=config.get("model_version"),
         ))
-    raise LlmError(f"알 수 없는 llm provider: {provider!r} (지원: {PROVIDER_FAKE}, {PROVIDER_OLLAMA})")
+    if provider == PROVIDER_OPENROUTER:
+        # 모델 비교용 외부 API. API key는 설정이 아니라 환경변수에서만 읽는다.
+        return OpenRouterClient(OpenRouterConfig(
+            model_id=config.get("model_id", ""),
+            base_url=config.get("base_url", "https://openrouter.ai/api/v1"),
+            temperature=config.get("temperature", 0.0),
+            seed=config.get("seed"),
+            timeout_seconds=config.get("timeout_seconds", 30.0),
+            model_version=config.get("model_version"),
+        ), read_api_key())
+    raise LlmError(f"알 수 없는 llm provider: {provider!r} "
+                   f"(지원: {PROVIDER_FAKE}, {PROVIDER_OLLAMA}, {PROVIDER_OPENROUTER})")

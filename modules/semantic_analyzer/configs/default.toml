@@ -8,9 +8,11 @@
 [llm]
 # provider = "fake"  : 네트워크 0 결정적 추론(기본, 테스트용)
 # provider = "ollama": 로컬 Ollama HTTP API(/api/generate) 호출, 의존성 0(stdlib urllib)
+# provider = "openrouter": 모델 비교용 OpenRouter(/chat/completions, 외부 서비스). base_url을 https://openrouter.ai/api/v1로 바꾸고
+#                          API key는 이 파일이 아니라 OPENROUTER_API_KEY 환경변수로만 준다
 provider = "fake"
 
-# provider = "ollama"일 때만 사용한다. model_id는 예시가 아니라 실제 설치한 모델 태그를 넣는다.
+# provider = "ollama"·"openrouter"일 때만 사용한다. model_id는 예시가 아니라 실제 설치한 모델 태그(ollama) 또는 OpenRouter 모델 ID를 넣는다.
 model_id = ""
 base_url = "http://localhost:11434"
 temperature = 0.0
