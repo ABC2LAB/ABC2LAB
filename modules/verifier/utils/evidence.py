@@ -4,9 +4,14 @@
 비밀 판정은 collector와 같은 기준을 자기 폴더에 재구현한다(import하지 않음): 민감 키 이름 조각·cookie/authorization 헤더는
 `***`로 가린다. verifier는 계정 비밀번호를 쥐지 않으므로(세션은 collector 창구 안) 알려진 비밀값 목록 스크럽은 선택이다.
 collector와 다른 점은 README "비밀값 제거"에 적는다.
+
+파일명은 evidence_id 원문이 아니라 안전하게 파생한다. evidence_id는 scenario_id·candidate_id를 담는데 그 ID들은 계약상
+불투명 문자열이라 어떤 문자든(지금은 endpoint_id의 `/`) 들어올 수 있고, 임의 웹앱 대상이라 문자 집합을 가정하지 않는다.
+ID는 그대로 두고 파일명만 whitelist + 해시 접미사로 만들어 경로 해석·충돌·파일명 길이 상한을 같이 막는다.
 """
 
 import hashlib
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +31,20 @@ SET_COOKIE_HEADER = "set-cookie"
 AUTHORIZATION_HEADERS = frozenset({"authorization", "proxy-authorization"})
 REQUEST_KIND = "request"
 RESPONSE_KIND = "response"
+# 파일명에 남기는 문자. 그 밖(경로 구분자·공백·유니코드 등)은 _로 바꾼다.
+UNSAFE_FILE_NAME_CHARACTERS = re.compile(r"[^A-Za-z0-9._-]")
+# 줄기 길이 상한. 접미사(해시 8 + kind + .json)를 더해도 파일시스템 한도(255바이트)에 여유가 있다.
+MAX_FILE_STEM_LENGTH = 120
+DIGEST_SUFFIX_LENGTH = 8
+FALLBACK_FILE_STEM = "evidence"
+
+
+def safe_file_stem(evidence_id: str) -> str:
+    """evidence_id에서 파일명 줄기를 파생한다. 허용 문자만 남기고, 선두 '.'(숨김·상위 경로)을 떼고, 길이를 자른 뒤
+    원문 SHA-256 앞 8자를 붙인다. 치환·절단으로 같아진 다른 ID끼리 접미사로 갈린다."""
+    digest = hashlib.sha256(evidence_id.encode("utf-8")).hexdigest()[:DIGEST_SUFFIX_LENGTH]
+    stem = UNSAFE_FILE_NAME_CHARACTERS.sub("_", evidence_id).lstrip(".")[:MAX_FILE_STEM_LENGTH] or FALLBACK_FILE_STEM
+    return f"{stem}-{digest}"
 
 
 def is_sensitive_key(key: str) -> bool:
@@ -91,7 +110,8 @@ class EvidenceWriter:
 
     def _publish(self, evidence_id: str, kind: str, document: dict[str, Any]) -> dict[str, Any]:
         directory = prepare_evidence_dir(self.run_root, self.iteration)
-        file_name = f"{evidence_id}-{kind}.json"
+        # evidence_id 원문은 EvidenceRef에만 남기고 파일명은 파생값을 쓴다(위 모듈 설명).
+        file_name = f"{safe_file_stem(evidence_id)}-{kind}.json"
         raw = serialize_json(document)
         path = publish_file(directory, file_name, raw)
         relative = path.resolve().relative_to(self.run_root.resolve()).as_posix()

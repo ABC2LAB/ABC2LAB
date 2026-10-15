@@ -169,6 +169,7 @@ CLI:
 - 입력 `crawl_result`는 2026-10-14부터 `0.3.0`(`discovered_endpoints`·`response.identifiers` 추가). **새 필드는 verifier가 쓰지 않는다**(Schema로 받기만, 계정·세션 대응만 읽음).
 - `max_redirects` 기본 **0**: 명세는 리다이렉트 처리를 세부로 규정하지 않는데, 로그인 리다이렉트를 자동으로 따라가면 최종 200을 "접근 성공"으로 **오탐**한다. 그래서 기본은 따라가지 않고 3xx를 그 단계 응답으로 기록한다(`configs/verifier.toml`에서 조정).
 - 비밀값 제거는 collector와 같은 기준(민감 키 이름·cookie/authorization 헤더 → `***`). **다른 점**: verifier는 계정 비밀번호를 쥐지 않으므로(세션은 collector 창구 안) 알려진 비밀값 스크럽 목록이 보통 비어 있고 구조적 마스킹만 적용한다. 근거 파일 이름에는 회차를 담는다(verifier는 회차마다 다시 실행).
+- 근거 파일명은 `evidence_id` 원문이 아니라 안전 파생값이다(`[A-Za-z0-9._-]`만 남기고 `_` 치환, 선두 `.` 제거, 120자 상한, 원문 SHA-256 앞 8자 접미사, `-<kind>.json`). `evidence_id`에는 불투명 ID(scenario_id·candidate_id)가 들어가 `/` 같은 문자가 올 수 있어서다. EvidenceRef의 `evidence_id`는 원문 그대로이고 `path`만 파생 파일명을 가리킨다(2026-10-15).
 - `session_valid` Check 의미가 약해짐: 명세 m7의 "session_ref 능동 재확인" 대신 **"창구가 세션 보유 중 + 만료 감지 없음"**이다. 실제 세션 만료는 `send()` 응답 신호(로그인 리다이렉트 등, collector README)로 잡는다.
 
 ### 한계 (라이브 1회 결과)
