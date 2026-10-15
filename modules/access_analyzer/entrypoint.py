@@ -2,15 +2,18 @@
 
 지원 operation:
 - prepare_queries: 입력 JSON 없음 → graph_query.json 공개(KG에 보낼 질의 계획).
-- analyze: graph_query_result.json 하나 입력 → vulnerability_candidates.json 공개(후보. 규칙은 다음 PR이라 빈 배열).
+- analyze: graph_query_result.json(필수) + crawl_result.json(권장) 입력 → vulnerability_candidates.json 공개(후보).
+  입력은 artifact_type으로 구분한다. crawl_result가 없으면 crawl 관찰이 필요한 규칙만 건너뛰고 partial이다.
 
     .venv/bin/python -m modules.access_analyzer.entrypoint prepare_queries --mode development --graph-id GID [--expected-graph-revision N]
-    .venv/bin/python -m modules.access_analyzer.entrypoint analyze --mode development --graph-id GID --expected-graph-revision N --input-path <graph_query_result.json>
+    .venv/bin/python -m modules.access_analyzer.entrypoint analyze --mode development --graph-id GID --expected-graph-revision N \
+        --input-path <graph_query_result.json> [--crawl-path <crawl_result.json>]
 
 처리 순서: 실행 값 검증 → (prepare: 질의 계획 / analyze: 입력 검증·판정) → envelope → 자기 출력 검증 → 원자적 공개.
 반환값·CLI stdout 한 줄: {status, artifact_path, artifact_id, sha256, errors}. 파일을 못 썼으면 경로·ID·sha256이 null.
 
 context 키는 명세 03 실행 값 + 필요한 graph 상태 여섯 개: run_id·iteration·mode·run_root·graph_id·expected_graph_revision.
+선택 키 expected_sha256({입력 artifact_type: 소문자 hex})이 있으면 analyze가 입력 파일 바이트의 SHA-256을 대조한다.
 알 수 없는 operation은 산출물 타입을 모르므로 파일 없이 반환값으로만 알린다(종료코드 3).
 """
 
@@ -23,6 +26,7 @@ import secrets
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -53,8 +57,9 @@ from modules.access_analyzer.utils.validation import (
     CANDIDATES_FILE_NAME,
     GRAPH_QUERY_FILE_NAME,
     ValidationIssue,
+    validate_crawl_result_bytes,
     validate_graph_query_bytes,
-    validate_graph_query_result_file,
+    validate_graph_query_result_bytes,
     validate_vulnerability_candidates_bytes,
 )
 
@@ -63,9 +68,19 @@ logger = logging.getLogger(__name__)
 PREPARE_QUERIES_OPERATION = "prepare_queries"
 ANALYZE_OPERATION = "analyze"
 GRAPH_QUERY_RESULT_TYPE = "graph_query_result"
+CRAWL_RESULT_TYPE = "crawl_result"
+# analyze 입력 종류. 파일은 artifact_type으로 구분하고, graph_query_result는 필수·crawl_result는 선택이다.
+ANALYZE_INPUT_TYPES = (GRAPH_QUERY_RESULT_TYPE, CRAWL_RESULT_TYPE)
+INPUT_VALIDATOR_BY_TYPE: dict[str, Callable[[bytes], list[ValidationIssue]]] = {
+    GRAPH_QUERY_RESULT_TYPE: validate_graph_query_result_bytes,
+    CRAWL_RESULT_TYPE: validate_crawl_result_bytes,
+}
 REQUIRED_CONTEXT_KEYS = frozenset(
     {"run_id", "iteration", "mode", "run_root", "graph_id", "expected_graph_revision"}
 )
+EXPECTED_SHA256_KEY = "expected_sha256"
+OPTIONAL_CONTEXT_KEYS = frozenset({EXPECTED_SHA256_KEY})
+SHA256_HEX_PATTERN = re.compile(r"[0-9a-f]{64}")
 DEFAULT_RUNS_DIR = Path("runs")
 # 폴더 이름으로 쓰이므로 경로 구분자·..가 들어갈 수 없는 모양만 받는다.
 RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -102,6 +117,14 @@ class InputPathError(ValueError):
     """analyze 입력 경로가 run_root 안의 읽을 수 있는 파일이 아니다."""
 
 
+@dataclass(frozen=True)
+class _LoadedInput:
+    """검증을 통과한 analyze 입력 하나. document는 파싱한 산출물, input_ref는 출력 envelope에 넣을 ArtifactRef."""
+
+    document: dict[str, Any]
+    input_ref: dict[str, Any]
+
+
 def run(
     operation: str, input_paths: Sequence[str | Path], output_dir: str | Path, context: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -132,7 +155,7 @@ def run(
 
 
 def parse_context(context: Mapping[str, Any]) -> RunContext:
-    unknown_keys = set(context) - REQUIRED_CONTEXT_KEYS
+    unknown_keys = set(context) - REQUIRED_CONTEXT_KEYS - OPTIONAL_CONTEXT_KEYS
     missing_keys = REQUIRED_CONTEXT_KEYS - set(context)
     if unknown_keys or missing_keys:
         raise ContextError(f"context 키 오류 (빠짐: {sorted(missing_keys)}, 정의 안 됨: {sorted(unknown_keys)})")
@@ -152,7 +175,23 @@ def parse_context(context: Mapping[str, Any]) -> RunContext:
     if not isinstance(graph_id, str) or not graph_id:
         raise ContextError("graph_id는 비어 있지 않은 문자열이어야 함")
     expected_graph_revision = _parse_expected_revision(context["expected_graph_revision"])
-    return RunContext(run_id, iteration, Mode(context["mode"]), run_root, graph_id, expected_graph_revision)
+    expected_sha256 = _parse_expected_sha256(context.get(EXPECTED_SHA256_KEY, {}))
+    return RunContext(
+        run_id, iteration, Mode(context["mode"]), run_root, graph_id, expected_graph_revision, expected_sha256
+    )
+
+
+def _parse_expected_sha256(value: Any) -> dict[str, str]:
+    """{analyze 입력 artifact_type: 소문자 hex 64자}. 모르는 종류·모양이 다른 값은 거절한다(메시지에 해시값은 넣지 않는다)."""
+    if not isinstance(value, Mapping):
+        raise ContextError(f"{EXPECTED_SHA256_KEY}는 입력 종류별 해시 객체여야 함")
+    unknown_types = set(value) - set(ANALYZE_INPUT_TYPES)
+    if unknown_types:
+        raise ContextError(f"{EXPECTED_SHA256_KEY}에 analyze 입력이 아닌 종류가 있음: {sorted(unknown_types)}")
+    for artifact_type, digest in value.items():
+        if not isinstance(digest, str) or not SHA256_HEX_PATTERN.fullmatch(digest):
+            raise ContextError(f"{EXPECTED_SHA256_KEY}.{artifact_type}는 소문자 hex 64자여야 함")
+    return dict(value)
 
 
 def _parse_expected_revision(value: Any) -> int | None:
@@ -183,29 +222,68 @@ def _prepare_queries_work(
 def _analyze_work(
     run_context: RunContext, input_paths: Sequence[str | Path], started: float
 ) -> tuple[WorkResult, list[dict[str, Any]]]:
-    """graph_query_result 하나를 읽어 검증하고 후보를 판정한다. 입력을 못 읽으면 input_refs 없이 failed."""
-    if len(input_paths) != 1:
-        code = ErrorCode.INPUT_MISSING if not input_paths else ErrorCode.INPUT_UNEXPECTED
-        message = "analyze는 graph_query_result.json 하나를 입력으로 받는다"
-        return WorkResult(Status.FAILED, [make_error_item(code, message)], None, _elapsed_ms(started)), []
-    try:
-        input_path = _resolve_input_path(run_context.run_root, input_paths[0])
-    except InputPathError as error:
-        return WorkResult(Status.FAILED, [make_error_item(ErrorCode.INPUT_PATH_INVALID, str(error))], None, _elapsed_ms(started)), []
-    issues = validate_graph_query_result_file(input_path)
-    if issues:
-        errors = _describe_issues(ErrorCode.INPUT_CONTRACT_INVALID, issues)
-        return WorkResult(Status.FAILED, errors, None, _elapsed_ms(started)), []
-    raw = input_path.read_bytes()
-    input_artifact = json.loads(raw)
-    input_ref = _build_input_ref(run_context.run_root, input_path, raw, input_artifact)
+    """graph_query_result(필수)·crawl_result(선택)를 읽어 검증하고 후보를 판정한다. 입력을 못 읽으면 input_refs 없이 failed."""
+    if not input_paths:
+        message = "analyze는 graph_query_result.json(필수)과 crawl_result.json을 입력으로 받는다"
+        return WorkResult(Status.FAILED, [make_error_item(ErrorCode.INPUT_MISSING, message)], None, _elapsed_ms(started)), []
+    if len(input_paths) > len(ANALYZE_INPUT_TYPES):
+        message = f"analyze 입력은 최대 {len(ANALYZE_INPUT_TYPES)}개다"
+        return WorkResult(Status.FAILED, [make_error_item(ErrorCode.INPUT_UNEXPECTED, message)], None, _elapsed_ms(started)), []
+    loaded_by_type, failure = _load_analyze_inputs(run_context, input_paths)
+    if failure:
+        return WorkResult(Status.FAILED, failure, None, _elapsed_ms(started)), []
+    crawl = loaded_by_type.get(CRAWL_RESULT_TYPE)
     outcome = service.build_candidates_result(
-        input_artifact,
+        loaded_by_type[GRAPH_QUERY_RESULT_TYPE].document,
         run_context.graph_id,
         run_context.expected_graph_revision,
         run_context.run_id,
+        crawl_artifact=crawl.document if crawl is not None else None,
     )
-    return WorkResult(outcome.status, outcome.errors, outcome.data, _elapsed_ms(started)), [input_ref]
+    input_refs = [loaded_by_type[t].input_ref for t in ANALYZE_INPUT_TYPES if t in loaded_by_type]
+    return WorkResult(outcome.status, outcome.errors, outcome.data, _elapsed_ms(started)), input_refs
+
+
+def _load_analyze_inputs(
+    run_context: RunContext, input_paths: Sequence[str | Path]
+) -> tuple[dict[str, _LoadedInput], list[dict[str, Any]]]:
+    """입력마다 경로·artifact_type·계약·기대 해시를 확인한다. 돌려주는 것: (종류별 입력, 실패 오류). 실패면 입력은 비어 있다."""
+    loaded_by_type: dict[str, _LoadedInput] = {}
+    for raw_path in input_paths:
+        try:
+            input_path = _resolve_input_path(run_context.run_root, raw_path)
+        except InputPathError as error:
+            return {}, [make_error_item(ErrorCode.INPUT_PATH_INVALID, str(error))]
+        raw = input_path.read_bytes()
+        artifact_type = _peek_artifact_type(raw)
+        if artifact_type not in INPUT_VALIDATOR_BY_TYPE:
+            supported = ", ".join(ANALYZE_INPUT_TYPES)
+            return {}, [make_error_item(ErrorCode.INPUT_CONTRACT_INVALID, f"analyze 입력의 artifact_type은 {supported} 중 하나여야 함")]
+        if artifact_type in loaded_by_type:
+            return {}, [make_error_item(ErrorCode.INPUT_UNEXPECTED, f"같은 종류의 입력이 둘 이상임: {artifact_type}")]
+        issues = INPUT_VALIDATOR_BY_TYPE[artifact_type](raw)
+        if issues:
+            return {}, _describe_issues(ErrorCode.INPUT_CONTRACT_INVALID, issues)
+        actual_sha256 = hashlib.sha256(raw).hexdigest()
+        expected_sha256 = run_context.expected_sha256.get(artifact_type)
+        if expected_sha256 is not None and expected_sha256 != actual_sha256:
+            # 런너가 넘긴 파일과 다른 바이트를 읽었다. 어느 쪽이 맞는지 알 수 없으니 분석하지 않는다.
+            return {}, [make_error_item(ErrorCode.INPUT_HASH_MISMATCH, f"{artifact_type}의 SHA-256이 기대값과 다름")]
+        document = json.loads(raw)
+        loaded_by_type[artifact_type] = _LoadedInput(document, _build_input_ref(run_context.run_root, input_path, actual_sha256, document))
+    if GRAPH_QUERY_RESULT_TYPE not in loaded_by_type:
+        return {}, [make_error_item(ErrorCode.INPUT_MISSING, "analyze 입력에 graph_query_result.json이 없다")]
+    return loaded_by_type, []
+
+
+def _peek_artifact_type(raw: bytes) -> str | None:
+    """검증기를 고르려고 artifact_type만 먼저 본다. JSON이 아니거나 객체가 아니면 None(계약 위반은 뒤에서 자세히 본다)."""
+    try:
+        document = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    artifact_type = document.get("artifact_type") if isinstance(document, dict) else None
+    return artifact_type if isinstance(artifact_type, str) else None
 
 
 def _resolve_input_path(run_root: Path, raw_path: str | Path) -> Path:
@@ -222,14 +300,14 @@ def _resolve_input_path(run_root: Path, raw_path: str | Path) -> Path:
     return resolved
 
 
-def _build_input_ref(run_root: Path, input_path: Path, raw: bytes, artifact: Mapping[str, Any]) -> dict[str, Any]:
+def _build_input_ref(run_root: Path, input_path: Path, sha256: str, artifact: Mapping[str, Any]) -> dict[str, Any]:
     relative = input_path.resolve().relative_to(run_root.resolve()).as_posix()
     return {
         "artifact_id": artifact["artifact_id"],
-        "artifact_type": GRAPH_QUERY_RESULT_TYPE,
+        "artifact_type": artifact["artifact_type"],
         "iteration": artifact["iteration"],
         "path": relative,
-        "sha256": hashlib.sha256(raw).hexdigest(),
+        "sha256": sha256,
     }
 
 
@@ -328,6 +406,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="기대 KG revision. 생략하면 현재 revision을 조회하고 결과에서 실제 값을 받는다",
     )
     parser.add_argument("--input-path", help=f"{ANALYZE_OPERATION}의 graph_query_result.json (run_root 기준 상대 또는 절대)")
+    parser.add_argument("--crawl-path", help=f"{ANALYZE_OPERATION}의 crawl_result.json (run_root 기준 상대 또는 절대). 없으면 crawl 관찰 규칙은 건너뛴다")
     parser.add_argument("--run-id", help="없으면 시각+난수로 만든다")
     parser.add_argument("--iteration", type=int, default=0)
     parser.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_DIR, help=f"기본 {DEFAULT_RUNS_DIR}")
@@ -344,7 +423,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "graph_id": args.graph_id,
         "expected_graph_revision": args.expected_graph_revision,
     }
-    input_paths = [args.input_path] if args.input_path else []
+    input_paths = [path for path in (args.input_path, args.crawl_path) if path]
     result = run(args.operation, input_paths, output_dir, context)
     # stdout은 호출자가 읽는 결과 한 줄이다. 로그는 stderr로 간다.
     sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")

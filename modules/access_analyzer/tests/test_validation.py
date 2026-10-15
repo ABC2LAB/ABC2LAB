@@ -2,7 +2,7 @@
 
 import json
 
-from modules.access_analyzer.tests.helpers import GRAPH_QUERY_FIXTURE
+from modules.access_analyzer.tests.helpers import GRAPH_QUERY_FIXTURE, make_crawl_artifact
 from modules.access_analyzer.utils import validation as v
 
 
@@ -66,3 +66,24 @@ def test_duplicate_json_key_rejected() -> None:
 def test_nan_rejected() -> None:
     raw = b'{"runtime_metrics": {"duration_ms": NaN}}'
     assert "JSON_INVALID" in _codes(raw)
+
+
+# --- crawl_result 입력 검증 ---
+
+
+def test_duplicate_crawl_request_id_rejected() -> None:
+    # 같은 request_id가 둘이면 KG 행의 request_id가 어느 요청인지 알 수 없다.
+    document = make_crawl_artifact([("acc_a", "role_user", "sess_a")], [("req_1", "acc_a", 200), ("req_1", "acc_a", 403)])
+    issues = v.validate_crawl_result_bytes(json.dumps(document).encode())
+    assert any(issue.code is v.IssueCode.DUPLICATE_ID and issue.location == "$.data.requests[1].request_id" for issue in issues)
+
+
+def test_duplicate_crawl_account_id_rejected() -> None:
+    document = make_crawl_artifact([("acc_a", "role_user", "sess_a"), ("acc_a", "role_admin", "sess_b")], [])
+    issues = v.validate_crawl_result_bytes(json.dumps(document).encode())
+    assert any(issue.code is v.IssueCode.DUPLICATE_ID and issue.location == "$.data.accounts[1].account_id" for issue in issues)
+
+
+def test_crawl_duplicate_json_key_rejected() -> None:
+    raw = b'{"schema_version": "0.3.0", "schema_version": "0.3.0"}'
+    assert {issue.code.value for issue in v.validate_crawl_result_bytes(raw)} == {"JSON_INVALID"}

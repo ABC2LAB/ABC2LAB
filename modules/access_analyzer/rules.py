@@ -7,6 +7,7 @@ structure_snapshot은 평가·감사용이라 규칙 입력으로 쓰지 않는�
 
 from typing import Any
 
+from modules.access_analyzer.observations import CrawlObservations
 from modules.access_analyzer.utils.config import RuleConfig
 from modules.access_analyzer.utils.envelope import ErrorCode, make_error_item
 
@@ -19,8 +20,13 @@ HYPOTHESIS = "같은 역할의 다른 계정이 소유자의 자원에 접근할
 EXPECTED_BEHAVIOR = "소유자가 아닌 계정의 접근은 거절되어야 한다"
 
 
-def apply_rules(result_data: dict[str, Any], config: RuleConfig) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """완료된 분석 쿼리 결과로 후보와 규칙 오류를 만든다. (candidates, errors)."""
+def apply_rules(
+    result_data: dict[str, Any], config: RuleConfig, observations: CrawlObservations | None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """완료된 분석 쿼리 결과로 후보와 규칙 오류를 만든다. (candidates, errors).
+
+    observations는 crawl_result 색인이다(없으면 None). Rule A는 소유 관계·역할 동일성만 보므로 쓰지 않는다.
+    """
     ownership_rows = _completed_rows(result_data["results"], "resource_ownership")
     access_rows = _completed_rows(result_data["results"], "role_resource_access")
     if not config.same_role_other_owner.enabled:

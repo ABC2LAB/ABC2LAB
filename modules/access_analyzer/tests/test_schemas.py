@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from modules.access_analyzer.tests.helpers import GRAPH_QUERY_FIXTURE, schema_errors
+from modules.access_analyzer.tests.helpers import CRAWL_FIXTURE_DIR, GRAPH_QUERY_FIXTURE, make_crawl_artifact, schema_errors
 
 GRAPH_QUERY_SCHEMA = "output/graph_query.schema.json"
 RESULT_SCHEMA = "input/graph_query_result.schema.json"
@@ -279,3 +279,36 @@ def test_candidate_undefined_key_rejected() -> None:
     bad = copy.deepcopy(_candidate())
     bad["surprise"] = "x"
     assert schema_errors(CANDIDATES_SCHEMA, _candidates_envelope([bad]))
+
+
+# --- crawl_result 입력(collector 출력 계약 사본, 0.3.0) ---
+
+CRAWL_SCHEMA = "input/crawl_result.schema.json"
+
+
+def _crawl_fixture_document() -> dict:
+    return json.loads((CRAWL_FIXTURE_DIR / "completed.json").read_bytes())
+
+
+def test_crawl_fixture_valid() -> None:
+    assert schema_errors(CRAWL_SCHEMA, _crawl_fixture_document()) == []
+
+
+def test_crawl_rejects_legacy_version() -> None:
+    # collector 0.3.0(#80)만 받는다. 0.2.0은 discovered_endpoints·identifiers가 없어 묵시 변환하지 않는다.
+    document = _crawl_fixture_document()
+    document["schema_version"] = "0.2.0"
+    assert schema_errors(CRAWL_SCHEMA, document)
+
+
+def test_crawl_rejects_undefined_key() -> None:
+    document = _crawl_fixture_document()
+    document["data"]["requests"][0]["surprise"] = "x"
+    assert schema_errors(CRAWL_SCHEMA, document)
+
+
+def test_crawl_helper_covers_guest_and_unanswered_request() -> None:
+    # 테스트 도우미가 만드는 비인증 계정(session_ref null)·응답 없음(status_code null)도 계약 모양이어야 한다.
+    document = make_crawl_artifact([("acc_guest", "role_guest", None)], [("req_g", "acc_guest", None)])
+    assert schema_errors(CRAWL_SCHEMA, document) == []
+    assert schema_errors(CRAWL_SCHEMA, make_crawl_artifact([], [], status="failed")) == []
