@@ -1,0 +1,9 @@
+# OpenRouter 설정 초안. semantic_analyzer의 adapter 구현 후에 사용할 수 있다.
+# 모듈 담당자가 지원하는 키와 기본 URL을 확인한 뒤 별도 복사본의 모델 ID를 채운다.
+# API key는 TOML에 저장하지 않고 OPENROUTER_API_KEY 환경변수로 전달한다.
+[llm]
+provider = "openrouter"
+model_id = ""
+base_url = "https://openrouter.ai/api/v1"
+temperature = 0.0
+timeout_seconds = 300.0

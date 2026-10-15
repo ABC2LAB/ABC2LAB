@@ -30,6 +30,7 @@ STOP_GRACE_SECONDS = 3
 MAX_RUN_RECORDS = 16
 HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 PROFILE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+MODEL_PROVIDERS = frozenset({"ollama", "openrouter"})
 ARTIFACT_FILES = {
     "crawl_result": "collector/crawl_result.json",
     "semantic_analysis": "semantic_analyzer/semantic_analysis.json",
@@ -143,8 +144,12 @@ def actual_model_config(path: Path | None) -> bool:
         if len(body) > MAX_INPUT_BYTES:
             return False
         llm = tomllib.loads(body.decode("utf-8")).get("llm")
-        return (isinstance(llm, dict) and llm.get("provider") == "ollama"
-                and isinstance(llm.get("model_id"), str) and bool(llm["model_id"].strip()))
+        if (not isinstance(llm, dict) or not isinstance(llm.get("provider"), str)
+                or llm["provider"] not in MODEL_PROVIDERS
+                or not isinstance(llm.get("model_id"), str) or not llm["model_id"].strip()):
+            return False
+        # Web checks configuration presence only; provider support and API calls belong to each module.
+        return llm["provider"] != "openrouter" or bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
     except (OSError, UnicodeError, ValueError, RecursionError):
         return False
 

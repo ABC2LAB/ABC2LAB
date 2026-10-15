@@ -1094,12 +1094,13 @@ Web이 네트워크를 만들거나 대상 컨테이너를 변경하지 않는�
 포함되므로 폴더 전체를 웹서버·공유 저장소에 공개하지 않는다.
 
 기존 대상 네트워크의 다른 `neo4j`와 혼동하지 않도록 내부 DB는 전용 network alias
-`local-web-neo4j`로 접속한다. 두 LLM TOML은 `[llm]`의 `provider="ollama"`, 실제
+`local-web-neo4j`로 접속한다. 현재 Ollama 실행용 두 LLM TOML은 `[llm]`의 `provider="ollama"`, 실제
 `model_id`, 내부 주소 `base_url="http://ollama:11434"`로 준비한다. Web은 공개 설정의
 최소 provider·모델 지정과 파일/저장소 접근만 확인한다. 전체 설정·모델의 존재·
 서비스 readiness·추론 성공·정책 유효성은 해당 모듈이 실행할 때 확인한다.
 fake·none·replay 또는 빈 모델 설정으로 실제 모델 진단이 된 것처럼 시작하지 않는다.
 모델 다운로드·대상 DB 초기화·허용 정책 생성은 자동 수행하지 않는다.
+OpenRouter 설정 창구와 현재 구현 범위는 19.16을 따른다.
 
 #### 실행·소유권·비밀값 수명
 
@@ -1378,6 +1379,8 @@ volume·사용자 설정을 변경하지 않았다. `local_web/` 밖의 모듈·
 | scenario_generator.toml | 의미 분석과 동일한 모델·주소·temperature·timeout | 모듈별 변경 가능. 두 설정이 같다는 사실은 두 단계 성공을 보장하지 않음 |
 | policy.json | policy_config 0.1.0·policy_version=draft-1, 해당 origin의 /orders 범위만, 시나리오당 최대 20건·60초 | 운영자가 범위·별칭·역할·요청 영향을 검토. Web이 입력에 맞춰 자동 수정하지 않음 |
 
+위 정책 범위는 최초 초안 당시의 기록이다. 현재 `draft-2` 범위와 전환 방법은 19.17을 따른다.
+
 #### Collector 입력과 정책 계정
 
 - 로그인은 `/login`, input name은 `email`·`password`, 성공 판정은
@@ -1552,10 +1555,118 @@ GT의 논리 actor와 실제 실행 계정의 alias가 다를 때, Reporter의 �
 검증 통과. 새 환경 전달 회귀 5건을 포함하며 Chromium·읽기 전용 마운트 선택 테스트는
 실행하지 않았다. Reporter 내부 관계 비교는 모듈 README·m8에 기록한다.
 
+### 19.16 OpenRouter 설정 창구 — 2026-10-15
+
+모델 비교를 위해 OpenRouter를 선택할 수 있도록 **Web의 설정·비밀값 전달 창구만**
+추가했다. 현재 두 진단 모듈의 OpenRouter adapter는 미구현이므로, 이 창구만으로
+실제 OpenRouter 진단을 실행할 수는 없다. 기존 `configs/vulnerable/`의 Ollama 설정과
+실제 `.env`는 유지한다.
+
+| 설정 | 위치·역할 |
+| --- | --- |
+| `provider`, `model_id`, `base_url`, 추론 옵션 | `configs/openrouter/semantic_analyzer.example.toml`·`scenario_generator.example.toml`의 모듈별 공개 설정 초안. 실제 adapter의 지원 키는 해당 모듈 담당자가 확정 |
+| `LOCAL_WEB_SEMANTIC_CONFIG_PATH` | Semantic TOML 복사본의 호스트 절대 경로. 기존 읽기 전용 마운트로 전달 |
+| `LOCAL_WEB_SCENARIO_CONFIG_PATH` | Scenario TOML 복사본의 호스트 절대 경로. 두 모듈은 독립적으로 전환 가능 |
+| `OPENROUTER_API_KEY` | Git에서 제외한 실제 `local_web/.env` 또는 실행 환경에만 설정. Compose→Web 프로세스→Runner 자식 환경으로 전달 |
+
+TOML 초안은 `provider="openrouter"`, 빈 `model_id`, `base_url="https://openrouter.ai/api/v1"`을
+제공한다. 모델은 자동 선택하지 않는다. API 주소·환경변수 이름은
+[OpenRouter 공식 Quickstart](https://openrouter.ai/docs/quickstart)를 참고했다.
+API key는 TOML·화면·CLI 인자·공개 요약·산출물에 넣지 않는다.
+
+모듈 adapter가 준비된 이후의 전환 순서:
+
+1. 바꾸려는 모듈의 `.example.toml`을 별도 설정 파일로 복사하고 해당 모듈의 실제 지원
+   키를 확인한다. `model_id`에 선택한 OpenRouter 모델 ID를 넣는다.
+2. 실제 `.env`에서 해당 `LOCAL_WEB_*_CONFIG_PATH`만 새 파일의 호스트 절대 경로로
+   지정하고 `OPENROUTER_API_KEY`를 설정한다. 다른 모듈의 Ollama 설정은 유지할 수 있다.
+3. 진단이 실행 중이지 않을 때 변경 코드로 ABC2LAB을 재빌드·재생성한다. Neo4j·Ollama·
+   테스트 웹을 교체하거나 볼륨을 삭제할 필요는 없다.
+
+   ```bash
+   docker compose --env-file local_web/.env -f local_web/compose.yml up -d --build --no-deps abc2lab
+   ```
+
+Web의 사전 확인은 provider가 `ollama` 또는 `openrouter`인지, model_id가 비어 있지
+않은지 검사한다. OpenRouter를 선택한 모듈은 환경변수 API key도 비어 있지 않아야 한다.
+누락·공백 키는 해당 `SEMANTIC_CONFIG_INVALID`/`SCENARIO_CONFIG_INVALID`로 표시한다.
+Ollama만 선택하면 API key는 필요 없다. API key 값을 공개 상태나 로그에 표시하지 않는다.
+
+이 사전 확인은 모듈의 provider 구현·모델 존재·키 유효성·연결 성공을 보장하지 않는다.
+실제 API 호출·prompt·응답 처리·계약 검증은 각 진단 모듈이 담당한다. Web은 모듈 코드를
+import해 지원 여부를 추측하거나 LLM 호출을 대신하지 않는다. 향후 외부 API를 사용하는
+시험에서는 해당 모듈에 제공된 LLM 입력이 외부 서비스로 전송된다.
+
+이번 작업은 모델/키 입력 화면·모듈 adapter·실제 API 호출·모델 변경·운영 Docker 배포를
+포함하지 않는다. 예시의 빈 모델과 미구현 adapter 상태를 실제 연결 완료로 표시하지 않는다.
+
+검증(2026-10-15):
+
+```bash
+.venv/bin/python -m pytest local_web/tests/test_runner.py local_web/tests/test_execution_configs.py -q --tb=short
+# 81 passed
+.venv/bin/python -m pytest local_web/tests -q --tb=short -rs
+# 300 passed, 18 skipped (Chromium 17건·읽기 전용 Docker 마운트 1건)
+```
+
+새 회귀 14건으로 모듈별 전환·키/모델 누락·provider 타입 오류·실제 Runner 자식의 키 수신·
+공개 상태/로그 비노출을 확인했다. 별도 읽기 전용 스크립트로 TOML 초안 2개와 Compose의
+빈 키/가짜 키 2가지 치환을 검증했다. Neo4j·Ollama에는 API key를 전달하지 않는다.
+실제 API key는 사용하지 않았으며 LLM 호출·서비스 재배포는 하지 않았다.
+
+### 19.17 vulnerable 정책 범위 조정 — 2026-10-15
+
+`configs/vulnerable/policy.json`을 테스트 앱의 실제 업무 경로에 맞춰 조정했다.
+기존 `/orders` 전용 정책은 `/api/users/{id}` 시나리오를 범위 이탈·영향 규칙 없음으로
+차단했다. 테스트 앱의 각 GET 핸들러가 조회 동작임을 확인한 뒤 공개 설정만 갱신했다.
+Safety Policy 엔진·Verifier·Scenario Generator의 구현과 계약은 변경하지 않는다.
+
+| 항목 | 현재 설정 |
+| --- | --- |
+| 정책 식별 | `policy_id=local-web-vulnerable-business`, `policy_version=draft-2` |
+| 설정 Schema | 기존 `0.1.0` 유지. 정책 규칙 버전과 별개 |
+| origin | `http://testapp-vulnerable:8000` 한 개만 허용 |
+| GET 조회 | `/orders`, `/api/users`, `/products`, `/admin`, `/cart`, `/checkout`, `/mypage`와 각 하위 경로. `none`·`read_only`·`low` |
+| POST 승인 대기 | `/orders`, `/cart`, `/mypage`, `/admin`와 각 하위 경로. 상태·데이터 영향 `require_approval`, 서비스 영향 `low` |
+| 차단 메서드 | 위 7개 범위의 PUT·PATCH·DELETE, 조회 전용 `/api/users`·`/products`·`/checkout`의 POST를 명시적 block |
+| 실행 제한 | 시나리오당 최대 20요청·60초 유지 |
+| 계정·세션 | 기존 Guest/User/Admin 4계정·역할 유지. Guest 외 계정의 세션 필수 |
+
+prefix는 경로 세그먼트 경계를 적용하므로 `/api/users-archive`·`/administrator`를
+포함하지 않는다. 다른 origin·포트·scheme·미등록 계정·잘못된 역할·필수 세션 누락·
+요청 수 초과는 계속 차단한다. 그 밖에 정의하지 않은 method나 상태 영향 unknown은
+현재 엔진에서 `require_approval`로 표시될 수 있으나 실제 실행은 허용되지 않는다.
+unknown assessment는 승인 기록으로 해소할 수 없으므로 별도 정책/계획 확인이 필요하다.
+
+승인 대기인 POST는 사용자 승인 기록을 검증하기 전까지 요청을 보내지 않는다.
+현재 Web의 승인 대기 메뉴는 조회 기능이며 승인 발급·자동 재실행을 구현한 것이 아니다.
+읽기 전용 GET도 계획의 상태 변경 정보가 충돌하면 기존 규칙에 따라 승인 대기/실행 보류로 남는다.
+상태 변경을 승인한 시험은 기존 운영 규칙에 따라 테스트 DB를 초기화한 뒤 별도로 수행한다.
+
+새 정책은 **새 run에서** 확인한다. 기존 run의 private 정책 사본·판정·승인 기록은
+변경하지 않는다. 원본과 private 사본의 해시가 다른 기존 run을 재사용하면 모듈이 거절한다.
+파일 bind 마운트의 최신 원본을 확실히 사용하려면 실행 중 진단이 없는 상태에서
+ABC2LAB 서비스를 재생성한 뒤 새 진단한다. 이번 작업에서 운영 서비스 재생성·진단 실행은 하지 않았다.
+
+검증:
+
+```bash
+.venv/bin/python -m pytest local_web/tests/test_execution_configs.py modules/safety_policy -q --tb=short
+# 315 passed
+```
+
+별도 임시 컨테이너에서 실제 시나리오 입력을 Schema·SHA-256 검증 후 **메모리 정책 평가만**
+실행했다. `web-49ebec8c2f328963ecc3a7f46ebcf022`의 기존 2건은 저장된 block 2건에서
+새 정책 allow 2건으로 바뀌었다. 변경된 판정은 저장하거나 Verifier로 전달하지 않았다.
+추가 경계 검사 29건(allow 8·승인 대기 6·block 15) 통과, 공개 산출물 10개 해시 불변,
+HTTP 검증 요청 0건을 확인했다. 이 결과는 취약점 재현·확정 성공을 의미하지 않는다.
+
 ## 20. 변경 이력
 
 | 날짜 | 변경 | 구현·계약 영향 |
 | --- | --- | --- |
+| 2026-10-15 | vulnerable 정책을 draft-2로 조정: 업무 GET 7개 prefix 허용·실제 업무 POST 승인 대기·미사용 변경 메서드 명시 차단 | local_web 정책·설정 회귀·README만 변경. 정책/설정 315 passed, 읽기 전용 실제 시나리오 2건 allow 전환·경계 29건 확인. HTTP 요청·기존 산출물 변경·운영 서비스 재생성 없음 |
+| 2026-10-15 | OpenRouter용 모듈별 공개 TOML 초안, 선택적 API key의 Compose/Runner 환경 전달, provider·모델·키 존재 사전 확인 추가 | local_web 내부 설정 창구만 구현. 실제 모듈 adapter·API 호출은 미구현. 기본 Ollama·실제 .env·진단 모듈·공개 Schema·의존성 유지. 검증 결과는 19.16에 기록 |
 | 2026-10-15 | 선택적 Reporter 평가 설정 환경변수를 Compose에서 자식 Runner까지 연결; 빈 값만 미설정 처리 | Reporter+Web 844 passed·18 skipped, Runner 대역 58 passed, Compose config 검증. 신규 환경 전달 회귀 5건. GT·진단 엔진·공개 Schema·부모 환경 유지, 운영 .env·컨테이너 재배포 없음 |
 | 2026-10-11 | 기존 책임 경계를 유지하고 Docker·사전 설정·실모델·지표 중심 통합 검증 MVP와 7단계 계획 추가 | README만 변경. Web/Docker 코드는 미구현. 모듈·Runner·Schema·의존성·기존 산출물 계약 변경 없음 |
 | 2026-10-12 | MVP 2단계 Web 화면·Docker 분리 배치·CPU 기본 Ollama·선택 GPU 설정과 공개 경계 구현·검증 | 94 passed, Docker 빌드·3개 서비스 healthy·호스트 접속·메뉴 4개·모바일 폭 확인. 입력·Runner·산출물 연결·모델 추론·전체 진단은 후속 단계. 모듈·Runner·Schema·루트 의존성 변경 없음 |
