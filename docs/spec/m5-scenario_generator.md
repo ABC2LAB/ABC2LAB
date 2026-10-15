@@ -12,18 +12,18 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-14
+## 현재 구현·연결 상태 — 2026-10-15
 
-기준 커밋 `3e11782`(dev, verifier Check 3종 #78 병합 후) + 이 PR(재현 조건·기준 단계를 프로그램이 생성)의 구현·공개 계약을 반영했다.
+기준 커밋 `559e3ae`(dev, 실행 산출물 0.3.0 통일 #85 병합 후) + 이 PR(`state_change`를 프로그램이 원본 요청 method로 결정)의 구현·공개 계약을 반영했다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
 | 독립 구현 | `generate`, 공개 `run()`·CLI, 초안 생성기 `none`·`ollama`·`replay`, 재현 조건·기준 단계 생성, 초안 검증(판정 조건 필수 규칙), 실패 초안 진단, 원자 저장 구현 완료 |
-| 초안 경계 | LLM 초안은 `steps`만. step은 `source_request_id`+`account_role`(actor/reference) 등 **선택만** 담고, 식별자(`account_id`·`role_id`·`session_ref`)·`method`·`url_template`·`body_ref`와 세션 `preconditions`는 **프로그램이 원본에서 조립**한다(#57 요청 반영). 판정 조건(`assertions`)과 기준 단계도 **프로그램이 후보에서 만든다**(아래 "판정 조건 필수 규칙"). 경로 바인딩은 path 파라미터의 `binding_ref`로 표현하고 프로그램이 URL에 넣는다. Ollama는 초안 JSON Schema를 `format`으로 받아 초안 모양을 디코딩 단계에서 지킨다 |
+| 초안 경계 | LLM 초안은 `steps`만. step은 `source_request_id`+`account_role`(actor/reference) 등 **선택만** 담고, 식별자(`account_id`·`role_id`·`session_ref`)·`method`·`url_template`·`body_ref`·`state_change`(원본 요청 method로 추정)와 세션 `preconditions`는 **프로그램이 원본에서 조립**한다(#57 요청 반영). 판정 조건(`assertions`)과 기준 단계도 **프로그램이 후보에서 만든다**(아래 "판정 조건 필수 규칙"). 경로 바인딩은 path 파라미터의 `binding_ref`로 표현하고 프로그램이 URL에 넣는다. Ollama는 초안 JSON Schema를 `format`으로 받아 초안 모양을 디코딩 단계에서 지킨다 |
 | 공개 계약 | 출력 `test_scenarios` `0.3.0`(`Scenario.resource_ids` 포함), 입력 `vulnerability_candidates`·`crawl_result` `0.3.0` 미러(crawl_result의 새 필드 `discovered_endpoints`·`response.identifiers`는 쓰지 않음). 출력 Scenario 모양은 불변(조립 주체만 바뀜) |
-| 독립 회귀 | scenario_generator `320 passed` |
+| 독립 회귀 | scenario_generator `326 passed` |
 | 실제 전체 연결 | 완료. 루트 `pipeline.py` 실제 실행(로컬 ollama 모델)에서 시나리오를 발행했고 safety_policy·verifier·reporter가 받아 처리했다(2026-10-11) |
-| 모델 크기 비교 | 6차 실행 입력(후보 5)으로 `generate`만 다시 실행: qwen2.5:1.5b·7b 모두 수정 전 0/5(초안 키 구조·미선언 바인딩) → 수정 후 5/5(2026-10-12) |
+| 모델 크기 비교 | 6차 실행 입력(후보 5)으로 `generate`만 다시 실행: qwen2.5:1.5b·7b 모두 수정 전 0/5(초안 키 구조·미선언 바인딩) → 수정 후 5/5(2026-10-12). 같은 입력에서 GET 조회 단계의 `state_change`를 1.5b는 5개 중 4개를 `possible`, 7b는 5개 모두 `none`으로 적었다 → 2026-10-15부터 프로그램이 method로 채워 모델과 무관 |
 
 남은 것: control 단계(실행 계정이 자기 자원을 연 응답)를 넣어 HTML 응답도 판정하게 하기(그 전까지 verifier는 텍스트 비교를 기록만 해서 HTML 재현 응답이 2xx면 indeterminate). 기준 계정이 없는 후보(업무 흐름 등)의 재현 조건. 세부는 [모듈 README](../../modules/scenario_generator/README.md).
 
@@ -108,18 +108,18 @@
 - 동적 값은 제한된 {binding_id} 치환, JSON Pointer 또는 헤더 추출로 표현한다. 조건과 바인딩을 임의 실행 코드로 만들지 않는다.
 - request.parameters는 원본 요청의 해당 위치에 적용할 변경값이다. 일반 헤더·본문 형식은 원본에서 복원하고 인증·CSRF·동적 비밀값은 보호된 실행 컨텍스트에서 주입한다.
 - Check는 조건 비교 규약이다. 상태 확인에 HTTP 요청이 필요하면 steps에 명시하여 Policy 예산과 실제 실행 근거에 포함한다.
-- state_change는 생성기의 추정이다. 최종 안전 평가와 실행 허용은 safety_policy가 담당한다.
+- state_change는 생성기의 추정이다. **프로그램이 선택한 원본 요청의 method로 채운다**(GET·HEAD·OPTIONS → `none`, 그 밖 → `possible`; LLM 초안에는 없다). 상태를 바꾸는 GET(`/logout` 같은 키워드성 링크)은 collector가 따라가지 않아 관찰 요청에 없고, 들어와도 `none`으로 추정된다. 요청별 상태 변경 정보를 받으려면 `crawl_result` 계약 변경이 필요하다. 최종 안전 평가와 실행 허용은 safety_policy가 담당한다.
 - 바인딩은 그 값을 **쓰는** 단계의 `bindings`에 두고 `source_step_id`로 앞 단계를 가리킨다. verifier는 단계마다 그 단계의 `bindings`만 읽어 `url_template`·`binding_ref`를 치환한다.
 - `url_template`은 **프로그램이 선택한 원본 요청의 URL로 채운다**(초안은 URL을 쓰지 않는다). `{...}`는 `binding_id`만 쓴다. scheme·host·port는 `crawl_result.target_url`과 같아야 하고 주소 부분에는 바인딩·사용자 정보를 쓸 수 없다. 바인딩이 없는 `url_template`은 선택한 원본 요청의 URL과 정확히 같다.
 - 앞 단계 값을 URL 경로에 넣으려면 초안이 그 단계 원본 요청의 path 파라미터에 `binding_ref`를 건다(`value`=null). 프로그램은 원본 URL에서 그 파라미터 관찰값과 같은 경로 조각 **하나**를 `{binding_id}`로 바꾸고, 그 파라미터는 출력 `parameters`에서 뺀다. 리터럴 path 값, 원본 요청에 없는 path 이름, 같은 조각이 0개·여러 개면 초안을 버린다(verifier는 URL에 자리가 없는 path 파라미터를 무시하므로 효과 없는 변경을 남기지 않는다).
 - 단계의 실행 계정은 초안이 고른 `account_role`(actor|reference)로 정하고, `account_id`·`role_id`·`session_ref`는 **프로그램이 그 계정에서 채운다**. `method`·`body_ref`도 선택한 원본 요청에서 프로그램이 채운다. 초안은 원본 요청의 계정을 복사하지 않는다(IDOR는 관찰자가 아니라 실행 계정으로 재현한다).
-- `scenario_id`(`"scenario_" + candidate_id`)·`candidate_id`·`expected_basis`·`resource_ids`(후보 `resource_ids`를 순서·값 그대로)·세션 `preconditions`는 프로그램이 원본 후보·steps에서 채운다. LLM 초안은 `steps`만 만들고, step은 `step_id`·`order`·`source_request_id`·`account_role`·`request{parameters}`·`bindings`·`state_change`만 담는다. 초안에 그 밖의 키가 있으면 값이 원본과 같아도 초안을 버린다. 후보 1개당 시나리오 1개다. Ollama 초안 생성기는 이 초안 모양을 JSON Schema로 만들어 `format`에 넘긴다(구조화 출력: 키·중첩·허용값을 디코딩 단계에서 강제). 의미 검증은 그대로 프로그램이 한다.
+- `scenario_id`(`"scenario_" + candidate_id`)·`candidate_id`·`expected_basis`·`resource_ids`(후보 `resource_ids`를 순서·값 그대로)·세션 `preconditions`는 프로그램이 원본 후보·steps에서 채운다. LLM 초안은 `steps`만 만들고, step은 `step_id`·`order`·`source_request_id`·`account_role`·`request{parameters}`·`bindings`만 담는다(`state_change`는 프로그램이 원본 요청 method로 채운다). 초안에 그 밖의 키가 있으면 값이 원본과 같아도 초안을 버린다. 후보 1개당 시나리오 1개다. Ollama 초안 생성기는 이 초안 모양을 JSON Schema로 만들어 `format`에 넘긴다(구조화 출력: 키·중첩·허용값을 디코딩 단계에서 강제). 의미 검증은 그대로 프로그램이 한다.
 - **판정 조건 필수 규칙.** HTTP 상태 코드만으로 위반을 확정하지 않는다(m7). 판정 조건은 LLM이 아니라 **프로그램이 후보에서 만든다**. 후보 `expected_behavior`(기준 계정이 아닌 실행 계정은 거부돼야 한다)의 부정, 즉 "실행 계정이 기준 계정과 같은 응답을 받는다"가 재현 조건이다.
     - `preconditions`: 프로그램이 steps에 쓰인 계정마다 `session_valid`(`subject_ref`=account_id, `operator=eq`, `expected=true`)를 생성한다(LLM이 만들지 않는다). `exists`는 세션이 무효여도 참이 되므로 쓰지 않는다.
     - **재현 단계**: 실행 계정이 후보 `source_request_ids` 중 하나를 보내는 단계 중 마지막. 없으면 초안을 버린다(`DRAFT_INVALID`).
     - **기준 단계**: 프로그램이 재현 단계 바로 앞에 기준 계정이 같은 요청을 보내는 단계(`step_id`=`baseline_<재현 단계 step_id>`)를 넣는다. 요청·바인딩은 재현 단계 복사이고, 바인딩 ID는 `baseline_` 접두어로 바꾼다. 뒤 단계 `order`는 하나씩 민다.
     - `assertions`(모두 `subject_ref`=재현 단계, `selector`=null, `operator`=eq): `response_status` = 근거 요청에서 관찰한 상태 코드, `baseline_match` = 기준 단계 step_id, 근거 응답이 JSON이면(`response.content_type`에 `json`) `resource_owner` = 기준 단계 step_id.
-    - 기준 계정이 없거나(LLM을 부르지 않는다), 재현 단계 `state_change`가 none이 아니거나(기준 계정이 먼저 보내면 상태가 바뀐다), 근거 응답이 2xx가 아니면 재현 조건을 만들 수 없다. 시나리오를 만들지 않고 `ASSERTION_BASELINE_UNAVAILABLE`(`item_ref`=candidate_id)로 남긴다.
+    - 기준 계정이 없거나(LLM을 부르지 않는다), 재현 단계 `state_change`가 none이 아니거나(원본 요청 method가 GET·HEAD·OPTIONS 밖. 기준 계정이 먼저 보내면 상태가 바뀐다), 근거 응답이 2xx가 아니면 재현 조건을 만들 수 없다. 시나리오를 만들지 않고 `ASSERTION_BASELINE_UNAVAILABLE`(`item_ref`=candidate_id)로 남긴다.
 - **Check 규약**(verifier [m7](m7-verifier.md)과 같은 표). verifier는 JSON 응답을 판정하고, 텍스트(HTML) 응답의 `baseline_match`·`resource_state`는 control 단계 전까지 기록만 한다.
 
   | kind | subject_ref | selector | operator | expected |
@@ -171,7 +171,7 @@
 | `session_ref` | `string / null` | 필수 | 실행에 필요한 세션 참조. |
 | `request` | `RequestPlan` | 필수 | 실행 가능한 요청 계획. |
 | `bindings` | `array<Binding>` | 필수 | 선행 응답에서 추출할 전달값 정의. |
-| `state_change` | `enum: none, possible, expected, unknown` | 필수 | 생성기가 추정한 상태 변경 가능성. Policy가 독립적으로 재평가한다. |
+| `state_change` | `enum: none, possible, expected, unknown` | 필수 | 생성기가 추정한 상태 변경 가능성. 프로그램이 원본 요청 method로 채운다(GET·HEAD·OPTIONS → `none`, 그 밖 → `possible`). Policy가 독립적으로 재평가한다. |
 
 ### RequestPlan
 
@@ -229,6 +229,7 @@
 | 2026-10-14 | 판정 조건(`assertions`)과 기준 단계를 프로그램이 후보에서 생성(위 "판정 조건 필수 규칙"). 초안은 `steps`만(초안에 `assertions`가 있으면 `DRAFT_INVALID`), 프롬프트 v7. `resource_state`·`resource_owner`·`baseline_match`의 `subject_ref`·`selector`·`expected` 규약 확정(위 "Check 규약", verifier #78). 오류 코드 `ASSERTION_BASELINE_UNAVAILABLE` 추가, `ASSERTION_NON_JSON_RESPONSE` 삭제(비JSON 단계에 `response_json`을 만들지 않음). 출력 필드·enum·`schema_version` 변경 없음. 출력 의미 변화: 시나리오에 기준 계정 단계가 하나 더 들어가고(요청 수 +1), 기준 계정이 없는 후보는 시나리오가 나오지 않는다. 상단 담당 범위·"구현할 일"을 현재 동작에 맞춤 | 6·7차·local_web 실행에서 작은 모델이 `response_status` 기대값을 정상 동작(403)으로 적어 판정이 뒤집힘(6차 입력 5건 중 4건). 재현 조건은 후보에서 정해지는 값이라 #77(URL)과 같이 프로그램 몫으로 옮김 |
 | 2026-10-14 | 입력 `crawl_result` 사본 0.2.0 → 0.3.0(collector 계약 변경 미러). 새 필드(`discovered_endpoints`·`response.identifiers`)는 쓰지 않음. 출력 변경 없음 | collector 스키마 변경 PR |
 | 2026-10-14 | 실행 산출물 0.3.0 통일: 출력 `test_scenarios`와 입력 사본 `vulnerability_candidates`의 `schema_version`만 0.2.0 → 0.3.0. 필드·의미 변경 없음 | 스키마 변경 PR(KG·policy·reporter #82와 버전 정렬) |
+| 2026-10-15 | `ScenarioStep.state_change`를 LLM 초안이 아니라 **프로그램이 원본 요청 method로 채움**(GET·HEAD·OPTIONS → `none`, 그 밖 → `possible`). 초안 step 키에서 `state_change` 제거(7개 → 6개, 초안에 있으면 `DRAFT_INVALID`), 프롬프트 v8. 출력 필드·enum·`schema_version` 변경 없음(스키마 변경 아님). 한계: 키워드성 GET은 관찰 요청에 없어 지금은 안 걸리고, 들어와도 safety_policy가 독립 재평가한다. 관찰 요청에 상태 변경 정보를 실으려면 `crawl_result` 계약 변경이 필요(다음) | 10/15 local_web 실행에서 qwen2.5:1.5b가 `GET /api/users/{id}` 후보를 `possible`로 적어 `ASSERTION_BASELINE_UNAVAILABLE`. 6차 입력에서도 같은 GET 단계를 1.5b 4/5 `possible`, 7b 5/5 `none`. 판정에 들어가는 값은 프로그램 몫(#79와 같은 원칙) |
 
 ### 0.2.0 `Scenario.resource_ids` (소비자 입력 사본 미러 기준)
 
