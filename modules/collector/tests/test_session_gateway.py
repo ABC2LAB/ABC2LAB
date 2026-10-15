@@ -102,6 +102,27 @@ def test_login_redirect_ignores_query_and_fragment() -> None:
     raise AssertionError("쿼리 붙은 로그인 리다이렉트를 못 잡음")
 
 
+def test_unauthenticated_lease_returns_login_redirect_instead_of_expiry() -> None:
+    # 비인증(guest) 계정은 세션이 없어 만료 판정이 의미 없다. 로그인 리다이렉트는 정상 거부라 응답 그대로 돌려준다.
+    # 인증 계정 lease는 같은 응답을 만료로 잡는다(기존 동작 유지). 창구(executor)가 설정의 guest 계정을 보고 플래그를 건다.
+    login_redirect = SessionResponse(302, (("Location", "/login"),), None)
+    executor = BrowserSessionExecutor(_config(), lambda account_id: FakeBackend(response=login_redirect))
+
+    guest_lease = executor.lease("account:guest")
+    response = guest_lease.send(_Req("GET", ALLOWED_URL))
+    assert response.status_code == 302
+    assert ("Location", "/login") in response.headers
+    assert guest_lease.is_valid() is True
+
+    user_lease = executor.lease("account:user_a")
+    try:
+        user_lease.send(_Req("GET", ALLOWED_URL))
+    except SessionExpiredError:
+        pass
+    else:
+        raise AssertionError("인증 계정의 로그인 리다이렉트는 여전히 만료여야 함")
+
+
 def test_non_login_redirect_returned_as_is() -> None:
     # 로그인 경로가 아닌 3xx는 만료가 아니라 응답 그대로 돌려준다(verifier가 Location을 재검사).
     backend = FakeBackend(response=SessionResponse(302, (("Location", "/orders/8"),), None))
