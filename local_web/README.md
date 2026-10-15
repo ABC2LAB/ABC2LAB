@@ -1094,12 +1094,13 @@ Web이 네트워크를 만들거나 대상 컨테이너를 변경하지 않는�
 포함되므로 폴더 전체를 웹서버·공유 저장소에 공개하지 않는다.
 
 기존 대상 네트워크의 다른 `neo4j`와 혼동하지 않도록 내부 DB는 전용 network alias
-`local-web-neo4j`로 접속한다. 두 LLM TOML은 `[llm]`의 `provider="ollama"`, 실제
+`local-web-neo4j`로 접속한다. 현재 Ollama 실행용 두 LLM TOML은 `[llm]`의 `provider="ollama"`, 실제
 `model_id`, 내부 주소 `base_url="http://ollama:11434"`로 준비한다. Web은 공개 설정의
 최소 provider·모델 지정과 파일/저장소 접근만 확인한다. 전체 설정·모델의 존재·
 서비스 readiness·추론 성공·정책 유효성은 해당 모듈이 실행할 때 확인한다.
 fake·none·replay 또는 빈 모델 설정으로 실제 모델 진단이 된 것처럼 시작하지 않는다.
 모델 다운로드·대상 DB 초기화·허용 정책 생성은 자동 수행하지 않는다.
+OpenRouter 설정 창구와 현재 구현 범위는 19.16을 따른다.
 
 #### 실행·소유권·비밀값 수명
 
@@ -1552,10 +1553,70 @@ GT의 논리 actor와 실제 실행 계정의 alias가 다를 때, Reporter의 �
 검증 통과. 새 환경 전달 회귀 5건을 포함하며 Chromium·읽기 전용 마운트 선택 테스트는
 실행하지 않았다. Reporter 내부 관계 비교는 모듈 README·m8에 기록한다.
 
+### 19.16 OpenRouter 설정 창구 — 2026-10-15
+
+모델 비교를 위해 OpenRouter를 선택할 수 있도록 **Web의 설정·비밀값 전달 창구만**
+추가했다. 현재 두 진단 모듈의 OpenRouter adapter는 미구현이므로, 이 창구만으로
+실제 OpenRouter 진단을 실행할 수는 없다. 기존 `configs/vulnerable/`의 Ollama 설정과
+실제 `.env`는 유지한다.
+
+| 설정 | 위치·역할 |
+| --- | --- |
+| `provider`, `model_id`, `base_url`, 추론 옵션 | `configs/openrouter/semantic_analyzer.example.toml`·`scenario_generator.example.toml`의 모듈별 공개 설정 초안. 실제 adapter의 지원 키는 해당 모듈 담당자가 확정 |
+| `LOCAL_WEB_SEMANTIC_CONFIG_PATH` | Semantic TOML 복사본의 호스트 절대 경로. 기존 읽기 전용 마운트로 전달 |
+| `LOCAL_WEB_SCENARIO_CONFIG_PATH` | Scenario TOML 복사본의 호스트 절대 경로. 두 모듈은 독립적으로 전환 가능 |
+| `OPENROUTER_API_KEY` | Git에서 제외한 실제 `local_web/.env` 또는 실행 환경에만 설정. Compose→Web 프로세스→Runner 자식 환경으로 전달 |
+
+TOML 초안은 `provider="openrouter"`, 빈 `model_id`, `base_url="https://openrouter.ai/api/v1"`을
+제공한다. 모델은 자동 선택하지 않는다. API 주소·환경변수 이름은
+[OpenRouter 공식 Quickstart](https://openrouter.ai/docs/quickstart)를 참고했다.
+API key는 TOML·화면·CLI 인자·공개 요약·산출물에 넣지 않는다.
+
+모듈 adapter가 준비된 이후의 전환 순서:
+
+1. 바꾸려는 모듈의 `.example.toml`을 별도 설정 파일로 복사하고 해당 모듈의 실제 지원
+   키를 확인한다. `model_id`에 선택한 OpenRouter 모델 ID를 넣는다.
+2. 실제 `.env`에서 해당 `LOCAL_WEB_*_CONFIG_PATH`만 새 파일의 호스트 절대 경로로
+   지정하고 `OPENROUTER_API_KEY`를 설정한다. 다른 모듈의 Ollama 설정은 유지할 수 있다.
+3. 진단이 실행 중이지 않을 때 변경 코드로 ABC2LAB을 재빌드·재생성한다. Neo4j·Ollama·
+   테스트 웹을 교체하거나 볼륨을 삭제할 필요는 없다.
+
+   ```bash
+   docker compose --env-file local_web/.env -f local_web/compose.yml up -d --build --no-deps abc2lab
+   ```
+
+Web의 사전 확인은 provider가 `ollama` 또는 `openrouter`인지, model_id가 비어 있지
+않은지 검사한다. OpenRouter를 선택한 모듈은 환경변수 API key도 비어 있지 않아야 한다.
+누락·공백 키는 해당 `SEMANTIC_CONFIG_INVALID`/`SCENARIO_CONFIG_INVALID`로 표시한다.
+Ollama만 선택하면 API key는 필요 없다. API key 값을 공개 상태나 로그에 표시하지 않는다.
+
+이 사전 확인은 모듈의 provider 구현·모델 존재·키 유효성·연결 성공을 보장하지 않는다.
+실제 API 호출·prompt·응답 처리·계약 검증은 각 진단 모듈이 담당한다. Web은 모듈 코드를
+import해 지원 여부를 추측하거나 LLM 호출을 대신하지 않는다. 향후 외부 API를 사용하는
+시험에서는 해당 모듈에 제공된 LLM 입력이 외부 서비스로 전송된다.
+
+이번 작업은 모델/키 입력 화면·모듈 adapter·실제 API 호출·모델 변경·운영 Docker 배포를
+포함하지 않는다. 예시의 빈 모델과 미구현 adapter 상태를 실제 연결 완료로 표시하지 않는다.
+
+검증(2026-10-15):
+
+```bash
+.venv/bin/python -m pytest local_web/tests/test_runner.py local_web/tests/test_execution_configs.py -q --tb=short
+# 81 passed
+.venv/bin/python -m pytest local_web/tests -q --tb=short -rs
+# 300 passed, 18 skipped (Chromium 17건·읽기 전용 Docker 마운트 1건)
+```
+
+새 회귀 14건으로 모듈별 전환·키/모델 누락·provider 타입 오류·실제 Runner 자식의 키 수신·
+공개 상태/로그 비노출을 확인했다. 별도 읽기 전용 스크립트로 TOML 초안 2개와 Compose의
+빈 키/가짜 키 2가지 치환을 검증했다. Neo4j·Ollama에는 API key를 전달하지 않는다.
+실제 API key는 사용하지 않았으며 LLM 호출·서비스 재배포는 하지 않았다.
+
 ## 20. 변경 이력
 
 | 날짜 | 변경 | 구현·계약 영향 |
 | --- | --- | --- |
+| 2026-10-15 | OpenRouter용 모듈별 공개 TOML 초안, 선택적 API key의 Compose/Runner 환경 전달, provider·모델·키 존재 사전 확인 추가 | local_web 내부 설정 창구만 구현. 실제 모듈 adapter·API 호출은 미구현. 기본 Ollama·실제 .env·진단 모듈·공개 Schema·의존성 유지. 검증 결과는 19.16에 기록 |
 | 2026-10-15 | 선택적 Reporter 평가 설정 환경변수를 Compose에서 자식 Runner까지 연결; 빈 값만 미설정 처리 | Reporter+Web 844 passed·18 skipped, Runner 대역 58 passed, Compose config 검증. 신규 환경 전달 회귀 5건. GT·진단 엔진·공개 Schema·부모 환경 유지, 운영 .env·컨테이너 재배포 없음 |
 | 2026-10-11 | 기존 책임 경계를 유지하고 Docker·사전 설정·실모델·지표 중심 통합 검증 MVP와 7단계 계획 추가 | README만 변경. Web/Docker 코드는 미구현. 모듈·Runner·Schema·의존성·기존 산출물 계약 변경 없음 |
 | 2026-10-12 | MVP 2단계 Web 화면·Docker 분리 배치·CPU 기본 Ollama·선택 GPU 설정과 공개 경계 구현·검증 | 94 passed, Docker 빌드·3개 서비스 healthy·호스트 접속·메뉴 4개·모바일 폭 확인. 입력·Runner·산출물 연결·모델 추론·전체 진단은 후속 단계. 모듈·Runner·Schema·루트 의존성 변경 없음 |

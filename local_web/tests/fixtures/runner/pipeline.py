@@ -38,6 +38,12 @@ def main() -> int:
         )
     config_path = Path(os.environ["COLLECTOR_CONFIG_PATH"])
     configuration = config_path.read_bytes()
+    if "LOCAL_WEB_TEST_OPENROUTER_KEY" in os.environ:
+        key = os.environ["LOCAL_WEB_TEST_OPENROUTER_KEY"]
+        assert os.environ.get("OPENROUTER_API_KEY") == key
+        assert key not in sys.argv and key.encode() not in configuration
+        for name in ("SEMANTIC_ANALYZER_CONFIG_PATH", "SCENARIO_GENERATOR_CONFIG_PATH"):
+            assert key.encode() not in Path(os.environ[name]).read_bytes()
     assert tomllib.loads(configuration.decode())["target_url"] == args.target_url
     assert not Path(os.environ["COLLECTOR_SECRETS_PATH"]).read_bytes()
     for key, value in os.environ.items():
