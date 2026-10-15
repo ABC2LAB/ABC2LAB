@@ -11,9 +11,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from local_web.artifacts import PUBLIC_FILES, read_results
 from local_web.inputs import InputSettings
 from local_web.runner import RunnerSettings
 from local_web.server import LocalWebServer, WebSettings
+from local_web.tests.fixtures.runner.public_artifacts import make_artifacts, public_bytes
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
@@ -67,11 +69,13 @@ def test_artifact_results_browser(
                 assert page.locator("#report-view table").count() == 0
                 assert page.locator("#graph-view svg").count() == 0
             else:
+                page.get_by_role("button", name="전체 보기", exact=True).click()
                 expect(page.locator("#graph-view svg circle")).to_have_count(8)
                 expect(page.locator("#graph-view")).to_contain_text("query revision 2")
                 expect(page.locator("#graph-view")).to_contain_text("instance")
                 expect(page.locator("#semantic-state")).to_contain_text("partial" if case == "partial" else "completed")
                 expect(page.locator("#process-view")).to_contain_text("not_executed")
+                page.locator('details[data-panel="vulnerability_candidates"] > summary').click()
                 candidate = page.get_by_role("table", name="검증 후보(확정 취약점 아님)").locator("tbody tr").filter(has_text="candidate-alpha")
                 expect(candidate).to_contain_text("scenario-alpha")
                 expect(candidate).not_to_contain_text("scenario-omega")
@@ -328,11 +332,13 @@ def test_large_graph_explorer_browser(graph_explorer_page: tuple[Page, dict[str,
     view = payloads["value"]["artifacts"][0]["view"]
     nodes, edges = view["nodes"], view["relationships"]
     page.set_viewport_size({"width": width, "height": 900})
+    page.get_by_role("button", name="전체 보기", exact=True).click()
     expect(page.locator("#graph-view svg .graph-node")).to_have_count(len(nodes))
     expect(page.locator("#graph-view svg .graph-edge")).to_have_count(len(edges))
     expect(page.locator("#graph-view svg .graph-heading")).to_have_count(len({node["node_type"] for node in nodes}))
     expect(page.locator("#kg-display-counts")).to_contain_text(f"노드 {len(nodes)}/{len(nodes)}개")
     expect(page.locator("#kg-display-counts")).to_contain_text("연결 없는 노드 1개")
+    page.locator('details[data-panel="kg-data"] > summary').click()
     node_table = page.get_by_role("table", name="KG 노드", exact=True)
     edge_table = page.get_by_role("table", name="KG 관계", exact=True)
     expect(node_table.locator("tbody tr")).to_have_count(50)
@@ -403,6 +409,8 @@ def test_graph_camera_and_refresh_browser(graph_explorer_page: tuple[Page, dict[
     from playwright.sync_api import expect
 
     page, payloads = graph_explorer_page
+    page.get_by_role("button", name="전체 보기", exact=True).click()
+    page.locator('details[data-panel="kg-data"] > summary').click()
     nodes = payloads["value"]["artifacts"][0]["view"]["nodes"]
     svg = page.locator("#graph-view svg")
     expect(svg.locator(".graph-node")).to_have_count(len(nodes))
@@ -459,6 +467,8 @@ def test_graph_camera_and_refresh_browser(graph_explorer_page: tuple[Page, dict[
     payloads["value"] = copy.deepcopy(payloads["value"])
     payloads["value"]["artifacts"][0]["view"]["graph_revision"] += 1
     page.evaluate("window.abc2labResults.refresh()")
+    expect(page.get_by_role("button", name="접근 관계", exact=True)).to_have_attribute("aria-pressed", "true")
+    page.get_by_role("button", name="전체 보기", exact=True).click()
     expect(svg.locator(".graph-node")).to_have_count(len(nodes))
     expect(page.locator("#kg-detail")).to_contain_text("노드를 선택하면")
     expect(page.get_by_role("button", name="주변 보기", exact=True)).to_be_disabled()
@@ -480,6 +490,7 @@ def test_graph_unavailable_and_empty_browser(graph_explorer_page: tuple[Page, di
 
     page, payloads = graph_explorer_page
     original = build_graph_payload()
+    page.get_by_role("button", name="전체 보기", exact=True).click()
     expect(page.locator("#graph-view svg .graph-node")).to_have_count(len(original["artifacts"][0]["view"]["nodes"]))
     artifact = payloads["value"]["artifacts"][0]
     if case == "empty":
@@ -502,6 +513,7 @@ def test_graph_unavailable_and_empty_browser(graph_explorer_page: tuple[Page, di
         expect(page.locator("#graph-view")).not_to_contain_text("노드 0/0개")
     payloads["value"] = original
     page.evaluate("window.abc2labResults.refresh()")
+    page.get_by_role("button", name="전체 보기", exact=True).click()
     expect(page.locator("#graph-view svg .graph-node")).to_have_count(len(original["artifacts"][0]["view"]["nodes"]))
 
 
@@ -511,7 +523,9 @@ def test_graph_new_run_resets_selection_browser(graph_explorer_page: tuple[Page,
 
     page, payloads = graph_explorer_page
     nodes = payloads["value"]["artifacts"][0]["view"]["nodes"]
+    page.get_by_role("button", name="전체 보기", exact=True).click()
     expect(page.locator("#graph-view svg .graph-node")).to_have_count(len(nodes))
+    page.locator('details[data-panel="kg-data"] > summary').click()
     selected_id = next(node["node_id"] for node in nodes if node["node_type"] == "User")
     page.get_by_label("node_id 검색", exact=True).fill(selected_id)
     page.get_by_role("button", name="노드 " + selected_id + " 선택", exact=True).click()
@@ -521,6 +535,387 @@ def test_graph_new_run_resets_selection_browser(graph_explorer_page: tuple[Page,
     payloads["value"]["run_id"] = "web-another-graph-fixture"
     page.evaluate("window.abc2labResults.setRun({run_id: 'web-another-graph-fixture'})")
     page.evaluate("window.abc2labResults.refresh()")
+    expect(page.get_by_role("button", name="접근 관계", exact=True)).to_have_attribute("aria-pressed", "true")
+    page.get_by_role("button", name="전체 보기", exact=True).click()
     expect(page.locator("#graph-view svg .graph-node")).to_have_count(len(nodes))
     expect(page.locator("#kg-detail")).to_contain_text("노드를 선택하면")
     expect(page.get_by_role("button", name="주변 보기", exact=True)).to_be_disabled()
+
+
+def build_presentation_payload(tmp_path: Path) -> dict[str, object]:
+    """실제 진단 결과 대신 공개 합성 fixture를 기존 화면 adapter로 변환한다."""
+    run_root = tmp_path / "web-graph-fixture"
+    run_root.mkdir()
+    for name, artifact in make_artifacts(run_root.name, "http://fixture-web:9345/start").items():
+        path = run_root / "artifacts" / "iteration-000" / PUBLIC_FILES[name]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(public_bytes(artifact))
+    return {"run_id": run_root.name, "state": "completed", "artifacts": read_results(run_root)}
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("width", [1440, 1280, 390])
+def test_presentation_layout_and_navigation_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], tmp_path: Path, width: int,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_presentation_payload(tmp_path)
+    page.set_viewport_size({"width": width, "height": 900})
+    page.locator("#refresh-results").click()
+    expect(page.locator(".finding-card")).to_have_count(1)
+    screenshot_dir = os.environ.get("LOCAL_WEB_SCREENSHOT_DIR")
+    for menu, title in {"input": "새 진단", "progress": "진단 진행", "results": "분석 결과",
+                        "approval": "승인 대기", "evaluation": "성능 평가"}.items():
+        page.locator(f'nav a[href="#{menu}"]').click()
+        expect(page.locator("#workspace-title")).to_have_text(title)
+        expect(page.locator("main > section:visible")).to_have_count(1)
+        expect(page.locator(f'nav a[href="#{menu}"]')).to_have_attribute("aria-current", "page")
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        if screenshot_dir and menu in {"input", "results", "evaluation"}:
+            destination = Path(screenshot_dir)
+            destination.mkdir(parents=True, exist_ok=True)
+            page.evaluate("window.scrollTo(0, 0)")
+            page.mouse.move(width - 10, 10)
+            page.screenshot(path=str(destination / f"{menu}-{width}.png"), full_page=True)
+            page.screenshot(path=str(destination / f"{menu}-{width}-viewport.png"))
+    page.locator('nav a[href="#input"]').click()
+    expect(page.locator("#target-url")).to_be_enabled()
+    expect(page.locator("#account-count")).to_have_text("2개 계정")
+    page.locator("#add-account").click()
+    expect(page.locator("#account-count")).to_have_text("3개 계정")
+    page.locator(".account-row").last.get_by_role("button", name="이 계정 삭제").click()
+    expect(page.locator("#account-count")).to_have_text("2개 계정")
+    expect(page.locator('[data-field="login_id"]').first).to_have_attribute("type", "text")
+    expect(page.locator('[data-field="password"]').first).to_have_attribute("type", "password")
+    page.emulate_media(reduced_motion="reduce")
+    skip = page.get_by_role("link", name="본문으로 이동")
+    skip.focus()
+    skip.press("Enter")
+    expect(page.locator("#workspace-title")).to_be_focused()
+    page.locator('nav a[href="#results"]').click()
+    overview = page.locator("#overview-view").bounding_box()
+    graph = page.locator("#graph-panel").bounding_box()
+    assert overview["y"] + overview["height"] < graph["y"]
+    assert page.evaluate("performance.getEntriesByType('resource').every(entry => new URL(entry.name).origin === location.origin)")
+    assert page.evaluate("Object.keys(localStorage).length + Object.keys(sessionStorage).length") == 0
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_presentation_cards_and_disclosures_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], tmp_path: Path,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_presentation_payload(tmp_path)
+    page.locator("#refresh-results").click()
+    expect(page.locator(".finding-card")).to_have_count(1)
+    expect(page.locator(".finding-card")).to_contain_text("finding-alpha")
+    for metric, color in {"candidate_count": "rgb(99, 130, 218)",
+                          "reporter_confirmed_count": "rgb(216, 105, 124)"}.items():
+        expect(page.locator(f'#diagnosis-overview [data-metric="{metric}"]')).to_have_css("border-top-color", color)
+    assert page.locator(".finding-card img").count() == 0
+    technical = page.locator('details[data-panel="vulnerability_candidates"]')
+    expect(technical).not_to_have_attribute("open", "")
+    technical.locator("summary").focus()
+    technical.locator("summary").press("Enter")
+    expect(technical).to_have_attribute("open", "")
+    expect(technical.get_by_role("table")).to_be_visible()
+    graph_data = page.locator('details[data-panel="kg-data"]')
+    expect(graph_data).not_to_have_attribute("open", "")
+    graph_data.locator("summary").click()
+    expect(graph_data).to_have_attribute("open", "")
+    report_data = page.locator('details[data-panel="report-data"]')
+    expect(report_data).not_to_have_attribute("open", "")
+    report_data.locator("summary").click()
+    expect(report_data.get_by_role("table")).to_contain_text("SHA-256")
+    page.locator("#refresh-results").click()
+    expect(technical).to_have_attribute("open", "")
+    expect(graph_data).to_have_attribute("open", "")
+    expect(report_data).to_have_attribute("open", "")
+    page.locator('nav a[href="#approval"]').click()
+    expect(page.locator(".approval-card")).to_have_count(1)
+    expect(page.locator(".approval-card")).to_contain_text("scenario-delta")
+    expect(page.locator("#approval button")).to_have_count(0)
+    page.locator('nav a[href="#evaluation"]').click()
+    for metric, value in {"candidate_precision": "66.67%", "confirmed_precision": "100.00%",
+                          "confirmed_recall": "33.33%", "candidate_recall": "미제공"}.items():
+        expect(page.locator(f'.evaluation-card[data-metric="{metric}"] .evaluation-value')).to_have_text(value)
+    expect(page.get_by_role("table", name="Reporter 성능 지표")).to_contain_text("0.6666666666666666")
+    assert page.evaluate("typeof window.artifactXss === 'undefined' && typeof window.evaluationXss === 'undefined'")
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("value, expected", [(0.0, "0.00%"), (None, "미측정"), ("absent", "미제공")])
+def test_evaluation_cards_distinguish_zero_null_and_absent_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], tmp_path: Path,
+    value: float | str | None, expected: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_presentation_payload(tmp_path)
+    evaluation = next(item for item in payloads["value"]["artifacts"] if item["artifact_type"] == "evaluation_results")
+    metrics = evaluation["view"]["metrics"]
+    metric = next(item for item in metrics if item["metric_id"] == "candidate_precision")
+    if value == "absent":
+        metrics.remove(metric)
+    else:
+        metric.update(value=value, numerator=0, denominator=0 if value is None else 3)
+    page.locator('nav a[href="#evaluation"]').click()
+    page.locator("#refresh-evaluation").click()
+    card = page.locator('.evaluation-card[data-metric="candidate_precision"]')
+    expect(card.locator(".evaluation-value")).to_have_text(expected)
+    expect(card.locator("meter")).to_have_count(1 if value == 0.0 else 0)
+    if value == 0.0:
+        expect(card.locator("meter")).to_have_attribute("value", "0")
+    if value != "absent":
+        expect(card).to_contain_text("분자 0 / 분모 " + ("0" if value is None else "3"))
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_presentation_clears_stale_cards_and_resets_new_run_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], tmp_path: Path,
+) -> None:
+    from playwright.sync_api import Route, expect
+
+    page, payloads = graph_explorer_page
+    original = build_presentation_payload(tmp_path)
+    payloads["value"] = original
+    page.locator("#refresh-results").click()
+    expect(page.locator(".finding-card")).to_have_count(1)
+    technical = page.locator('details[data-panel="vulnerability_candidates"]')
+    technical.locator("summary").click()
+    expect(technical).to_have_attribute("open", "")
+    def abort_results(route: Route) -> None:
+        route.abort()
+
+    page.route("**/api/run-results", abort_results)
+    page.locator("#refresh-results").click()
+    expect(page.locator("#results-status")).to_contain_text("결과 조회 실패")
+    for selector in (".finding-card", ".approval-card", ".evaluation-card", "#graph-view svg"):
+        expect(page.locator(selector)).to_have_count(0)
+    expect(page.locator("#diagnosis-overview dd")).to_have_text(["미확인"] * 6)
+    page.unroute("**/api/run-results", abort_results)
+    payloads["value"] = copy.deepcopy(original)
+    payloads["value"]["run_id"] = "web-next-presentation"
+    page.evaluate("window.abc2labResults.setRun({run_id: 'web-next-presentation'})")
+    page.evaluate("window.abc2labResults.refresh()")
+    expect(page.locator(".finding-card")).to_have_count(1)
+    expect(technical).not_to_have_attribute("open", "")
+
+
+def build_access_graph_payload() -> dict[str, object]:
+    """단독 Action, 다단계 경로, 중복 끝점 관계가 있는 합성 공개 화면 모델."""
+    payload = build_graph_payload()
+    graph = payload["artifacts"][0]["view"]
+    graph["graph_id"] = "graph-access-fixture"
+    specifications = [("actor:opaque-a", "User"), ("actor:opaque-b", "User"), ("role:opaque", "Role"),
+                      ("resource:order", "Resource"), ("resource:instance:opaque-101", "Resource"),
+                      ("resource:instance:opaque-202", "Resource"), ("endpoint:detail", "Endpoint"),
+                      ("page:orders", "Page"), ("action:open", "Action"),
+                      ("action:isolated-<img src=x onerror=window.graph_xss=1>", "Action"), ("parameter:id", "Parameter")]
+    graph["nodes"] = [{"node_id": node_id, "node_type": node_type, "basis": "observed",
+                       "resource_scope": ("type" if node_id == "resource:order" else "instance") if node_type == "Resource" else None}
+                      for node_id, node_type in specifications]
+    relationships = [
+        ("actor:opaque-a", "role:opaque", "HAS_ROLE"), ("actor:opaque-b", "role:opaque", "HAS_ROLE"),
+        ("actor:opaque-b", "resource:instance:opaque-202", "OWNS"),
+        ("actor:opaque-b", "resource:instance:opaque-202", "ACCESS"),
+        ("actor:opaque-a", "resource:instance:opaque-101", "ACCESS"),
+        ("role:opaque", "resource:order", "ACCESS"), ("resource:instance:opaque-202", "resource:order", "REFERENCE"),
+        ("actor:opaque-b", "page:orders", "ACCESS"), ("page:orders", "action:open", "CALL"),
+        ("action:open", "endpoint:detail", "CALL"), ("endpoint:detail", "resource:instance:opaque-202", "REFERENCE"),
+        ("endpoint:detail", "parameter:id", "USE"),
+    ]
+    graph["relationships"] = [{"relationship_id": f"edge-{index}", "source_id": source, "target_id": target,
+                               "relation_type": relation_type, "basis": "inferred" if relation_type == "OWNS" else "observed"}
+                              for index, (source, target, relation_type) in enumerate(relationships)]
+    template = build_diagnosis_payload()["artifacts"][0]
+    candidates = []
+    for candidate_id, resource_ids in [("candidate-match", ["resource:instance:opaque-202", "resource:missing"]),
+                                        ("candidate-miss", ["resource:absent"]), ("candidate-wrong-kind", ["actor:opaque-b"])]:
+        candidate = copy.deepcopy(template["view"]["candidates"][0])
+        candidate.update(candidate_id=candidate_id, resource_ids=resource_ids)
+        candidates.append(candidate)
+    template["view"]["candidates"] = candidates
+    payload["artifacts"].append(template)
+    return payload
+
+
+def save_graph_preview(page: Page, name: str) -> None:
+    destination = os.environ.get("LOCAL_WEB_GRAPH_SCREENSHOT_DIR")
+    if destination:
+        root = Path(destination)
+        root.mkdir(parents=True, exist_ok=True)
+        page.locator("#graph-panel").screenshot(path=str(root / f"{name}-{page.viewport_size['width']}.png"))
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("width", [1440, 390])
+def test_access_graph_scope_expansion_and_original_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], width: int,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_access_graph_payload()
+    page.set_viewport_size({"width": width, "height": 900})
+    page.locator("#refresh-results").click()
+    graph = payloads["value"]["artifacts"][0]["view"]
+    core = [node for node in graph["nodes"] if node["node_type"] in {"User", "Role", "Resource"}]
+    expect(page.get_by_role("button", name="접근 관계", exact=True)).to_have_attribute("aria-pressed", "true")
+    expect(page.locator(".graph-node")).to_have_count(len(core))
+    expect(page.locator("#kg-display-counts")).to_contain_text("숨김: 노드 5개 · 관계 5개")
+    assert page.locator(".node-Action, .node-Parameter, .node-Endpoint").count() == 0
+    save_graph_preview(page, "access")
+    page.get_by_role("button", name="User actor:opaque-b", exact=True).press("Enter")
+    expect(page.locator(".graph-node.is-muted")).to_have_count(3)
+    expect(page.get_by_role("button", name="연결 펼치기", exact=True)).to_be_enabled()
+    for node_id in ("actor:opaque-b", "page:orders", "action:open", "endpoint:detail"):
+        page.get_by_role("button", name=next(node["node_type"] for node in graph["nodes"] if node["node_id"] == node_id) + " " + node_id, exact=True).click()
+        page.get_by_role("button", name="연결 펼치기", exact=True).click()
+    expect(page.locator(".node-Parameter")).to_have_count(1)
+    save_graph_preview(page, "expanded")
+    assert page.locator('[data-node-id*="isolated"]').count() == 0
+    page.get_by_role("button", name="전체 원본", exact=True).click()
+    expect(page.locator(".graph-node")).to_have_count(len(graph["nodes"]))
+    expect(page.locator(".graph-edge")).to_have_count(len(graph["relationships"]))
+    expect(page.locator("#kg-display-counts")).to_contain_text("숨김: 노드 0개 · 관계 0개")
+    save_graph_preview(page, "all")
+    assert page.locator("#graph-view img").count() == 0
+    assert page.evaluate("typeof window.graph_xss") == "undefined"
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("candidate_id, node_count, matched", [("candidate-match", 4, "1/2"),
+                                                               ("candidate-miss", 0, "0/1"),
+                                                               ("candidate-wrong-kind", 0, "0/1")])
+def test_candidate_graph_uses_exact_resource_ids_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], candidate_id: str, node_count: int, matched: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_access_graph_payload()
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="후보 중심", exact=True).click()
+    expect(page.locator(".graph-node")).to_have_count(0)
+    page.get_by_label("검증 후보 선택", exact=True).select_option(candidate_id)
+    expect(page.locator(".graph-node")).to_have_count(node_count)
+    expect(page.locator("#kg-view-description")).to_contain_text("Resource ID 일치 " + matched)
+    expect(page.locator("#kg-view-description")).to_contain_text("확정 취약점이 아닙니다")
+    expect(page.locator(".graph-node.is-candidate")).to_have_count(1 if node_count else 0)
+    if node_count:
+        expected = {"actor:opaque-b", "resource:instance:opaque-202", "resource:order", "endpoint:detail"}
+        assert set(page.locator(".graph-node").evaluate_all("nodes => nodes.map(node => node.dataset.nodeId)")) == expected
+        save_graph_preview(page, "candidate")
+    page.get_by_role("button", name="전체 보기", exact=True).click()
+    expect(page.locator(".graph-node")).to_have_count(11)
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("state", ["missing", "failed", "invalid", "empty"])
+def test_candidate_graph_unavailable_is_not_empty_success_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], state: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_access_graph_payload()
+    candidate = payloads["value"]["artifacts"][1]
+    candidate.update(state=state if state != "empty" else "completed", view={"candidates": []} if state == "empty" else None,
+                     issue="ARTIFACT_INVALID", error_count=0 if state in {"missing", "empty"} else 1)
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="후보 중심", exact=True).click()
+    expect(page.locator("#kg-view-description")).to_contain_text("후보 공개 결과 0건" if state == "empty" else "후보 공개 결과 확인 불가")
+    expect(page.get_by_label("검증 후보 선택", exact=True)).to_be_disabled()
+    expect(page.locator("#graph-view svg")).to_have_count(0)
+    page.get_by_role("button", name="전체 보기", exact=True).click()
+    expect(page.locator(".graph-node")).to_have_count(11)
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_graph_relationship_labels_and_identity_are_preserved_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]],
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_access_graph_payload()
+    page.locator("#refresh-results").click()
+    edges = payloads["value"]["artifacts"][0]["view"]["relationships"]
+    for edge in edges[:7]:
+        expect(page.locator(f'.graph-edge-label[data-edge-id="{edge["relationship_id"]}"]')).to_have_text(edge["relation_type"])
+        expect(page.locator(f'.graph-edge[data-edge-id="{edge["relationship_id"]}"]')).to_have_attribute("marker-end", "url(#graph-arrow)")
+    assert page.locator('.graph-edge[data-edge-id="edge-2"]').get_attribute("d") != page.locator('.graph-edge[data-edge-id="edge-3"]').get_attribute("d")
+    expect(page.locator('.graph-edge[data-edge-id="edge-2"]')).to_have_class("graph-edge basis-inferred")
+    page.get_by_role("button", name="User actor:opaque-b", exact=True).click()
+    expect(page.locator(".graph-edge.is-selected")).to_have_count(3)
+    expect(page.locator(".graph-edge.is-muted")).to_have_count(4)
+    expect(page.locator("#kg-detail")).to_contain_text("actor:opaque-b")
+    page.get_by_role("button", name="전체 원본", exact=True).click()
+    expect(page.locator(".graph-edge-label")).to_have_count(0)
+    page.get_by_role("button", name="User actor:opaque-b", exact=True).click()
+    expect(page.locator(".graph-edge-label")).to_have_count(4)
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_candidate_graph_refresh_arrival_and_new_run_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]],
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    original = build_access_graph_payload()
+    payloads["value"] = copy.deepcopy(original)
+    payloads["value"]["artifacts"][1].update(state="missing", view=None)
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="후보 중심", exact=True).click()
+    expect(page.get_by_label("검증 후보 선택", exact=True)).to_be_disabled()
+    payloads["value"] = copy.deepcopy(original)
+    payloads["value"]["artifacts"][1].update(state="partial", error_count=1)
+    page.locator("#refresh-results").click()
+    expect(page.get_by_label("검증 후보 선택", exact=True)).to_be_enabled()
+    page.get_by_label("검증 후보 선택", exact=True).select_option("candidate-match")
+    expect(page.locator(".graph-node")).to_have_count(4)
+    expect(page.locator("#kg-view-description")).to_contain_text("partial · 부분 후보 결과")
+    page.get_by_role("button", name="확대", exact=True).click()
+    camera = page.locator("#graph-view svg").get_attribute("viewBox")
+    page.locator("#refresh-results").click()
+    expect(page.get_by_label("검증 후보 선택", exact=True)).to_have_value("candidate-match")
+    expect(page.locator("#graph-view svg")).to_have_attribute("viewBox", camera)
+    payloads["value"]["run_id"] = "web-new-access-view"
+    page.evaluate("window.abc2labResults.setRun({run_id: 'web-new-access-view'})")
+    page.evaluate("window.abc2labResults.refresh()")
+    expect(page.get_by_role("button", name="접근 관계", exact=True)).to_have_attribute("aria-pressed", "true")
+    expect(page.locator(".graph-node")).to_have_count(6)
+    expect(page.get_by_label("검증 후보 선택", exact=True)).to_be_hidden()
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_graph_without_access_nodes_is_not_a_missing_snapshot_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]],
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_access_graph_payload()
+    graph = payloads["value"]["artifacts"][0]["view"]
+    graph["nodes"] = [next(node for node in graph["nodes"] if "isolated" in node["node_id"])]
+    graph["relationships"] = []
+    page.locator("#refresh-results").click()
+    expect(page.locator("#kg-display-counts")).to_contain_text("노드 0/1개")
+    expect(page.locator("#graph-state")).to_contain_text("completed")
+    expect(page.locator("#graph-view svg")).to_have_count(0)
+    page.get_by_role("button", name="전체 원본", exact=True).click()
+    expect(page.locator(".graph-node")).to_have_count(1)
+    original_id = graph["nodes"][0]["node_id"]
+    expect(page.locator(".node-label")).to_have_text(original_id[:10] + "…" + original_id[-9:])
+    page.locator(".graph-node").click()
+    expect(page.locator("#kg-detail")).to_contain_text(original_id)
+    expect(page.get_by_role("button", name="연결 펼치기", exact=True)).to_be_disabled()
+    assert page.locator("#graph-view img").count() == 0

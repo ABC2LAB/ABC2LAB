@@ -57,6 +57,9 @@ function showSection(fragment) {
       link.removeAttribute("aria-current");
     }
   });
+  const page_titles = { input: "새 진단", progress: "진단 진행", results: "분석 결과", approval: "승인 대기", evaluation: "성능 평가" };
+  document.getElementById("workspace-title").textContent = page_titles[id];
+  document.getElementById("workspace-path").textContent = page_titles[id];
   if (["results", "approval", "evaluation"].includes(id)) window.abc2labResults?.refresh();
 }
 
@@ -68,8 +71,10 @@ async function checkWebStatus() {
     const result = await response.json();
     if (result.status !== "ok" || result.scope !== "web_only") throw new Error("Unexpected health");
     label.textContent = "Web 정상 · 진단 준비 미확인";
+    label.dataset.state = "completed";
   } catch {
     label.textContent = "Web 응답 확인 실패";
+    label.dataset.state = "failed";
   }
 }
 
@@ -113,10 +118,27 @@ function addAccount(account = {}) {
     row.querySelectorAll("input").forEach((input) => { input.value = ""; });
     row.remove();
     document.getElementById("add-account").disabled = false;
+    update_account_count();
   });
-  row.append(fields, remove);
+  const heading = document.createElement("div");
+  heading.className = "account-heading";
+  const title = document.createElement("strong");
+  title.textContent = "TEST ACCOUNT " + String(accountSequence).padStart(2, "0");
+  heading.append(title, remove);
+  row.append(heading, fields);
   accounts.append(row);
   document.getElementById("add-account").disabled = accounts.children.length >= maxAccounts;
+  update_account_count();
+}
+
+function update_account_count() {
+  document.getElementById("account-count").textContent = accounts.children.length + "개 계정";
+}
+
+function update_preparation_badge() {
+  const badge = document.getElementById("preparation-badge");
+  badge.textContent = preparationId ? "입력 준비 완료" : "입력 대기";
+  badge.dataset.state = preparationId ? "prepared" : "pending";
 }
 
 function clearCredentialFields() {
@@ -130,6 +152,7 @@ function showPreparation(preparation) {
   inputs.disabled = isPrepared || !inputEnabled || isRunBusy;
   clearButton.disabled = !isPrepared;
   startButton.disabled = !isPrepared || !canRun || isRunBusy || !csrfToken;
+  update_preparation_badge();
   if (!isPrepared) return;
   const seconds = Math.max(0, preparation.expires_in_seconds);
   inputStatus.textContent = "입력 준비 완료 · 계정 " + preparation.account_count + "개 · 진단 미실행 · 최대 " + Math.ceil(seconds / 60) + "분간 보관";
@@ -140,6 +163,7 @@ function showPreparation(preparation) {
     startButton.disabled = true;
     preparationId = null;
     inputStatus.textContent = "입력 세션이 만료됐다. 새로고침 후 비밀값을 다시 입력해야 한다.";
+    update_preparation_badge();
   }, seconds * 1000 + 100);
 }
 
@@ -211,6 +235,7 @@ clearButton.addEventListener("click", async () => {
     inputs.disabled = !inputEnabled;
     preparationId = null;
     startButton.disabled = true;
+    update_preparation_badge();
     inputStatus.textContent = "입력 준비 취소 · 비밀값 참조와 임시 설정 폐기 완료";
   } catch {
     clearButton.disabled = false;
@@ -223,7 +248,16 @@ function fillList(id, values) {
   target.replaceChildren();
   values.forEach((value) => {
     const item = document.createElement("li");
-    item.textContent = value;
+    if (typeof value === "string") item.textContent = value;
+    else {
+      const label = document.createElement("span");
+      label.textContent = value.label + " · ";
+      const badge = document.createElement("span");
+      badge.className = "status-pill";
+      badge.textContent = value.text;
+      badge.dataset.state = value.state;
+      item.append(label, badge);
+    }
     target.append(item);
   });
 }
@@ -238,6 +272,8 @@ function showRun(result) {
     stopped: "Web 종료로 Runner 중단",
   };
   document.getElementById("run-status").textContent = labels[result.state] || "실행 상태 확인 불가";
+  const badge_labels = { idle: "대기", running: "실행 중", completed: "completed", partial: "partial", failed: "failed", stopped: "중단" };
+  update_run_badge(result.state, badge_labels[result.state] || "미확인");
   if (result.state === "idle") return;
   const issueMessages = {
     RUNNER_RESULT_UNAVAILABLE: "종료 요약을 확인할 수 없다. 정상 완료로 처리하지 않는다.",
@@ -245,8 +281,18 @@ function showRun(result) {
     WEB_SHUTDOWN: "서버 종료로 중단됐다.",
   };
   document.getElementById("run-meta").textContent = result.run_id + " · iteration 0 · 경과 " + result.elapsed_seconds + "초 · 종료 코드 " + (result.exit_code === null ? "미확정" : result.exit_code) + (result.issue ? " · " + (issueMessages[result.issue] || "실행 확인 필요") : "");
-  fillList("artifact-status", result.artifacts.map((item) => item.artifact_type + " · " + (item.is_present ? "파일 존재" : "미발행")));
-  fillList("step-status", result.summary ? result.summary.steps.map((item) => item.step + " · " + item.status + " · 오류 " + item.error_count + "건") : [result.state === "running" ? "Runner 종료 후 확인 가능" : "유효한 종료 요약 없음"]);
+  fillList("artifact-status", result.artifacts.map((item) => ({ label: item.artifact_type,
+    state: item.is_present ? "present" : "missing", text: item.is_present ? "파일 존재" : "미발행" })));
+  fillList("step-status", result.summary ? result.summary.steps.map((item) => ({ label: item.step,
+    state: item.status, text: item.status + " · 오류 " + item.error_count + "건" })) : [result.state === "running" ? "Runner 종료 후 확인 가능" : "유효한 종료 요약 없음"]);
+}
+
+function update_run_badge(state, label) {
+  const known_states = ["idle", "running", "completed", "partial", "failed", "stopped"];
+  const badge = document.getElementById("run-state-badge");
+  badge.textContent = label;
+  badge.dataset.state = known_states.includes(state) ? state : "invalid";
+  document.querySelector(".run-card").dataset.state = badge.dataset.state;
 }
 
 async function refreshRun() {
@@ -274,6 +320,7 @@ async function refreshRun() {
   } catch {
     if (sequence !== runRequestSequence) return;
     document.getElementById("run-status").textContent = "실행 상태 조회 실패 · 실패/성공으로 판정하지 않는다. 다시 확인해야 한다.";
+    update_run_badge("invalid", "미확인");
   }
 }
 
@@ -291,6 +338,7 @@ startButton.addEventListener("click", async () => {
     isRunBusy = true;
     inputs.disabled = true;
     inputStatus.textContent = "준비 입력 전달 완료 · 인증값은 자식 프로세스에만 전달했다.";
+    update_preparation_badge();
     showRun(result);
     location.hash = "progress";
     await refreshRun();
@@ -304,6 +352,13 @@ startButton.addEventListener("click", async () => {
 document.getElementById("refresh-run").addEventListener("click", refreshRun);
 
 document.getElementById("add-account").addEventListener("click", () => addAccount());
+document.querySelector(".skip-link").addEventListener("click", (event) => {
+  event.preventDefault();
+  document.getElementById("workspace-title").focus();
+});
+document.querySelectorAll("[data-scroll-target]").forEach((button) => {
+  button.addEventListener("click", () => document.getElementById(button.dataset.scrollTarget)?.scrollIntoView({ block: "start" }));
+});
 window.addEventListener("pagehide", () => {
   clearCredentialFields();
   clearTimeout(runTimer);

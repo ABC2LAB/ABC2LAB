@@ -3,12 +3,14 @@
 (() => {
   const TABLE_ROW_LIMIT = 100;
   const GRAPH_PAGE_SIZE = 50;
-  const GRAPH_CELL_SIZE = 110;
+  const GRAPH_CELL_SIZE = 150;
   const GRAPH_MAX_COLUMNS = 8;
   const GRAPH_PADDING = 55;
   const GRAPH_MIN_VIEW_WIDTH = 100;
   const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
   const nodeTypes = ["User", "Role", "Page", "Action", "Endpoint", "Parameter", "Resource"];
+  const access_node_types = new Set(["User", "Role", "Resource"]);
+  const graph_view_labels = { access: "접근 관계", candidate: "후보 중심", all: "전체 원본" };
   const countLabels = {
     roles: "역할", accounts: "계정", pages: "페이지", actions: "행동", requests: "관찰 요청",
     normalized_requests: "정규화 요청", nodes: "노드", relationships: "관계", workflows: "업무 흐름",
@@ -32,9 +34,15 @@
   let graph_signature;
   let graph_key = null;
   let graph_state = create_graph_state();
+  const disclosure_states = new Map();
+  let disclosure_run_id;
+  const badge_states = new Set(["completed", "partial", "failed", "missing", "invalid", "success", "failure", "blocked",
+    "indeterminate", "confirmed", "suspected", "not_confirmed", "policy_blocked", "approval_pending", "require_approval",
+    "allow", "block", "not_executed", "error", "observed", "inferred", "verified"]);
 
   function create_graph_state() {
-    return { node_type: "all", basis: "all", resource_scope: "all", search: "",
+    return { view_mode: "access", candidate_id: "", expanded_ids: [],
+      node_type: "all", basis: "all", resource_scope: "all", search: "",
       is_connected_only: false, is_neighborhood: false, selected_id: null, camera: null,
       node_page: 0, edge_page: 0, related_page: 0, workflow_page: 0 };
   }
@@ -51,6 +59,33 @@
     return Array.isArray(value) ? value.join(" · ") || "없음" : String(value);
   }
 
+  function status_badge(value) {
+    const badge = element("span", value, "status-pill");
+    badge.dataset.state = badge_states.has(value) ? value : "missing";
+    return badge;
+  }
+
+  function empty_state(target, message) {
+    const section = element("div", undefined, "empty-state");
+    const symbol = element("span", "◎", "empty-symbol");
+    symbol.setAttribute("aria-hidden", "true");
+    section.append(symbol, element("p", message));
+    target.append(section);
+  }
+
+  function disclosure(key, title, is_open = false) {
+    const wrapper = element("details", undefined, "data-disclosure");
+    wrapper.dataset.panel = key;
+    wrapper.open = disclosure_states.get(key) ?? is_open;
+    const summary = element("summary", title);
+    const body = element("div", undefined, "disclosure-body");
+    wrapper.append(summary, body);
+    wrapper.addEventListener("toggle", () => {
+      if (wrapper.isConnected) disclosure_states.set(key, wrapper.open);
+    });
+    return { wrapper, summary, body };
+  }
+
   function stateText(artifact) {
     if (!artifact) return "진단 시작 전";
     if (artifact.state === "missing") return "미발행 · 처리 중/미실행 여부는 진행 화면에서 확인";
@@ -61,7 +96,7 @@
 
   function table(target, caption, columns, rows) {
     if (!rows.length) {
-      target.append(element("p", caption + " · 공개 결과 0건", "description"));
+      empty_state(target, caption + " · 공개 결과 0건");
       return;
     }
     target.append(element("p", caption + " · 전체 " + rows.length + "건 · 표는 최대 " + TABLE_ROW_LIMIT + "건 표시", "description"));
@@ -81,7 +116,13 @@
     const body = element("tbody");
     rows.slice(0, TABLE_ROW_LIMIT).forEach((row) => {
       const line = element("tr");
-      columns.forEach(([, value]) => line.append(element("td", display(typeof value === "function" ? value(row) : row[value]))));
+      columns.forEach(([, value]) => {
+        const content = typeof value === "function" ? value(row) : row[value];
+        const cell = element("td");
+        if (badge_states.has(content)) cell.append(status_badge(content));
+        else cell.textContent = display(content);
+        line.append(cell);
+      });
       body.append(line);
     });
     grid.append(head, body);
@@ -93,6 +134,7 @@
     const grid = element("dl", undefined, "count-grid");
     Object.entries(values).forEach(([name, value]) => {
       const item = element("div");
+      item.dataset.metric = name;
       item.append(element("dt", countLabels[name] || name), element("dd", value));
       grid.append(item);
     });
@@ -122,16 +164,42 @@
     return ids;
   }
 
-  function filter_graph_nodes(data, state) {
+  function graph_scope_ids(data, state, candidates) {
+    let ids;
+    if (state.is_neighborhood) ids = graph_neighbors(data, state.selected_id);
+    else if (state.view_mode === "all") ids = new Set(data.nodes.map((node) => node.node_id));
+    else if (state.view_mode === "access") ids = new Set(data.nodes.filter((node) => access_node_types.has(node.node_type)).map((node) => node.node_id));
+    else {
+      const candidate = candidates.find((row) => row.candidate_id === state.candidate_id);
+      const resources = new Set(candidate?.resource_ids || []);
+      ids = new Set(data.nodes.filter((node) => node.node_type === "Resource" && resources.has(node.node_id)).map((node) => node.node_id));
+      const seeds = new Set(ids);
+      data.relationships.forEach((edge) => {
+        if (seeds.has(edge.source_id)) ids.add(edge.target_id);
+        if (seeds.has(edge.target_id)) ids.add(edge.source_id);
+      });
+    }
+    const neighbors_by_id = new Map(data.nodes.map((node) => [node.node_id, new Set()]));
+    data.relationships.forEach((edge) => {
+      neighbors_by_id.get(edge.source_id)?.add(edge.target_id);
+      neighbors_by_id.get(edge.target_id)?.add(edge.source_id);
+    });
+    state.expanded_ids.forEach((id) => {
+      if (ids.has(id)) neighbors_by_id.get(id)?.forEach((neighbor) => ids.add(neighbor));
+    });
+    return ids;
+  }
+
+  function filter_graph_nodes(data, state, candidates) {
     const connected_ids = new Set(data.relationships.flatMap((edge) => [edge.source_id, edge.target_id]));
-    const nearby_ids = state.is_neighborhood ? graph_neighbors(data, state.selected_id) : null;
+    const scoped_ids = graph_scope_ids(data, state, candidates);
     const search = state.search.trim().toLowerCase();
-    return data.nodes.filter((node) => (state.node_type === "all" || node.node_type === state.node_type)
+    return data.nodes.filter((node) => scoped_ids.has(node.node_id)
+      && (state.node_type === "all" || node.node_type === state.node_type)
       && (state.basis === "all" || node.basis === state.basis)
       && (state.resource_scope === "all" || (node.node_type === "Resource" && node.resource_scope === state.resource_scope))
       && (!search || node.node_id.toLowerCase().includes(search))
-      && (!state.is_connected_only || connected_ids.has(node.node_id))
-      && (!nearby_ids || nearby_ids.has(node.node_id)));
+      && (!state.is_connected_only || connected_ids.has(node.node_id)));
   }
 
   function append_graph_table(target, options) {
@@ -187,19 +255,38 @@
     render_page();
   }
 
-  function layout_graph_nodes(nodes) {
+  function layout_graph_nodes(nodes, edges) {
     const positions = new Map();
     const headings = [];
+    const ranks = new Map();
+    const neighbors = new Map(nodes.map((node) => [node.node_id, []]));
+    edges.forEach((edge) => {
+      neighbors.get(edge.source_id).push(edge.target_id);
+      neighbors.get(edge.target_id).push(edge.source_id);
+    });
+    const groups = nodeTypes.map((type) => nodes.filter((node) => node.node_type === type)
+      .sort((left, right) => left.node_id.localeCompare(right.node_id)));
+    const columns_for = (count) => count <= GRAPH_MAX_COLUMNS ? 1 : Math.min(GRAPH_MAX_COLUMNS, Math.ceil(Math.sqrt(count)));
+    const max_rows = Math.max(1, ...groups.map((group) => Math.ceil(group.length / columns_for(group.length))));
+    groups.forEach((group) => group.forEach((node, index) => ranks.set(node.node_id, index / Math.max(1, group.length - 1))));
+    // 원본 관계로 배치 순서만 정한다. 관계의 의미·방향·유무는 바꾸지 않는다.
+    const scores = new Map(nodes.map((node) => {
+      const values = neighbors.get(node.node_id);
+      return [node.node_id, values.length ? values.reduce((sum, id) => sum + ranks.get(id), 0) / values.length : ranks.get(node.node_id)];
+    }));
     let left = GRAPH_PADDING;
     let height = 160;
-    nodeTypes.forEach((type) => {
-      const group = nodes.filter((node) => node.node_type === type);
+    groups.forEach((group, group_index) => {
       if (!group.length) return;
-      const columns = Math.min(GRAPH_MAX_COLUMNS, Math.ceil(Math.sqrt(group.length)));
+      const type = nodeTypes[group_index];
+      group.sort((first, second) => scores.get(first.node_id) - scores.get(second.node_id)
+        || first.node_id.localeCompare(second.node_id));
+      const columns = columns_for(group.length);
+      const top = 85 + (max_rows - Math.ceil(group.length / columns)) * GRAPH_CELL_SIZE / 2;
       headings.push({ type, x: left, count: group.length });
       group.forEach((node, index) => {
         const position = { x: left + (index % columns) * GRAPH_CELL_SIZE,
-          y: 85 + Math.floor(index / columns) * GRAPH_CELL_SIZE };
+          y: top + Math.floor(index / columns) * GRAPH_CELL_SIZE };
         positions.set(node.node_id, position);
         height = Math.max(height, position.y + GRAPH_PADDING);
       });
@@ -208,36 +295,50 @@
     return { positions, headings, width: Math.max(360, left), height };
   }
 
-  function append_graph_edge(svg, edge, positions) {
+  function append_graph_edge(svg, options) {
+    const { edge, positions, parallel_index, is_context, is_muted } = options;
     const source = positions.get(edge.source_id);
     const destination = positions.get(edge.target_id);
     const distance = Math.hypot(destination.x - source.x, destination.y - source.y) || 1;
     const offset_x = (destination.x - source.x) * 26 / distance;
     const offset_y = (destination.y - source.y) * 26 / distance;
-    const path = edge.source_id === edge.target_id
-      ? "M " + (source.x - 16) + " " + (source.y - 18) + " C " + (source.x - 70) + " " + (source.y - 65)
-        + ", " + (source.x + 70) + " " + (source.y - 65) + ", " + (source.x + 16) + " " + (source.y - 18)
-      : "M " + (source.x + offset_x) + " " + (source.y + offset_y) + " L "
+    const bend = 22 + parallel_index * 30;
+    const direction = edge.source_id < edge.target_id ? 1 : -1;
+    const control = { x: (source.x + destination.x) / 2 - (destination.y - source.y) / distance * bend * direction,
+      y: (source.y + destination.y) / 2 + (destination.x - source.x) / distance * bend * direction };
+    const is_loop = edge.source_id === edge.target_id;
+    const path = is_loop
+      ? "M " + (source.x - 16) + " " + (source.y - 18) + " C " + (source.x - 70 - bend) + " " + (source.y - 65 - bend)
+        + ", " + (source.x + 70 + bend) + " " + (source.y - 65 - bend) + ", " + (source.x + 16) + " " + (source.y - 18)
+      : "M " + (source.x + offset_x) + " " + (source.y + offset_y) + " Q " + control.x + " " + control.y + " "
         + (destination.x - offset_x) + " " + (destination.y - offset_y);
-    const is_selected = edge.source_id === graph_state.selected_id || edge.target_id === graph_state.selected_id;
-    const line = svgElement("path", { d: path, class: "graph-edge basis-" + edge.basis + (is_selected ? " is-selected" : ""),
-      "marker-end": "url(#graph-arrow)" });
+    const line = svgElement("path", { d: path, class: "graph-edge basis-" + edge.basis + (is_context ? " is-selected" : "") + (is_muted ? " is-muted" : ""),
+      "data-edge-id": edge.relationship_id, "marker-end": "url(#graph-arrow)" });
     line.append(svgElement("title", {}, edge.relationship_id + " · " + edge.relation_type + " · "
       + edge.basis + " · " + edge.source_id + " → " + edge.target_id));
     svg.append(line);
+    if (graph_state.view_mode !== "all" || is_context) {
+      const label = svgElement("text", { x: is_loop ? source.x : (source.x + destination.x + 2 * control.x) / 4,
+        y: is_loop ? source.y - 65 - bend : (source.y + destination.y + 2 * control.y) / 4 - 7,
+        "text-anchor": "middle", class: "graph-edge-label" + (is_muted ? " is-muted" : ""),
+        "data-edge-id": edge.relationship_id }, edge.relation_type);
+      svg.append(label);
+    }
   }
 
   function append_graph_node(svg, options) {
-    const { node, position, on_select } = options;
+    const { node, position, on_select, is_muted, is_candidate } = options;
     const is_selected = node.node_id === graph_state.selected_id;
-    const group = svgElement("g", { class: "graph-node node-" + node.node_type + (is_selected ? " is-selected" : ""),
+    const group = svgElement("g", { class: "graph-node node-" + node.node_type + (is_selected ? " is-selected" : "")
+      + (is_muted ? " is-muted" : "") + (is_candidate ? " is-candidate" : ""),
       role: "button", tabindex: 0, "aria-label": node.node_type + " " + node.node_id,
       "aria-pressed": is_selected, "data-node-id": node.node_id });
     group.append(svgElement("title", {}, node.node_id + " · " + node.node_type + " · " + node.basis
-      + (node.resource_scope ? " · " + node.resource_scope : "")));
+      + (node.resource_scope ? " · " + node.resource_scope : "") + (is_candidate ? " · 선택 후보 관련 자원(확정 아님)" : "")));
     group.append(svgElement("circle", { cx: position.x, cy: position.y, r: 22 }));
-    group.append(svgElement("text", { x: position.x, y: position.y + 4, "text-anchor": "middle", class: "node-symbol" }, node.node_type[0]));
-    const short_id = node.node_id.length > 17 ? node.node_id.slice(0, 16) + "…" : node.node_id;
+    const symbols = { User: "U", Role: "R", Page: "Pg", Action: "A", Endpoint: "E", Parameter: "P", Resource: "Rs" };
+    group.append(svgElement("text", { x: position.x, y: position.y + 4, "text-anchor": "middle", class: "node-symbol" }, symbols[node.node_type]));
+    const short_id = node.node_id.length > 22 ? node.node_id.slice(0, 10) + "…" + node.node_id.slice(-9) : node.node_id;
     group.append(svgElement("text", { x: position.x, y: position.y + 39, "text-anchor": "middle", class: "node-label" }, short_id));
     group.addEventListener("click", () => on_select(node.node_id, false));
     group.addEventListener("keydown", (event) => {
@@ -316,12 +417,12 @@
   }
 
   function diagram(target, options) {
-    const { nodes, edges, on_select } = options;
+    const { nodes, edges, on_select, candidate_ids } = options;
     if (!nodes.length) {
       target.append(element("p", "현재 조건에 맞는 노드 0개 · 원본 snapshot의 전체 건수와 구분한다.", "description"));
       return null;
     }
-    const layout = layout_graph_nodes(nodes);
+    const layout = layout_graph_nodes(nodes, edges);
     const canvas = element("div", undefined, "graph-canvas");
     canvas.setAttribute("role", "region");
     canvas.setAttribute("aria-label", "검증 전 Knowledge Graph 탐색 화면");
@@ -336,8 +437,19 @@
     svg.append(definitions);
     layout.headings.forEach((heading) => svg.append(svgElement("text", { x: heading.x, y: 25,
       class: "graph-heading" }, heading.type + " · " + heading.count)));
-    edges.forEach((edge) => append_graph_edge(svg, edge, layout.positions));
-    nodes.forEach((node) => append_graph_node(svg, { node, position: layout.positions.get(node.node_id), on_select }));
+    const has_selection = layout.positions.has(graph_state.selected_id);
+    const context_ids = new Set(has_selection ? [graph_state.selected_id] : []);
+    const parallel_counts = new Map();
+    edges.forEach((edge) => {
+      const is_context = has_selection && (edge.source_id === graph_state.selected_id || edge.target_id === graph_state.selected_id);
+      if (is_context) { context_ids.add(edge.source_id); context_ids.add(edge.target_id); }
+      const key = JSON.stringify([edge.source_id, edge.target_id].sort());
+      const parallel_index = parallel_counts.get(key) || 0;
+      parallel_counts.set(key, parallel_index + 1);
+      append_graph_edge(svg, { edge, positions: layout.positions, parallel_index, is_context, is_muted: has_selection && !is_context });
+    });
+    nodes.forEach((node) => append_graph_node(svg, { node, position: layout.positions.get(node.node_id), on_select,
+      is_muted: has_selection && !context_ids.has(node.node_id), is_candidate: node.node_type === "Resource" && candidate_ids.has(node.node_id) }));
     canvas.append(svg);
     target.append(canvas);
     return attach_graph_camera(svg, layout);
@@ -434,7 +546,59 @@
       columns: [["관계", "relation_type"], ["source_id", "source_id"], ["target_id", "target_id"], ["basis", "basis"]] });
   }
 
-  function render_graph_explorer(target, data) {
+  function append_graph_views(target, options) {
+    const { candidates, on_mode_change, on_candidate_change } = options;
+    const controls = element("div", undefined, "graph-view-controls");
+    const buttons = element("div", undefined, "graph-view-buttons");
+    buttons.setAttribute("role", "group");
+    buttons.setAttribute("aria-label", "KG 보기");
+    Object.entries(graph_view_labels).forEach(([mode, label]) => {
+      const button = graph_button(label, () => on_mode_change(mode));
+      button.dataset.view = mode;
+      buttons.append(button);
+    });
+    const field = element("div", undefined, "graph-candidate-field");
+    const label = element("label", "검증 후보 선택");
+    label.htmlFor = "kg-candidate";
+    const select = element("select");
+    select.id = label.htmlFor;
+    const placeholder = element("option", "후보를 선택하세요 · 확정 취약점 아님");
+    placeholder.value = "";
+    select.append(placeholder);
+    candidates.forEach((row) => {
+      const option = element("option", row.candidate_id + " · " + row.vulnerability_type);
+      option.value = row.candidate_id;
+      select.append(option);
+    });
+    select.addEventListener("change", () => on_candidate_change(select.value));
+    field.append(label, select);
+    controls.append(buttons, field);
+    target.append(controls);
+    return () => {
+      buttons.querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.view === graph_state.view_mode)));
+      field.hidden = graph_state.view_mode !== "candidate";
+      select.disabled = candidates.length === 0;
+      select.value = graph_state.candidate_id;
+    };
+  }
+
+  function graph_view_description(data, candidates, artifact) {
+    if (graph_state.is_neighborhood) return "선택 노드의 실제 1-hop 관계입니다. 연결 펼치기로 다음 노드를 확인할 수 있습니다.";
+    if (graph_state.view_mode === "all") return "전체 원본입니다. 연결 없는 Action도 포함하며 선택 노드의 관계명을 표시합니다.";
+    if (graph_state.view_mode === "access") return "User·Role·Resource와 그 사이의 원본 관계입니다. Endpoint·Action 등은 노드 선택 후 연결 펼치기로 확인하세요. 숨김은 분석 누락이나 취약점 없음 판정이 아닙니다.";
+    if (!artifact?.view) return "후보 공개 결과 확인 불가 · " + stateText(artifact) + ". 원본 그래프와 구분하며 후보가 0개라고 판단하지 않습니다.";
+    if (!candidates.length) return "후보 공개 결과 0건 · 원본 그래프에 취약점이 없다는 뜻은 아닙니다.";
+    const candidate = candidates.find((row) => row.candidate_id === graph_state.candidate_id);
+    if (!candidate) return "검증 후보를 선택하면 Resource와 실제 1-hop 관계를 표시합니다. 후보는 확정 취약점이 아닙니다.";
+    const resources = new Set(data.nodes.filter((node) => node.node_type === "Resource").map((node) => node.node_id));
+    const matched = candidate.resource_ids.filter((id) => resources.has(id)).length;
+    return (artifact.state === "partial" ? "partial · 부분 후보 결과입니다. " : "")
+      + "선택 후보 " + candidate.candidate_id + " · Resource ID 일치 " + matched + "/" + candidate.resource_ids.length
+      + "개 · 불일치 " + (candidate.resource_ids.length - matched) + "개. 실제 node_id만 연결하며 계정 ID나 자원 이름으로 추정하지 않습니다. 후보는 확정 취약점이 아닙니다.";
+  }
+
+  function render_graph_explorer(target, options) {
+    const { data, candidates, candidate_artifact } = options;
     const toolbar = element("div", undefined, "graph-toolbar");
     const summary = element("p", undefined, "description");
     summary.id = "kg-display-counts";
@@ -442,14 +606,36 @@
     const help = element("p", "빈 영역 드래그·방향키로 이동, 휠·확대/축소 버튼으로 배율 변경. 노드 클릭 또는 Enter로 선택한다. 모든 배치는 화면 표현이며 새 관계를 추론하지 않는다.", "description");
     help.id = "kg-navigation-help";
     const scene = element("div");
+    const view_description = element("p", undefined, "graph-view-description");
+    view_description.id = "kg-view-description";
+    view_description.setAttribute("role", "status");
     let camera = null;
     let synchronize_filters;
+    const synchronize_views = append_graph_views(target, {
+      candidates,
+      on_mode_change: (mode) => {
+        const candidate_id = graph_state.candidate_id;
+        graph_state = create_graph_state();
+        graph_state.view_mode = mode;
+        graph_state.candidate_id = candidate_id;
+        synchronize_filters();
+        on_filter_change();
+      },
+      on_candidate_change: (candidate_id) => {
+        graph_state.candidate_id = candidate_id;
+        graph_state.expanded_ids = [];
+        graph_state.selected_id = null;
+        graph_state.is_neighborhood = false;
+        on_filter_change();
+      },
+    });
     function reset_pages() {
       graph_state.node_page = graph_state.edge_page = graph_state.related_page = graph_state.workflow_page = 0;
     }
     function on_filter_change() {
       reset_pages();
       graph_state.camera = null;
+      synchronize_views();
       render_scene();
     }
     function select_node(node_id, can_center) {
@@ -467,7 +653,9 @@
     }
     function show_all() {
       graph_state = create_graph_state();
+      graph_state.view_mode = "all";
       synchronize_filters();
+      synchronize_views();
       render_scene();
     }
     const zoom_in = graph_button("확대", () => camera?.zoom(0.8));
@@ -477,15 +665,24 @@
     const nearby = graph_button("주변 보기", () => {
       const selected_id = graph_state.selected_id;
       graph_state = create_graph_state();
+      graph_state.view_mode = "all";
       graph_state.selected_id = selected_id;
       graph_state.is_neighborhood = true;
       synchronize_filters();
+      synchronize_views();
       render_scene();
     });
-    toolbar.append(zoom_in, zoom_out, fit, center, nearby, graph_button("전체 보기", show_all));
+    const expand = graph_button("연결 펼치기", () => {
+      if (!graph_state.expanded_ids.includes(graph_state.selected_id)) graph_state.expanded_ids.push(graph_state.selected_id);
+      graph_state.node_type = graph_state.basis = graph_state.resource_scope = "all";
+      graph_state.search = "";
+      synchronize_filters();
+      on_filter_change();
+    });
+    toolbar.append(zoom_in, zoom_out, fit, center, expand, nearby, graph_button("전체 보기", show_all));
     function render_scene() {
       scene.replaceChildren();
-      const nodes = filter_graph_nodes(data, graph_state);
+      const nodes = filter_graph_nodes(data, graph_state, candidates);
       const visible_ids = new Set(nodes.map((node) => node.node_id));
       const edges = data.relationships.filter((edge) => visible_ids.has(edge.source_id) && visible_ids.has(edge.target_id));
       const connected_ids = new Set(data.relationships.flatMap((edge) => [edge.source_id, edge.target_id]));
@@ -493,7 +690,15 @@
       summary.textContent = "전체 snapshot: 노드 " + data.nodes.length + "개 · 관계 " + data.relationships.length
         + "개 · 연결 없는 노드 " + isolated_count + "개. 현재 표시: 노드 " + nodes.length + "/" + data.nodes.length
         + "개 · 관계 " + edges.length + "/" + data.relationships.length + "개 · "
-        + (graph_state.is_neighborhood ? "선택 노드의 1-hop 주변 보기" : "전체 범위 탐색") + ". 앞부분 자르기 없음.";
+        + (graph_state.is_neighborhood ? "선택 노드의 1-hop 주변 보기" : graph_view_labels[graph_state.view_mode])
+        + " · 숨김: 노드 " + (data.nodes.length - nodes.length) + "개 · 관계 " + (data.relationships.length - edges.length) + "개. 앞부분 자르기 없음.";
+      view_description.textContent = graph_view_description(data, candidates, candidate_artifact);
+      const legend = element("div", undefined, "graph-legend");
+      legend.setAttribute("aria-label", "현재 표시 노드 종류");
+      nodeTypes.filter((type) => nodes.some((node) => node.node_type === type)).forEach((type) => {
+        legend.append(element("span", type, "graph-legend-item legend-" + type));
+      });
+      scene.append(legend);
       const layout = element("div", undefined, "graph-explorer-layout");
       const drawing = element("div", undefined, "graph-drawing");
       const detail = element("aside", undefined, "graph-detail");
@@ -502,15 +707,22 @@
       detail.setAttribute("aria-label", "선택 노드 상세");
       layout.append(drawing, detail);
       scene.append(layout);
-      camera = diagram(drawing, { nodes, edges, on_select: select_node });
+      const selected_candidate = candidates.find((row) => row.candidate_id === graph_state.candidate_id);
+      const candidate_ids = new Set(graph_state.view_mode === "candidate" ? selected_candidate?.resource_ids || [] : []);
+      camera = diagram(drawing, { nodes, edges, on_select: select_node, candidate_ids });
       render_graph_detail(detail, { data, visible_ids, on_select: select_node });
       [zoom_in, zoom_out, fit].forEach((button) => { button.disabled = nodes.length === 0; });
       center.disabled = !visible_ids.has(graph_state.selected_id);
+      expand.disabled = !visible_ids.has(graph_state.selected_id)
+        || !data.relationships.some((edge) => (edge.source_id === graph_state.selected_id && !visible_ids.has(edge.target_id))
+          || (edge.target_id === graph_state.selected_id && !visible_ids.has(edge.source_id)));
       nearby.disabled = graph_state.selected_id === null;
       nearby.setAttribute("aria-pressed", String(graph_state.is_neighborhood));
       const tables = element("div");
       tables.id = "kg-tables";
-      scene.append(tables);
+      const raw_data = disclosure("kg-data", "노드·관계·업무 흐름 데이터");
+      raw_data.body.append(tables);
+      scene.append(raw_data.wrapper);
       append_graph_table(tables, { caption: "KG 노드", rows: nodes, page_key: "node_page", on_select: select_node,
         columns: [["node_id", "node_id"], ["종류", "node_type"], ["basis", "basis"], ["Resource 범위", "resource_scope"]] });
       append_graph_table(tables, { caption: "KG 관계", rows: edges, page_key: "edge_page",
@@ -520,13 +732,17 @@
           (row) => row.steps.map((step) => step.order + ": " + step.step_id + " · " + step.action).join(" → ")], ["의존 관계 수", "dependency_count"]] });
     }
     synchronize_filters = append_graph_filters(target, data, on_filter_change);
-    target.append(toolbar, summary, help, scene,
+    synchronize_views();
+    target.append(view_description, toolbar, summary, help, scene,
       element("p", "basis: observed=관찰 · inferred=추론(점선) · verified=검증(굵은 선). 노드 basis 필터는 노드에 적용하며, 관계는 표시 노드 사이의 원본 관계를 유지한다. 주변 보기는 필터를 초기화하고 선택 노드와 직접 연결 노드를 표시한다.", "description"));
     render_scene();
   }
 
-  function renderGraph(artifact) {
-    const signature = JSON.stringify([currentRunId, artifact || null]);
+  function renderGraph(artifact, candidate_artifact) {
+    const candidates = candidate_artifact?.view?.candidates || [];
+    const signature = JSON.stringify([currentRunId, artifact || null, candidate_artifact?.state || null,
+      candidate_artifact?.error_count ?? 0, candidate_artifact?.issue || null,
+      candidates.map((row) => [row.candidate_id, row.resource_ids, row.vulnerability_type])]);
     // 같은 불변 snapshot의 polling은 검색 입력·선택·페이지·카메라를 지우지 않는다.
     if (signature === graph_signature) return;
     graph_signature = signature;
@@ -537,22 +753,29 @@
     const next_key = data ? JSON.stringify([currentRunId, data.graph_id, data.graph_revision]) : null;
     if (next_key !== graph_key) graph_state = create_graph_state();
     graph_key = next_key;
-    if (!data) return;
+    if (!data) {
+      empty_state(target, "표시할 KG snapshot이 없습니다. 미발행·실패·조회 상태는 위 안내에서 확인하세요.");
+      return;
+    }
     target.append(element("p", data.graph_id + " · query revision " + data.graph_revision, "description"));
     if (data.snapshot_state !== "completed") {
       target.append(element("p", data.snapshot_state === "failed" ? "structure_snapshot 조회 실패 · 빈 그래프로 처리하지 않는다." : "structure_snapshot 결과 없음 · 빈 그래프로 처리하지 않는다.", "description"));
       return;
     }
     counts(target, { nodes: data.nodes.length, relationships: data.relationships.length, workflows: data.workflows.length });
-    render_graph_explorer(target, data);
+    render_graph_explorer(target, { data, candidates, candidate_artifact });
   }
 
   function processPanel(target, title, artifact, columns, rows) {
-    target.append(element("h4", title), element("p", stateText(artifact), "description"));
-    if (artifact?.view) table(target, title, columns, rows);
+    const panel = disclosure(artifact?.artifact_type || title, title);
+    panel.summary.append(status_badge(artifact?.state || "missing"));
+    panel.body.append(element("p", stateText(artifact), "description"));
+    if (artifact?.view) table(panel.body, title, columns, rows);
+    target.append(panel.wrapper);
   }
 
   function renderDiagnosisOverview(target, byType) {
+    target.replaceChildren();
     const section = element("section");
     section.id = "diagnosis-overview";
     section.append(element("h4", "탐지·검증·확정 현황"));
@@ -569,9 +792,11 @@
       verification_blocked_count: resultCount("blocked"),
       reporter_confirmed_count: report?.view ? report.view.summary.confirmed_count : "미확인",
     });
+    const sources = element("div", undefined, "overview-sources");
     for (const [label, artifact] of [["후보", candidates], ["검증", verification], ["Reporter", report]]) {
-      section.append(element("p", label + " 산출물: " + stateText(artifact), "description"));
+      sources.append(element("p", label + " 산출물: " + stateText(artifact), "description"));
     }
+    section.append(sources);
     section.append(element("p", "후보는 candidate 수, 검증은 시나리오별 결과 수, 확정은 Reporter finding 수다. 서로 합산하거나 고유 취약점 수로 해석하지 않는다.", "description"),
       element("p", "검증 조건 통과(success)는 시나리오 조건을 통과했다는 뜻이며 확정 취약점이 아니다. 확정 여부와 사유는 Reporter 결과를 그대로 표시한다. 미확인은 0건이 아니며 부분 결과는 전체 진단을 대표하지 않는다.", "description"));
     target.append(section);
@@ -580,7 +805,6 @@
   function renderProcess(byType) {
     const target = document.getElementById("process-view");
     target.replaceChildren();
-    renderDiagnosisOverview(target, byType);
     const candidateArtifact = byType.get("vulnerability_candidates");
     const scenarioArtifact = byType.get("test_scenarios");
     const policyArtifact = byType.get("safety_decisions");
@@ -615,6 +839,16 @@
     target.replaceChildren();
     if (!artifact?.view) return;
     const scenarios = new Map((byType.get("test_scenarios")?.view?.scenarios || []).map((row) => [row.scenario_id, row]));
+    const pending = artifact.view.decisions.filter((row) => row.decision === "require_approval");
+    const cards = element("div", undefined, "approval-grid");
+    pending.slice(0, TABLE_ROW_LIMIT).forEach((row) => {
+      const card = element("article", undefined, "approval-card");
+      card.append(status_badge(row.decision), element("h4", row.scenario_id), element("p", row.reason),
+        element("div", "후보: " + (scenarios.get(row.scenario_id)?.candidate_id || "공개 시나리오 확인 불가"), "finding-meta"),
+        element("div", "판정: " + row.decision_id + " · " + row.reason_codes.join(" · "), "finding-meta"));
+      cards.append(card);
+    });
+    target.append(cards);
     table(target, "현재 Policy 산출물의 승인 대기", [["판정 ID", "decision_id"], ["시나리오 ID", "scenario_id"], ["후보 ID", (row) => scenarios.get(row.scenario_id)?.candidate_id || "공개 시나리오 확인 불가"], ["사유 코드", "reason_codes"], ["사유", "reason"]], artifact.view.decisions.filter((row) => row.decision === "require_approval"));
   }
 
@@ -625,12 +859,49 @@
     if (!artifact?.view) return;
     const view = artifact.view;
     target.append(element("p", "Reporter confirmed_count: " + view.summary.confirmed_count + "건. 분류별 집계·확정 외 상태는 진단 과정에서 확인한다.", "description"));
-    table(target, "확인된 취약점", [["리포트 ID", "finding_id"], ["제목", "title"], ["분류·유형", (row) => row.category + " · " + row.vulnerability_type], ["후보/시나리오/검증 ID", (row) => row.candidate_id + " / " + display(row.scenario_id) + " / " + display(row.verification_id)], ["설명", "description"], ["마스킹된 근거 참조(본문·파일 검증 미제공)", (row) => row.evidence_refs.map((ref) => ref.evidence_id + " · " + ref.kind + " · SHA-256 " + ref.sha256).join("\n") || "근거 참조 없음"]], view.confirmed_findings);
+    const cards = element("div", undefined, "finding-grid");
+    view.confirmed_findings.slice(0, TABLE_ROW_LIMIT).forEach((row) => {
+      const card = element("article", undefined, "finding-card");
+      card.append(status_badge(row.status), element("h4", row.title), element("p", row.description),
+        element("div", row.category + " · " + row.vulnerability_type, "finding-meta"),
+        element("div", row.finding_id + " · " + row.candidate_id, "finding-meta"));
+      cards.append(card);
+    });
+    target.append(cards);
+    if (!view.confirmed_findings.length) empty_state(target, "확인된 취약점 · 공개 결과 0건. 미검증·의심·판단불가 항목은 진단 과정에서 확인하세요.");
+    else target.append(element("p", "확정 항목 카드 최대 " + TABLE_ROW_LIMIT + "건 표시 · 전체 " + view.confirmed_findings.length + "건", "field-help"));
+    const raw_data = disclosure("report-data", "확정 항목의 원본 ID·근거 참조");
+    table(raw_data.body, "확인된 취약점", [["리포트 ID", "finding_id"], ["제목", "title"], ["분류·유형", (row) => row.category + " · " + row.vulnerability_type], ["후보/시나리오/검증 ID", (row) => row.candidate_id + " / " + display(row.scenario_id) + " / " + display(row.verification_id)], ["설명", "description"], ["마스킹된 근거 참조(본문·파일 검증 미제공)", (row) => row.evidence_refs.map((ref) => ref.evidence_id + " · " + ref.kind + " · SHA-256 " + ref.sha256).join("\n") || "근거 참조 없음"]], view.confirmed_findings);
+    target.append(raw_data.wrapper);
     target.append(element("h4", "Reporter가 기록한 진단 한계"));
     const limitations = element("ul", undefined, "status-list");
     view.limitations.forEach((value) => limitations.append(element("li", value)));
     if (!view.limitations.length) limitations.append(element("li", "이 산출물에 기록된 추가 한계 없음 · 전체 검증 완료를 의미하지 않는다."));
     target.append(limitations);
+  }
+
+  function render_evaluation_cards(target, metrics) {
+    const labels = { candidate_precision: "후보 Precision", candidate_recall: "후보 Recall",
+      confirmed_precision: "확정 Precision", confirmed_recall: "확정 Recall" };
+    const cards = element("div", undefined, "evaluation-cards");
+    for (const [metric_id, label] of Object.entries(labels)) {
+      const metric = metrics.find((row) => row.metric_id === metric_id);
+      const card = element("article", undefined, "evaluation-card");
+      card.dataset.metric = metric_id;
+      const has_value = metric && metric.value !== null;
+      card.append(element("h4", label), element("p", has_value ? (metric.value * 100).toFixed(2) + "%" : metric ? "미측정" : "미제공", "evaluation-value"));
+      if (has_value) {
+        const meter = element("meter");
+        meter.min = 0;
+        meter.max = 1;
+        meter.value = metric.value;
+        meter.setAttribute("aria-label", label + " · Reporter 원본 비율");
+        card.append(meter);
+      }
+      card.append(element("p", metric ? "분자 " + metric.numerator + " / 분모 " + metric.denominator + (metric.value === null ? " · 계산 불가 또는 미측정" : "") : "산출물에 해당 지표 없음"));
+      cards.append(card);
+    }
+    target.append(cards);
   }
 
   function renderEvaluation(artifact) {
@@ -639,6 +910,7 @@
     target.replaceChildren();
     if (!artifact?.view) return;
     const view = artifact.view;
+    render_evaluation_cards(target, view.metrics);
     target.append(element("h4", "평가 조건"));
     table(target, "평가 기준", [["데이터셋", "dataset_id"], ["버전", "dataset_version"],
       ["정답 SHA-256(원문 비열람)", "sha256"], ["KG revision", () => view.source_graph_revision],
@@ -669,7 +941,12 @@
   }
 
   function render(payload) {
+    if (disclosure_run_id !== currentRunId) {
+      disclosure_states.clear();
+      disclosure_run_id = currentRunId;
+    }
     const byType = new Map(payload.artifacts.map((artifact) => [artifact.artifact_type, artifact]));
+    renderDiagnosisOverview(document.getElementById("overview-view"), byType);
     for (const [prefix, name] of [["crawl", "crawl_result"], ["semantic", "semantic_analysis"]]) {
       const artifact = byType.get(name);
       document.getElementById(prefix + "-state").textContent = stateText(artifact);
@@ -680,7 +957,7 @@
         if (artifact.view.node_types) counts(target, artifact.view.node_types);
       }
     }
-    renderGraph(byType.get("graph_query_result"));
+    renderGraph(byType.get("graph_query_result"), byType.get("vulnerability_candidates"));
     renderProcess(byType);
     renderApproval(byType);
     renderReport(byType.get("diagnosis_report"));
