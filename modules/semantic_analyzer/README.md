@@ -12,9 +12,10 @@
 - **정규화·구조 그래프는 규칙(LLM 없음)** → `basis=observed`.
   - 정규화: Endpoint(method+path_template, 숫자·UUID 세그먼트 → `{id}`), Parameter(location·value_type·is_sensitive).
   - 구조 관계: `HAS_ROLE`(User→Role), **`ACCESS`(Role→Endpoint + User(계정)→Endpoint)**, `CALL`(Page/Action→Endpoint), `USE`(Endpoint→Parameter).
-  - **`OWNS`(User→Resource)**: 접근만으로 만들지 않는다. 인스턴스 자원을 **단일 계정이 접근하고 그 응답이 자원을 반환**(2xx+응답 identifiers에 그 id)했을 때만 관찰 근거로 생성(`basis=observed`). 공개·다계정 자원엔 안 붙는다.
+  - **`OWNS`(User→Resource)**: 접근만으로 만들지 않는다. 인스턴스 자원을 **단일 계정이 경로 식별자(`/x/{id}`)로 2xx 접근**했을 때만 관찰 근거로 생성(`basis=observed`). 응답 본문 id(`identifiers`)는 더 강한 신호일 뿐 필수 아님 → HTML 자원(`/orders/{id}` 등)도 포착한다. 공개·다계정 자원, 경로 식별자 없는 body-id 자원엔 안 붙는다(과대귀속 방지).
 - **자원·행위 의미와 업무 흐름은 LLM으로 추론** → `basis=inferred`.
   - `action_meaning`, Resource 노드(type/instance, 인스턴스 식별은 path+id형 query·body), `REFERENCE`(Endpoint→Resource), `workflows`.
+  - **의미 입력 정제**: LLM엔 비민감 path/query/body 파라미터 이름만 넘긴다. **cookie·header·민감 파라미터는 제외**(쿠키 `session` 등을 `resource:session`으로 오인 방지). 구조 그래프의 Parameter·USE·normalized_requests에는 그대로 남는다.
   - **발견 엔드포인트**(입력 `discovered_endpoints`, 요청 안 함): Endpoint·Parameter·`CALL`(Page/Action→Endpoint)을 `inferred`로 생성. `ACCESS`·`normalized_requests`는 만들지 않는다.
 - 원본 `request_id`·`account_id`·`role_id`는 보존하고 새 ID로 바꾸지 않는다.
 - `ground_truth.json`은 읽지 않는다. 인증·비밀값은 값 없이(이름·null) 다룬다.
@@ -38,7 +39,7 @@ LLM 출력은 데이터다 — service·validation이 타입·ID·참조를 다�
 | `ACCESS` 관계 | 1차 구현은 **Role→Endpoint 집계만** | Role→Endpoint **+ User(계정)→Endpoint** 둘 다 생성 | KG `role_resource_access` 질의가 **계정 단위 접근**을 보는데 Role만 있으면 결과가 비었음(access_analyzer 피드백). m2 `GraphEdge.relation_type` enum에 `ACCESS`가 이미 있고 source/target 노드타입 제약이 없어 **스키마(계약) 변경은 아니다**. 의미 확장이라 KG(이동찬)와 합의 대상으로 열려 있음(현재 additive) |
 | 검증 오류 메시지 | — | jsonschema 메시지를 **위치+제약 종류만** 남김(입력 값 제거) | anyOf/type 등 메시지에 입력 값(URL·토큰)이 섞여 샐 수 있어 차단(절대규칙 2) |
 | LLM provider | "다음 PR에서 실제 provider" | `fake`+`ollama`+`openrouter`(모델 비교용) provider 교체식, 의존성 0 | 실모델 연결. 계약(`model_info` 등)은 불변 |
-| `discovered_endpoints`·`OWNS` | — | 입력 0.3.0의 `discovered_endpoints`를 Endpoint·Parameter·`CALL`(inferred)로 노드화. `OWNS`는 경로 접근 기반 → **관찰 근거(단일 계정 접근+응답 반환, observed)**로 전환 | collector 0.3.0(#80) 소비. OWNS 접근=소유 과대귀속(7차 C1·C4) 해소. 소비자 KG·access_analyzer가 내 규칙에 맞춤 |
+| `discovered_endpoints`·`OWNS` | — | 입력 0.3.0의 `discovered_endpoints`를 Endpoint·Parameter·`CALL`(inferred)로 노드화. `OWNS`는 경로 접근 기반 → **관찰 근거(단일 계정 접근+2xx+경로 식별자, observed; 응답 본문 id는 선택적 강신호)**로 전환 | collector 0.3.0(#80) 소비. OWNS 접근=소유 과대귀속(7차 C1·C4) 해소. HTML 인스턴스 자원도 포착. 소비자 KG·access_analyzer가 내 규칙에 맞춤 |
 
 `node_id`(예: `user:account:user_a`)는 **내부 그래프 식별자**다(`utils/ids.py`). reporter는 ID 문자열이 아니라 정규화 키로 매칭하므로 지금은 내부용이며, **다른 모듈이 같은 포맷에 의존하는 것은 아직 공통 계약이 아니다**(그런 요구가 있으면 출력 계약·docs/spec + KG 합의로 다룬다). 계정 식별이 모듈을 넘을 때의 안정 키는 `account_id`이며, 노드 `properties.account_id`에 원본을 보존한다.
 
@@ -49,6 +50,7 @@ LLM 출력은 데이터다 — service·validation이 타입·ID·참조를 다�
 | 2차 | #24 | ① 입력 `Page.account_id` 미러 ② 검증 메시지 비밀값 누출 차단 ③ `ACCESS`에 계정→Endpoint 추가 | 스키마 변경(입력 사본)·보안·그래프 의미 |
 | 3차 | #28 | Ollama provider 추가(`OllamaClient`+`factory`, `[llm] provider` 토글, 의존성 0) | 기본 fake 유지, 계약 불변 |
 | 4차 | #81 | 입력 crawl_result 0.3.0 소비: `discovered_endpoints` 노드화(inferred) + `OWNS` 접근/소유 분리(observed) + 인스턴스 식별 path+id형 query·body | collector #80과 동기 머지. 출력 0.3.0 정렬은 #85(팀 전체) |
+| 5차 | (이번) | `OWNS` 규칙을 "단일 계정 접근+2xx+**경로 식별자**"로 조정(응답 본문 id 필수 제거→HTML `/orders/{id}` 등 포착) + LLM 의미 입력에서 cookie·header·민감 파라미터 제외(`resource:session` 오인 방지) | 출력 스키마·OWNS 엣지 형식 불변(observed). OWNS 소비자 KG·access_analyzer 합의 전제. SA 67 passed |
 
 > 실모델(Ollama) e2e는 배선·파싱·재검증까지 확인됐고, 유효 초안 생성 품질은 모델·프롬프트 영역으로 후속(GPU 재확인). 상세는 개인 작업 로그/STATUS.
 

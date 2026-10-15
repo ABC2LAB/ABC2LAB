@@ -1,3 +1,4 @@
+import copy
 import json
 from pathlib import Path
 
@@ -103,12 +104,19 @@ def test_resources_are_inferred_and_owns_is_observed(result):
     assert all(n["basis"] == "inferred" for n in resources)
     assert all(n["properties"]["resource_scope"] in ("type", "instance") for n in resources)
     owns = _edges_by_type(result, "OWNS")
-    # OWNS는 관찰 근거로만: alice·bob이 각자 자기 주문을 접근하고 응답이 그 주문을 돌려줬다(단일 접근) → basis=observed.
+    # OWNS는 관찰 근거로만: alice·bob이 각자 자기 주문을 경로 식별자(/orders/{id})로 2xx 접근 → basis=observed.
+    # alice 주문 응답엔 본문 id가 없어도(HTML류, fixture에서 identifiers=null) 경로 식별자+2xx로 소유를 세운다.
     assert owns and all(e["basis"] == "observed" for e in owns)
     assert {e["source_id"] for e in owns} == {"user:acc_alice", "user:acc_bob"}
-    # 접근만으로 소유를 만들지 않는다: 공개(type) 자원에는 OWNS가 붙지 않는다(C1·C4 과대귀속 방지).
+    # 공개(type) 자원엔 OWNS가 붙지 않는다(C1·C4 과대귀속 방지).
     type_resource_ids = {n["node_id"] for n in resources if n["properties"]["resource_scope"] == "type"}
     assert not any(e["target_id"] in type_resource_ids for e in owns)
+    # 경로 식별자 없는 body-id 인스턴스(cart:product_id)는 단일 접근·2xx여도 OWNS에서 제외한다.
+    cart_instance_ids = {n["node_id"] for n in resources
+                         if n["properties"]["resource_scope"] == "instance"
+                         and n["properties"]["resource_key"] == "cart"}
+    assert cart_instance_ids, "fixture의 /cart/add body product_id로 생긴 cart 인스턴스가 있어야 한다"
+    assert not any(e["target_id"] in cart_instance_ids for e in owns)
 
 
 def test_instance_resource_has_match_key(result):
@@ -136,3 +144,37 @@ def test_workflows_one_per_account_with_ordered_steps(result):
 
 def test_fake_llm_reports_no_model_info(result):
     assert result["model_info"] is None
+
+
+class _RecordingClient(FakeClient):
+    """FakeClient 결과는 그대로 쓰되, 넘어온 RequestFeatures를 기록한다(네트워크 0)."""
+
+    def __init__(self) -> None:
+        self.seen: list = []
+
+    def infer_request_meaning(self, features):
+        self.seen.append(features)
+        return super().infer_request_meaning(features)
+
+
+def test_cookie_header_and_sensitive_params_excluded_from_llm_features(crawl_data):
+    # 쿠키·헤더·민감 파라미터는 LLM 의미 추론 입력(parameter_names)에서 빠진다(자원 오인 방지).
+    # 단, 구조 그래프의 Parameter 노드에는 관찰 사실로 남는다.
+    data = copy.deepcopy(crawl_data)
+    target = next(r for r in data["requests"] if r["request_id"] == "req_order_detail_alice")
+    target["parameters"].extend([
+        {"name": "session", "location": "cookie", "value": None, "is_sensitive": True},
+        {"name": "x-csrf", "location": "header", "value": "t", "is_sensitive": False},
+        {"name": "token", "location": "query", "value": "s", "is_sensitive": True},
+    ])
+    client = _RecordingClient()
+    result = analyze_data(data, client)
+    features = next(f for f in client.seen if f.path_template == "/orders/{id}")
+    # 의미 입력엔 비민감 path/query/body만: order_id는 남고 cookie/header/민감은 빠진다.
+    assert "order_id" in features.parameter_names
+    assert "session" not in features.parameter_names  # cookie
+    assert "x-csrf" not in features.parameter_names   # header
+    assert "token" not in features.parameter_names    # 민감 query
+    # 구조 그래프엔 쿠키 파라미터가 관찰 노드로 남는다.
+    param_names = {n["properties"]["name"] for n in _nodes_by_type(result, "Parameter")}
+    assert "session" in param_names
