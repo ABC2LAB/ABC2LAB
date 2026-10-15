@@ -450,6 +450,7 @@ with ExitStack() as stack:
   페이지로 튕기는 것은 로그인 안 된 상태다. 이 302를 응답으로 기록하지 않고 예외로 올려 verifier가 indeterminate로 두게 한다(절대 규칙 9).
 - **신호 2(`success_check=cookie_present`일 때만)**: send 뒤 context에 성공 쿠키 이름이 없으면 만료(이름만 확인, 값 비노출).
 - 상태 코드 **401·403은 만료로 쓰지 않는다** — 403은 인가 거부(정상 failure)라 만료와 섞으면 안 된다.
+- **비인증(guest) 계정 lease는 만료 검사를 하지 않는다**(2026-10-15) — 세션이 없어 만료 판정이 의미 없고, 그 계정의 로그인 리다이렉트는 정상 거부라 verifier가 그대로 판정해야 한다(forced_browsing 검증). 인증 계정 경로는 그대로다.
 - `url_contains`·`text_present` 설정은 send 응답에 신뢰성 있게 매핑되지 않아 신호 1만 적용한다(한계 참조).
 
 ### 한계

@@ -136,11 +136,16 @@ def _safe_url_for_log(url: str) -> str:
 
 
 class BrowserSessionLease:
-    """계정 하나의 대여된 세션. 창구가 소유한 세션으로 요청을 대신 보낸다."""
+    """계정 하나의 대여된 세션. 창구가 소유한 세션으로 요청을 대신 보낸다.
 
-    def __init__(self, config: CrawlerConfig, backend: AccountBackend) -> None:
+    is_unauthenticated=True(비인증 계정, crawl_result의 session_ref=null)면 세션이 없어 만료 판정이 의미 없다.
+    그 계정의 로그인 리다이렉트는 정상 거부라 verifier가 그대로 판정해야 하므로 응답을 가공 없이 돌려준다.
+    """
+
+    def __init__(self, config: CrawlerConfig, backend: AccountBackend, is_unauthenticated: bool = False) -> None:
         self._config = config
         self._backend = backend
+        self._is_unauthenticated = is_unauthenticated
         self._expired = False
 
     def is_valid(self) -> bool:
@@ -163,7 +168,8 @@ class BrowserSessionLease:
         headers = strip_secret_headers(tuple(getattr(request, "headers", ()) or ()))
         response = self._backend.request(request.method, url, headers, getattr(request, "body", None))
         login = self._config.login
-        if login is not None and is_expired_response(login, url, response, self._backend.cookie_names()):
+        # 비인증 lease는 만료 검사를 건너뛴다(세션이 없다). 인증 계정 경로는 그대로다.
+        if login is not None and not self._is_unauthenticated and is_expired_response(login, url, response, self._backend.cookie_names()):
             self._expired = True
             logger.info("세션 창구 만료 감지: %s (로그인 안 된 응답)", _safe_url_for_log(url))
             raise SessionExpiredError("세션이 로그인 안 된 상태")
@@ -174,6 +180,11 @@ class BrowserSessionLease:
 
 
 BackendFactory = Callable[[str], AccountBackend]
+
+
+def _is_guest_account(config: CrawlerConfig, account_id: str) -> bool:
+    """설정의 비인증(guest) 계정인가. 설정에 없는 account_id는 False(백엔드 생성이 먼저 거절한다)."""
+    return any(account.account_id == account_id and account.is_guest for account in config.accounts)
 
 
 class BrowserSessionExecutor:
@@ -187,7 +198,7 @@ class BrowserSessionExecutor:
     def lease(self, account_id: str) -> BrowserSessionLease:
         backend = self._backend_factory(account_id)
         self._backends.append(backend)
-        return BrowserSessionLease(self._config, backend)
+        return BrowserSessionLease(self._config, backend, is_unauthenticated=_is_guest_account(self._config, account_id))
 
     def close(self) -> None:
         """반납되지 않은 세션까지 모두 닫는다(창구 종료)."""
