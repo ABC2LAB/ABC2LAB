@@ -23,6 +23,7 @@
 LLM 호출은 `llm/` 한 곳에 모으고, 설정(`configs/default.toml`의 `[llm] provider`)으로 구현을 바꿔 끼운다.
 - `provider = "fake"` (기본): 네트워크 0 `FakeClient`. method+경로로 의미를 결정적으로 흉내낸다. 테스트·CI는 항상 이걸 쓴다.
 - `provider = "ollama"`: 로컬 Ollama HTTP API(`/api/generate`)를 **stdlib urllib**로 호출(`llm/ollama_client.py`). **추가 의존성 0.** `model_id`는 설정에 넣는다(예시값 아님).
+- `provider = "openrouter"`: **모델 비교용** OpenRouter Chat Completions(`/chat/completions`)를 stdlib urllib로 호출(`llm/openrouter_client.py`, 의존성 0). 외부 서비스로 요청 특징(method·path_template·parameter_names)이 나가므로 폐쇄망 운영은 ollama를 쓴다. 프롬프트(`SYSTEM_PROMPT`·`build_prompt`)·`PROMPT_VERSION`은 Ollama와 같고, 응답 모양은 `response_format`(json_schema, strict)과 `provider.require_parameters`로 요구한 뒤 다시 검증한다. 설정 키는 ollama와 같다(`base_url` 기본 `https://openrouter.ai/api/v1`). **API key는 설정이 아니라 `OPENROUTER_API_KEY` 환경변수로만** 받고 오류 메시지·`model_info`에 넣지 않는다. 키가 없으면 클라이언트를 만들 때 `LlmError`.
 
 설정 파일 위치는 커밋된 `configs/default.toml`을 고치지 않고 바꿀 수 있다(우선순위: CLI `--config` > 환경변수 `SEMANTIC_ANALYZER_CONFIG_PATH` > 기본). 명시 경로인데 파일이 없거나 `[llm]`·`provider`가 빠지면 조용히 fake로 떨어지지 않고 `LlmError`(#57). collector `COLLECTOR_CONFIG_PATH`와 같은 방식.
 
@@ -36,7 +37,7 @@ LLM 출력은 데이터다 — service·validation이 타입·ID·참조를 다�
 | 입력 `Page.account_id` | m1 Page 표에 **없음** | 입력 스키마 Page에 `account_id`(required) 미러 | collector가 코드/스키마에 `account_id`(관찰 계정)를 추가해 내보냄(collector의 "명세 대비 변경"). 안 받으면 `additionalProperties:false`가 collector 출력을 거절. **명세(docs/spec m1) 반영은 관리자 몫(미반영 상태)** |
 | `ACCESS` 관계 | 1차 구현은 **Role→Endpoint 집계만** | Role→Endpoint **+ User(계정)→Endpoint** 둘 다 생성 | KG `role_resource_access` 질의가 **계정 단위 접근**을 보는데 Role만 있으면 결과가 비었음(access_analyzer 피드백). m2 `GraphEdge.relation_type` enum에 `ACCESS`가 이미 있고 source/target 노드타입 제약이 없어 **스키마(계약) 변경은 아니다**. 의미 확장이라 KG(이동찬)와 합의 대상으로 열려 있음(현재 additive) |
 | 검증 오류 메시지 | — | jsonschema 메시지를 **위치+제약 종류만** 남김(입력 값 제거) | anyOf/type 등 메시지에 입력 값(URL·토큰)이 섞여 샐 수 있어 차단(절대규칙 2) |
-| LLM provider | "다음 PR에서 실제 provider" | `fake`+`ollama` provider 교체식, 의존성 0 | 실모델 연결. 계약(`model_info` 등)은 불변 |
+| LLM provider | "다음 PR에서 실제 provider" | `fake`+`ollama`+`openrouter`(모델 비교용) provider 교체식, 의존성 0 | 실모델 연결. 계약(`model_info` 등)은 불변 |
 | `discovered_endpoints`·`OWNS` | — | 입력 0.3.0의 `discovered_endpoints`를 Endpoint·Parameter·`CALL`(inferred)로 노드화. `OWNS`는 경로 접근 기반 → **관찰 근거(단일 계정 접근+응답 반환, observed)**로 전환 | collector 0.3.0(#80) 소비. OWNS 접근=소유 과대귀속(7차 C1·C4) 해소. 소비자 KG·access_analyzer가 내 규칙에 맞춤 |
 
 `node_id`(예: `user:account:user_a`)는 **내부 그래프 식별자**다(`utils/ids.py`). reporter는 ID 문자열이 아니라 정규화 키로 매칭하므로 지금은 내부용이며, **다른 모듈이 같은 포맷에 의존하는 것은 아직 공통 계약이 아니다**(그런 요구가 있으면 출력 계약·docs/spec + KG 합의로 다룬다). 계정 식별이 모듈을 넘을 때의 안정 키는 `account_id`이며, 노드 `properties.account_id`에 원본을 보존한다.
@@ -78,9 +79,10 @@ entrypoint.py            # run(operation, input_paths, output_dir, context) + CL
 service.py               # 정규화 + 구조 그래프 + (LLM) 의미 추론
 llm/adapter.py           # LlmClient 프로토콜 + FakeClient + LlmError
 llm/ollama_client.py     # OllamaClient (stdlib urllib, 의존성 0)
+llm/openrouter_client.py # OpenRouterClient (모델 비교용, stdlib urllib, 의존성 0)
 llm/factory.py           # configs의 provider로 클라이언트 선택(기본 fake)
 utils/                   # normalize·ids·io(원자적 저장)·envelope·validation
 schemas/input|output/    # 입력(collector 계약 사본)·출력 JSON Schema
-configs/default.toml     # 실행 설정([llm] provider: fake|ollama)
+configs/default.toml     # 실행 설정([llm] provider: fake|ollama|openrouter)
 tests/                   # 테스트 + 입력 fixture
 ```
