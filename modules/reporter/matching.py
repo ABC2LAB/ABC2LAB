@@ -33,6 +33,32 @@ class ObservedEntity:
     properties: Mapping[str, Any]
 
 
+def has_parameter_match_fields(
+    endpoint: Mapping[str, Any],
+    parameter: Mapping[str, Any],
+) -> bool:
+    values = (
+        endpoint.get("method"), endpoint.get("path_template"),
+        parameter.get("name"), parameter.get("location"),
+    )
+    return all(isinstance(value, str) and bool(value.strip()) for value in values)
+
+
+def parameter_comparison_properties(
+    endpoint: Mapping[str, Any],
+    parameter: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "endpoint": {"method": endpoint["method"], "path_template": endpoint["path_template"]},
+        "endpoint_method": endpoint["method"],
+        "endpoint_path_template": endpoint["path_template"],
+        "method": endpoint["method"],
+        "path_template": endpoint["path_template"],
+        "name": parameter["name"],
+        "location": parameter["location"],
+    }
+
+
 @dataclass(frozen=True)
 class ActorMatcher:
     account_id_by_actor_alias: Mapping[str, str]

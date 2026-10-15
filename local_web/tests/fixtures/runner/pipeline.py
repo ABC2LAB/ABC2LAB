@@ -32,6 +32,10 @@ def main() -> int:
         parser.add_argument("--" + name, required=True)
     args = parser.parse_args()
     assert args.mode == "development"
+    if "LOCAL_WEB_TEST_REPORTER_CONFIG" in os.environ:
+        assert os.environ.get("REPORTER_EVALUATION_CONFIG_PATH") == json.loads(
+            os.environ["LOCAL_WEB_TEST_REPORTER_CONFIG"]
+        )
     config_path = Path(os.environ["COLLECTOR_CONFIG_PATH"])
     configuration = config_path.read_bytes()
     assert tomllib.loads(configuration.decode())["target_url"] == args.target_url

@@ -12,10 +12,11 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-14
+## 현재 구현·연결 상태 — 2026-10-15
 
-기준 커밋 `913a0df`(PR #82 병합) + 이번 작업 트리 기준이다.
-실행 계약 0.3.0과 기존 발견율을 유지하며 개발 평가의 계정 매핑·Precision을 보완했다.
+기준 커밋 `cb9dc8e` + 이번 작업 트리 기준이다.
+실행 계약 0.3.0과 기존 발견율을 유지하며 snapshot 관계 평가의 비교 키를 보완하고
+local_web에서 기존 선택적 계정 매핑 설정을 전달하도록 연결했다.
 기존 산출물 Schema·GT 0.1.0·default-v1·문서 판 v0.2는 변경하지 않는다.
 
 | 구분 | 현재 상태 |
@@ -25,22 +26,24 @@
 | 공개 계약 | 실행 입력 7종·출력 2종 `0.3.0`만 지원; Ground Truth는 기존 `0.1.0` 유지 |
 | 입력 호환 | Collector discovered_endpoints·응답 식별자 수용, KG·Safety 출력과 입력 사본 일치; 기존 Resource·source_account_id 의미 유지 |
 | 평가 범위 | Endpoint 노드·Endpoint→USE→Parameter(추론 포함)·normalized_requests로 발견율 계산; 진단 집계 유지 |
+| 관계 평가 | 실제 snapshot의 Page.url을 비교용 path로 사용하고 USE의 Endpoint 문맥 반영; 실제 node_id·방향·관계 종류 확인, 탈락 건수는 notes에 기록 |
 | 평가 계정 매핑 | GT와 분리된 선택적 Reporter 설정으로 논리 actor→원본 account_id를 연결; Candidate·User·관계에 적용 |
 | Precision 집계 | 양성 GT 최대 일대일 매칭 후 FP=전체 prediction−TP; 음성·미매칭·중복 예측 포함 |
-| 독립 회귀 | Reporter `533 passed`; 담당 3개 합동 `1098 passed, 12 skipped`; 계정/FP 회귀 47건 추가 |
-| 실제 전체 연결 | 기존 단일 회차 Runner의 report·evaluate 연결 유지(PR #59). 새 0.3 전체 실행은 외부 생산자·Web 수용 전환 후 재검증 필요 |
+| 독립 회귀 | Reporter `558 passed`; 담당 3개 `1123 passed, 12 skipped`; Reporter+Web `844 passed, 18 skipped`; Runner 대역 `58 passed` |
+| 실제 전체 연결 | 지정 진단의 공개 산출물 10개가 0.3.0·completed이며 report·evaluate까지 연결 확인. 후보/시나리오 2개, 정책 차단 2개·검증 요청 0건·확정 0개 |
 
-이번 533건은 독립 회귀이며 이전 Runner 58건은 재실행하지 않았다.
-이 결과를 실제 대상의 성능 수치나 확정 취약점 건수로 사용하지 않는다.
-Verifier의 graph_updates 관계는 아직 0개이며 실제 검증 관계 수신과 구분한다.
+독립 회귀 수를 실제 대상 성능이나 확정 취약점 건수로 사용하지 않는다.
+`web-49ebec8c2f328963ecc3a7f46ebcf022`의 읽기 전용 재평가에서 관계 3/52→32/52,
+명시적 계정 설정을 적용하면 User 0/1→1/1·후보 TP 0→1을 확인했다.
+이는 동일 산출물의 평가 누락 수정이며 탐지 엔진 성능 향상이 아니다.
+해당 run의 Verifier graph_updates 관계는 0개로 실제 검증 관계 수신과 구분한다.
 PR #61의 적용 불가 JSON 체크·5xx 결과는 indeterminate로 보존하며 미재현이나
 확정 취약점으로 합치지 않는다. 상세 구현 이력은
 [모듈 README](../../modules/reporter/README.md)를 따른다.
 
-semantic_analyzer·access_analyzer·scenario_generator·verifier 출력은 현재 0.2다.
-각 담당자가 0.3으로 전환해야 새 Reporter 입력에서 수용한다. Collector·KG·Safety
-사본은 최상위 메타 설명을 제외한 Schema 일치를 확인했다. 공통 명세·Runner·
-local_web은 해당 담당자가 전환하며 이번에는 수정하지 않았다.
+외부 생산자와 Web의 0.3 전환은 현재 체크아웃과 위 run에서 확인했다.
+이번에는 다른 진단 모듈·루트 pipeline·공통 명세·GT·Schema를 변경하지 않았다.
+운영 Docker 재빌드·실제 .env 변경·새 진단은 미실행이며 완료 산출물은 보존한다.
 
 ## 독립 동작·수정 책임
 
@@ -154,7 +157,7 @@ local_web은 해당 담당자가 전환하며 이번에는 수정하지 않았�
 - [x]  report는 Ground Truth 없이 동작하고 evaluate만 정답·실제 KG snapshot·모델 및 자원 측정값을 사용한다.
 - [x]  평가 분모·미검증 수를 공개하고 분모 0의 비율은 null로 기록한다.
 - [x]  Runner가 동일 run의 후보·계획·판정·검증 결과를 report에 전달하고 개발 모드에서 evaluate까지 연결한다.
-- [ ]  실제 개발 평가 실행의 지표·분자/분모·미검증 건수·모델 및 실행 조건을 기록한다.
+- [x]  지정 개발 평가 run의 지표·분자/분모·정책 차단·모델/실행 조건과 읽기 전용 비교 결과를 기록한다. 실제 검증 성공과는 구분한다.
 
 ## 구현 주의사항
 
@@ -174,10 +177,28 @@ local_web은 해당 담당자가 전환하며 이번에는 수정하지 않았�
   USE가 없거나 방향·노드 종류가 맞지 않으면 그 노드는 평가 관찰에서 제외한다.
   매칭 필드 누락·빈 값·비문자열·불일치는 미매칭, 의미 분석 실패는 미측정이며
   노드·요청 중복으로 정답 분자를 늘리지 않는다. 잘못된 참조는 기존 입력 검증에서 거절한다.
-  관계·후보·확정 TP/FP/FN 및 GT 분모 규칙은 유지하며 입력·KG snapshot을 수정하지 않는다.
+  후보·확정 TP/FP/FN 및 GT 분모 규칙은 유지하며 입력·KG snapshot을 수정하지 않는다.
 - 같은 테스트 웹·dataset_version·초기 상태·계정·매칭 규칙·Policy 조건으로 모델을 비교한다. model_version·prompt_version·생성 설정·호출량·시간·자원을 기록한다.
 - 후보 발견율과 검증 확정 발견율을 분리한다. 전체 정답 양성 분모와 차단·승인 대기·판단불가 수를 함께 공개하고 미검증을 분모에서 빼서 발견율을 부풀리지 않는다.
 - 비율의 분모가 0이면 value=null이다. 미측정을 0·1로 기록하지 않는다. 정상 대조 사례도 포함해 정밀도를 평가한다.
+
+### Snapshot 관계 평가 — 비교용 표현과 실제 관계 분리
+
+- 관계 평가에는 실제 `structure_snapshot`만 사용한다. crawl_result·semantic_analysis의
+  노드나 관계를 가져와 snapshot의 누락 관계를 채우지 않는다.
+- Page에 path가 없으면 url을 비교용 path로 제공하고 기존 경로 정규화를 적용한다.
+  원본 properties·node_id·GT를 수정하지 않는다.
+- Parameter는 실제 Endpoint→USE→Parameter에서 Endpoint method·path_template과
+  Parameter name·location을 조합한다. 기존 속성 조건도 비교하며 endpoint 객체,
+  endpoint_method/endpoint_path_template, method/path_template 비교 키를 지원한다.
+  USE 방향·노드 종류·필수 값이 맞지 않으면 문맥을 생성하지 않는다.
+- 같은 Parameter가 여러 Endpoint에 연결돼도 다른 Endpoint의 문맥으로 USE 관계를
+  정답 처리하지 않는다. 매칭된 양 끝의 실제 node_id·relation_type·방향이 일치해야 한다.
+  중복 edge는 GT 관계 하나를 여러 번 세지 않는다. User는 아래 actor binding을 재사용한다.
+- notes에 일치·출발 노드만 미매칭·도착 노드만 미매칭·양쪽 미매칭·양끝 일치 후 관계
+  미매칭의 다섯 건수를 남긴다. 합계는 GT 관계 분모이며 공개 출력 필드 추가는 없다.
+- Resource 의미 보정·동의어 치환, Workflow 이름/순서 규칙 변경, report 확정 기준 변경은
+  하지 않는다. 관계 미매칭은 취약/정상 재판정이 아니다.
 
 ### 실행별 계정 매핑 — evaluate 전용 설정
 
@@ -207,6 +228,9 @@ GT의 논리 actor와 실행 계정을 분리한다. GT 필드·버전·원본�
 - 설정 SHA-256을 준비·저장 시 재검증하고 notes에 경로·해시·binding 수를 남긴다.
   기존 input_refs·GT 참조·원자 저장 검증을 유지한다. report는 설정을 읽지 않으며
   의미 분석·후보·시나리오 생성으로 GT나 매핑을 전달하지 않는다.
+- local_web Compose는 같은 환경변수를 자식 Runner에 상속한다. Docker에서는 `/app`
+  기준 상대 경로를 쓰고 Web은 GT·설정 내용을 읽지 않는다. 선택적 빈 값만 자식 환경에서
+  제거하며 비어 있지 않은 잘못된 경로·설정은 Reporter가 거절한다. 예시는 자동 적용하지 않는다.
 
 ### Benchmark TP/FP/FN 의미
 
@@ -397,6 +421,7 @@ GT가 대상의 완전한 정답 집합이라는 benchmark 가정으로 평가�
 | 2026-10-14 | 팀 합의로 실행 입력 7종·출력 2종을 0.3.0 전환, Collector 발견·식별자 필드 수용과 Endpoint 노드 기반 발견율 보완 | `33421ef` + 작업 트리. 462 passed, 합동 1015 passed·12 skipped. Ground Truth 0.1.0·default-v1·후보/확정 집계·문서 판 v0.2 유지; 외부 생산자·Web 전환 후 전체 재검증 필요 |
 | 2026-10-14 | PR #81의 추론 Parameter를 Endpoint→USE→Parameter로 평가에 포함하고 회귀 24건·공개 evaluate 저장을 검증 | `e93d0d8` + 작업 트리. 평가 56 passed, Reporter 486 passed, 합동 1051 passed·12 skipped. Schema·버전·GT·default-v1·관계/후보/확정 집계 불변; 실제 성능·새 pipeline 검증은 별도 |
 | 2026-10-14 | GT와 분리된 실행별 계정 매핑 설정, Candidate·User·관계 일치, 양성 우선 일대일 매칭과 FP=prediction−TP 보완 | `913a0df` + 작업 트리. 신규 회귀 47 passed, Reporter 533 passed, 합동 1098 passed·12 skipped. 설정 Schema 추가; 기존 산출물 Schema·GT 0.1.0·문서 판 v0.2·report 분류 유지. 실제 성능·pipeline·Docker 검증은 별도 |
+| 2026-10-15 | 실제 snapshot Page 경로·Parameter Endpoint 문맥·관계 탈락 notes 보완, local_web의 선택적 Reporter 설정 전달과 현재 0.3 연결 상태 반영 | `cb9dc8e` + 작업 트리. 관계 회귀 25건·Web 환경 전달 5건 추가. Reporter 558 passed, 합동 1123 passed·12 skipped, Reporter+Web 844 passed·18 skipped, Runner 대역 58 passed. 읽기 전용 비교에서 관계 3/52→32/52, 명시적 계정 매핑 시 User 0/1→1/1. 공개 산출물·GT 11개 해시 불변; GT/Schema/버전/report 분류 유지, 실제 배포·새 진단 미실행 |
 
 기존 책임 경계·미검증 후보 보존·평가 분모 규칙과 정답 필드 표는 유지하며 상세
 과거 구현 이력은 모듈 README에 보존한다. 2026-10-10 합동 회귀
