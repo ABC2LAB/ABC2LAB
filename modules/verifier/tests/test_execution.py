@@ -229,3 +229,51 @@ def test_lease_released(tmp_path: Path) -> None:
     executor = ScriptedExecutor({("GET", f"{ORIGIN}/orders/7"): ReplayResponse(200, body={})})
     _run(_one_step(), executor, tmp_path / "run_demo_001")
     assert executor.release_calls == executor.lease_calls == 1
+
+
+# ── 근거 파일 쓰기 실패: 그 단계만 error, 생 예외로 올리지 않는다 ──
+
+
+class _FailingResponseWriter(EvidenceWriter):
+    def write_response(self, evidence_id, response):
+        raise OSError("disk full")
+
+
+class _FailingRequestWriter(EvidenceWriter):
+    def write_request(self, evidence_id, request):
+        raise OSError("read-only file system")
+
+
+def _run_with_writer(scn, executor, writer, dec=None):
+    dec = dec or _decision()
+    outcome = execute_scenario(scn, dec, ExecutionContext(executor, writer, lambda: 0.0, ReplayConfig(0)))
+    return classify_scenario(scn, dec, outcome), outcome
+
+
+def test_response_evidence_write_failure_errors_the_step_after_sending(tmp_path: Path) -> None:
+    # 요청은 보냈는데 응답 근거를 못 썼다. 근거 없는 응답으로 판정하지 않고 단계 error·시나리오 indeterminate. 보낸 사실은 남긴다.
+    run_root = tmp_path / "run_demo_001"
+    run_root.mkdir()
+    executor = ScriptedExecutor({("GET", f"{ORIGIN}/orders/7"): ReplayResponse(200, body={"owner_id": 3})})
+    item, _ = _run_with_writer(_one_step(), executor, _FailingResponseWriter(run_root, 0))
+    [executed] = item["steps"]
+    assert (item["result"], item["execution_status"]) == ("indeterminate", "error")
+    assert executed["status"] == "error"
+    assert executed["request_ref"] is not None and executed["response_ref"] is None
+    assert _codes(item) == ["EVIDENCE_WRITE_FAILED"]
+    assert item["errors"][0]["retryable"] is False
+    assert executor.send_calls == 1
+
+
+def test_request_evidence_write_failure_errors_the_step_without_sending(tmp_path: Path) -> None:
+    # 요청 근거를 못 쓰면 보내지 않는다(request_ref·request_url 없음, 전송 0건). 전송 0건 중단은 execution_status 규칙상 not_executed다.
+    run_root = tmp_path / "run_demo_001"
+    run_root.mkdir()
+    executor = ScriptedExecutor({("GET", f"{ORIGIN}/orders/7"): ReplayResponse(200, body={"owner_id": 3})})
+    item, _ = _run_with_writer(_one_step(), executor, _FailingRequestWriter(run_root, 0))
+    [executed] = item["steps"]
+    assert (item["result"], item["execution_status"]) == ("indeterminate", "not_executed")
+    assert executed["status"] == "error"
+    assert executed["request_ref"] is None and executed["request_url"] is None
+    assert _codes(item) == ["EVIDENCE_WRITE_FAILED"]
+    assert executor.send_calls == 0

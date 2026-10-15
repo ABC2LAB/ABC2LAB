@@ -23,6 +23,7 @@ from modules.verifier.utils.config import ReplayConfig
 from modules.verifier.utils.envelope import ErrorCode, make_error_item
 from modules.verifier.utils.evidence import SECRET_MASK, EvidenceWriter, is_sensitive_key, redact_value
 from modules.verifier.utils.identifiers import extract_identifiers
+from modules.verifier.utils.storage import StorageError
 from modules.verifier.utils.text_content import coverage, visible_lines
 
 LOCATION_HEADER = "location"
@@ -576,7 +577,11 @@ def _send_with_redirects(
     while True:
         request = ReplayRequest(method=plan["method"], url=current_url)
         evidence_id = f"{verification_id}-{step['step_id']}-hop{hop}"
-        request_ref = context.writer.write_request(evidence_id, request)
+        # 근거 파일 쓰기 실패(디스크·권한·중복 이름)는 이 단계의 중단 사유다. 생 예외로 verify 전체를 넘어뜨리지 않는다.
+        try:
+            request_ref = context.writer.write_request(evidence_id, request)
+        except (OSError, StorageError):
+            raise _not_sent(ErrorCode.EVIDENCE_WRITE_FAILED, "요청 근거 파일을 쓰지 못해 보내지 않음", step)
         budget.spend()
         try:
             response = lease.send(request)
@@ -584,7 +589,11 @@ def _send_with_redirects(
             raise _sent(ErrorCode.SESSION_EXPIRED, "실행 중 세션 만료", step, current_url, request_ref)
         except SessionTransportError:
             raise _sent(ErrorCode.TRANSPORT_ERROR, "통신 실패", step, current_url, request_ref)
-        response_ref = context.writer.write_response(evidence_id, response)
+        try:
+            response_ref = context.writer.write_response(evidence_id, response)
+        except (OSError, StorageError):
+            # 요청은 이미 보냈다(request_ref 있음). 응답 근거가 없으니 판정하지 않고 단계 error로 둔다.
+            raise _sent(ErrorCode.EVIDENCE_WRITE_FAILED, "응답 근거 파일을 쓰지 못함", step, current_url, request_ref)
         # 리다이렉트: 기본(max_redirects=0)은 따라가지 않고 3xx를 그 단계 응답으로 기록한다.
         location = _redirect_location(response)
         if location is None or hop >= context.replay.max_redirects or budget.exhausted():
