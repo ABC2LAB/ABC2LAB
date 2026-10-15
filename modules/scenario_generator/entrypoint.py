@@ -38,6 +38,11 @@ from modules.scenario_generator.output_adapter import (
     decide_status,
 )
 from modules.scenario_generator.ollama_drafter import OllamaDrafterConfig, OllamaScenarioDrafter
+from modules.scenario_generator.openrouter_drafter import (
+    OpenRouterDrafterConfig,
+    OpenRouterScenarioDrafter,
+    read_api_key,
+)
 from modules.scenario_generator.replay_drafter import ReplayScenarioDrafter
 from modules.scenario_generator.scenario_drafter import DrafterError, ScenarioDrafter
 from modules.scenario_generator.service import GenerationOutcome, generate_scenarios
@@ -48,6 +53,7 @@ from modules.scenario_generator.utils.config import (
     MODEL_ID_KEY,
     PROVIDER_NONE,
     PROVIDER_OLLAMA,
+    PROVIDER_OPENROUTER,
     PROVIDER_REPLAY,
     DrafterSettings,
     load_drafter_settings,
@@ -69,8 +75,8 @@ MILLISECONDS_PER_SECOND = 1000
 PRIVATE_DIR_NAME = "private"
 DIAGNOSTICS_FILENAME = "draft_diagnostics.json"
 CLI_SOURCE = "CLI"
-# CLI ollama 옵션(argparse dest) → 설정 키. drafter 옵션을 하나라도 주면 CLI 모드(설정 파일을 안 읽는다).
-CLI_OLLAMA_KEY_BY_DEST = {
+# CLI 모델 옵션(argparse dest) → 설정 키(ollama·openrouter 공용). drafter 옵션을 하나라도 주면 CLI 모드(설정 파일을 안 읽는다).
+CLI_MODEL_KEY_BY_DEST = {
     "model_id": "model_id",
     "base_url": "base_url",
     "temperature": "temperature",
@@ -305,17 +311,17 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidates", required=True, type=Path, help="vulnerability_candidates.json 경로")
     parser.add_argument("--crawl-result", required=True, type=Path, help="crawl_result.json 경로")
     parser.add_argument("--output-dir", required=True, type=Path)
-    # drafter 옵션은 기본값을 모두 None으로 둔다: "줬는지"로 CLI 모드를 가린다. ollama 기본값은 OllamaDrafterConfig.
+    # drafter 옵션은 기본값을 모두 None으로 둔다: "줬는지"로 CLI 모드를 가린다. 모델 기본값은 각 DrafterConfig.
     parser.add_argument("--config", type=Path,
                         help=f"drafter 설정 TOML (없으면 {CONFIG_PATH_ENV}, 그것도 없으면 기본 경로). drafter 옵션과 같이 못 씀")
     parser.add_argument("--drafts", type=Path, help="미리 적어 둔 초안 파일(replay용). --llm-provider 없이 주면 replay")
-    parser.add_argument("--llm-provider", choices=(PROVIDER_REPLAY, PROVIDER_OLLAMA),
+    parser.add_argument("--llm-provider", choices=(PROVIDER_REPLAY, PROVIDER_OLLAMA, PROVIDER_OPENROUTER),
                         help="초안 생성기. 이것도 다른 drafter 옵션도 안 주면 설정 파일을 쓴다")
-    parser.add_argument("--model-id", help="--llm-provider ollama일 때 필수. 실제 설치한 모델 태그")
-    parser.add_argument("--base-url", help="Ollama 주소")
+    parser.add_argument("--model-id", help="--llm-provider ollama·openrouter일 때 필수. 실제 모델 태그·ID")
+    parser.add_argument("--base-url", help="모델 API 주소(ollama·openrouter)")
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--seed", type=int)
-    parser.add_argument("--timeout", type=float, help="Ollama 호출 타임아웃(초)")
+    parser.add_argument("--timeout", type=float, help="모델 호출 타임아웃(초)")
     parser.add_argument("--expected-sha256", action="append", default=[], metavar="TYPE=HEX")
     return parser
 
@@ -326,7 +332,10 @@ def build_drafter(settings: DrafterSettings) -> ScenarioDrafter | None:
         return None
     if settings.provider == PROVIDER_REPLAY:
         return ReplayScenarioDrafter.from_file(settings.drafts_path)
-    return OllamaScenarioDrafter(OllamaDrafterConfig(**settings.ollama_options))
+    if settings.provider == PROVIDER_OPENROUTER:
+        # API key는 환경변수에서만 읽는다. 없으면 DrafterError → 파일을 쓰기 전에 ValueError.
+        return OpenRouterScenarioDrafter(OpenRouterDrafterConfig(**settings.model_options), read_api_key())
+    return OllamaScenarioDrafter(OllamaDrafterConfig(**settings.model_options))
 
 
 def _build_configured_drafter() -> ScenarioDrafter | None:
@@ -338,8 +347,11 @@ def _build_configured_drafter() -> ScenarioDrafter | None:
     except (DrafterError, ValueError, OSError) as error:
         # 메시지에는 파일·키 이름만 넣는다. 원인은 예외 체인으로 남긴다.
         key_name = DRAFTS_PATH_KEY if settings.provider == PROVIDER_REPLAY else MODEL_ID_KEY
+        # openrouter는 설정 키가 아닌 API key 환경변수 누락일 수 있어 원인을 붙인다(DrafterError 메시지에는 값이 없다).
+        is_openrouter_error = settings.provider == PROVIDER_OPENROUTER and isinstance(error, DrafterError)
+        detail = f" ({error})" if is_openrouter_error else ""
         raise ValueError(
-            f"{config_path.name} [llm]: {key_name} 설정으로 drafter를 만들지 못함"
+            f"{config_path.name} [llm]: {key_name} 설정으로 drafter를 만들지 못함{detail}"
         ) from error
 
 
@@ -348,29 +360,29 @@ def _cli_drafter_settings(args: argparse.Namespace) -> DrafterSettings | None:
 
     CLI에서 준 옵션이 조용히 무시되는 조합은 ValueError(종료 코드 2, 파일 없음).
     """
-    ollama_values = {
-        key: getattr(args, dest) for dest, key in CLI_OLLAMA_KEY_BY_DEST.items() if getattr(args, dest) is not None
+    model_values = {
+        key: getattr(args, dest) for dest, key in CLI_MODEL_KEY_BY_DEST.items() if getattr(args, dest) is not None
     }
-    if args.llm_provider is None and args.drafts is None and not ollama_values:
+    if args.llm_provider is None and args.drafts is None and not model_values:
         return None
     if args.config is not None:
         raise ValueError("--config와 drafter 옵션을 같이 줄 수 없다(--config가 무시된다)")
     provider = args.llm_provider
     if provider is None:
-        if ollama_values:
-            raise ValueError("ollama 옵션(--model-id 등)은 --llm-provider ollama와 같이 준다")
+        if model_values:
+            raise ValueError("모델 옵션(--model-id 등)은 --llm-provider ollama·openrouter와 같이 준다")
         provider = PROVIDER_REPLAY  # --drafts만 준 경우(기존 호환)
     if provider == PROVIDER_REPLAY:
-        if ollama_values:
-            raise ValueError("--llm-provider replay에는 ollama 옵션(--model-id 등)을 줄 수 없다")
+        if model_values:
+            raise ValueError("--llm-provider replay에는 모델 옵션(--model-id 등)을 줄 수 없다")
         if args.drafts is None:
             raise ValueError("--llm-provider replay에는 --drafts가 필요하다")
         return parse_drafter_settings({"provider": provider, "drafts_path": str(args.drafts)}, CLI_SOURCE)
     if args.drafts is not None:
-        raise ValueError("--llm-provider ollama에는 --drafts를 줄 수 없다")
+        raise ValueError(f"--llm-provider {provider}에는 --drafts를 줄 수 없다")
     if args.model_id is None:
-        raise ValueError("--llm-provider ollama에는 --model-id가 필요하다")
-    return parse_drafter_settings({"provider": provider, **ollama_values}, CLI_SOURCE)
+        raise ValueError(f"--llm-provider {provider}에는 --model-id가 필요하다")
+    return parse_drafter_settings({"provider": provider, **model_values}, CLI_SOURCE)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

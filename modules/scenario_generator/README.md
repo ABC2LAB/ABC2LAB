@@ -52,21 +52,23 @@ entrypoint.run(operation, input_paths, output_dir, context, *, drafter=None)
 
 | 키 | 타입·범위 | 쓰는 provider | 내용 |
 |---|---|---|---|
-| `provider` | 문자열 `none` · `ollama` · `replay` (필수) | 전부 | 초안 생성기 선택 |
-| `model_id` | 문자열, 공백만은 안 됨 | ollama (필수) | 실제 설치한 모델 태그 |
-| `base_url` | 문자열 | ollama | Ollama 주소 |
-| `temperature` | 수(정수·실수), 0 이상, bool 안 됨 | ollama | 모델 옵션. `data.model_info`에 기록 |
-| `timeout_seconds` | 수(정수·실수), 0보다 큼, bool 안 됨 | ollama | 호출 타임아웃(초) |
-| `seed` | 정수, bool 안 됨 | ollama | 재현용. `data.model_info`에 기록 |
-| `model_version` | 문자열 | ollama | 빼면 `model_id`를 기록 |
+| `provider` | 문자열 `none` · `ollama` · `openrouter` · `replay` (필수) | 전부 | 초안 생성기 선택 |
+| `model_id` | 문자열, 공백만은 안 됨 | ollama·openrouter (필수) | 실제 설치한 모델 태그(ollama) 또는 OpenRouter 모델 ID |
+| `base_url` | 문자열 | ollama·openrouter | 모델 API 주소 |
+| `temperature` | 수(정수·실수), 0 이상, bool 안 됨 | ollama·openrouter | 모델 옵션. `data.model_info`에 기록 |
+| `timeout_seconds` | 수(정수·실수), 0보다 큼, bool 안 됨 | ollama·openrouter | 호출 타임아웃(초) |
+| `seed` | 정수, bool 안 됨 | ollama·openrouter | 재현용. `data.model_info`에 기록 |
+| `model_version` | 문자열 | ollama·openrouter | 빼면 `model_id`를 기록 |
 | `drafts_path` | 문자열, 있는 파일 | replay (필수) | 미리 적어 둔 초안 파일. 현재 폴더 기준 |
 
-ollama 키를 빼면 `OllamaDrafterConfig`의 기본값을 쓴다(기본값은 그 한 곳에만 있다). 커밋된 파일에 적힌 값은 안내용이라 빼도 동작이 같다.
+모델 키를 빼면 `OllamaDrafterConfig`·`OpenRouterDrafterConfig`의 기본값을 쓴다(기본값은 그 두 곳에만 있다. openrouter `base_url` 기본값은 `https://openrouter.ai/api/v1`).
+OpenRouter API key는 설정 키가 아니다. `OPENROUTER_API_KEY` 환경변수로만 받는다(TOML에 `api_key`를 쓰면 미정의 키로 거절). 커밋된 파일에 적힌 값은 안내용이라 빼도 동작이 같다.
 
 | provider | 동작 |
 |---|---|
 | `none` (커밋된 기본값) | drafter 없음 → `DRAFTER_NOT_CONFIGURED`로 `failed` 파일을 쓴다(네트워크 0) |
 | `ollama` | `OllamaScenarioDrafter` — 로컬 Ollama `/api/generate` |
+| `openrouter` | `OpenRouterScenarioDrafter` — OpenRouter `/chat/completions`. **모델 비교용 선택지**(외부 서비스로 초안 입력이 나간다). 기본·폐쇄망 운영은 ollama |
 | `replay` | `ReplayScenarioDrafter` — `drafts_path`의 초안을 그대로 쓴다(개발·테스트, `model_info.model_id = replay_file`) |
 
 기본값을 `none`으로 두는 이유: LLM 설정 없이 결과가 나온 것처럼 보이면 안 된다(결과가 조용히 0건이 되는 것 방지).
@@ -77,7 +79,8 @@ ollama 키를 빼면 `OllamaDrafterConfig`의 기본값을 쓴다(기본값은 �
 - 타입 틀림(문자열 키에 문자열이 아님, 수 키에 bool·문자열, `seed`에 정수가 아님)
 - 범위 밖(`temperature` < 0, `timeout_seconds` ≤ 0)
 - `provider` 없음·허용값 밖
-- ollama인데 `model_id`가 비었거나 공백
+- ollama·openrouter인데 `model_id`가 비었거나 공백
+- openrouter인데 `OPENROUTER_API_KEY` 환경변수가 없거나 빔(메시지에 환경변수 이름만)
 - replay인데 `drafts_path`가 비었거나 없는 파일
 - drafter를 만들다 실패(초안 파일 내용 깨짐 등). `ValueError`로 감싸고 원인은 예외 체인(`__cause__`)에 남긴다
 
@@ -118,7 +121,7 @@ response = scenario_generator_entrypoint.run("generate", input_paths, output_dir
   --output-dir runs/<run_id>/artifacts/iteration-000/scenario_generator \
   [--expected-sha256 <입력종류>=<해시>] \
   [--config <설정 TOML>] \
-  [--drafts <초안 파일>] [--llm-provider replay|ollama] [--model-id <설치한 모델 태그>] [--base-url <Ollama 주소>] \
+  [--drafts <초안 파일>] [--llm-provider replay|ollama|openrouter] [--model-id <모델 태그·ID>] [--base-url <모델 API 주소>] \
   [--temperature <수>] [--seed <정수>] [--timeout <초>]
 ```
 
@@ -129,16 +132,18 @@ drafter 옵션은 `--llm-provider` `--drafts` `--model-id` `--base-url` `--tempe
 
 | 옵션 | 내용 |
 |---|---|
-| `--llm-provider` | `replay` 또는 `ollama`. 기본값 없음 |
+| `--llm-provider` | `replay` · `ollama` · `openrouter`. 기본값 없음 |
 | `--drafts` | replay 초안 파일. `--llm-provider` 없이 주면 replay |
-| `--model-id` | ollama일 때 필수. 실제 설치한 모델 태그 |
-| `--base-url` / `--temperature` / `--seed` / `--timeout` | ollama 옵션. 빼면 `OllamaDrafterConfig` 기본값 |
+| `--model-id` | ollama·openrouter일 때 필수. 실제 모델 태그·ID |
+| `--base-url` / `--temperature` / `--seed` / `--timeout` | 모델 옵션(ollama·openrouter). 빼면 각 `DrafterConfig` 기본값 |
+
+openrouter는 CLI에서도 API key를 옵션으로 받지 않는다(셸 기록에 남지 않게). `OPENROUTER_API_KEY` 환경변수를 쓴다.
 
 직접 준 drafter 옵션이 조용히 무시되는 조합은 전부 exit 2(파일 없음)다.
 
-- provider 없이 ollama 옵션(`--model-id` 등)만 줌
-- `--llm-provider replay`인데 `--drafts`가 없음, 또는 ollama 옵션을 같이 줌
-- `--llm-provider ollama`인데 `--drafts`를 같이 줌, 또는 `--model-id`가 없음
+- provider 없이 모델 옵션(`--model-id` 등)만 줌
+- `--llm-provider replay`인데 `--drafts`가 없음, 또는 모델 옵션을 같이 줌
+- `--llm-provider ollama|openrouter`인데 `--drafts`를 같이 줌, 또는 `--model-id`가 없음
 - `--config`와 drafter 옵션을 같이 줌(`--config`가 무시되므로)
 - 값이 타입·범위 검사를 통과하지 못함(예: `--timeout 0`)
 
@@ -261,12 +266,13 @@ class ScenarioDrafter(Protocol):
 
 - 초안은 `{"steps"}` 한 키만 가진 객체여야 한다(모양은 `scenario_drafter.build_draft_json_schema()`)
 - 호출 실패는 `DrafterError`로 감싸서 던진다(메시지에 비밀값·프롬프트 원문 금지)
-- 구현체는 두 개다.
+- 구현체는 세 개다.
 
 | drafter | 파일 | 용도 |
 |---|---|---|
 | `ReplayScenarioDrafter` | `replay_drafter.py` | 개발·테스트. `drafts_path`(설정)·`--drafts`(CLI) 파일의 초안을 그대로 돌려준다. `model_info.model_id`는 `replay_file`로 남아 LLM이 아님을 드러낸다 |
 | `OllamaScenarioDrafter` | `ollama_drafter.py` | 실제 로컬 모델. 표준 라이브러리 `urllib`로 Ollama `/api/generate`를 부른다(추가 패키지 없음, 폐쇄망용) |
+| `OpenRouterScenarioDrafter` | `openrouter_drafter.py` | 모델 비교용 외부 API. `urllib`로 OpenRouter `/chat/completions`를 부른다(추가 패키지 없음). 프롬프트(`SYSTEM_PROMPT`)·`PROMPT_VERSION`·초안 Schema는 Ollama와 같다 |
 
 - Ollama 프롬프트 버전은 `PROMPT_VERSION`(현재 `ollama-scenario-v8`)이고 `model_info.prompt_version`에 기록된다.
   - v4(10/11): parameter 객체 예시를 넣고 입력 parameter가 출력과 같은 모양이라고 적었다.
@@ -278,6 +284,9 @@ class ScenarioDrafter(Protocol):
   Schema의 키는 `DRAFT_*` 상수 순서, 허용값은 출력 Schema에서 가져온다. 모든 객체가 미정의 키를 거절하고 `steps`는 1개 이상이다.
   값(`value`)은 생성 문법을 줄이려고 스칼라와 스칼라 배열까지만 둔다. 의미(ID 존재·순서·참조)는 강제하지 못하므로 조립·`scenario_validator`가 계속 본다.
   `format`에 JSON Schema를 받는 Ollama(0.5 이상)가 필요하다
+- OpenRouter 호출은 같은 초안 Schema를 `response_format`(`json_schema`, `strict: true`)으로 넘기고 `provider.require_parameters: true`를 건다.
+  구조화 출력을 지원하지 않는 공급자로 라우팅되면 Schema가 조용히 무시되기 때문이다. 그런 모델이면 호출이 실패(`DRAFTER_FAILED`)한다.
+  API key는 `Authorization` 헤더에만 싣고 로그·오류 메시지·`model_info`·출력 파일에 넣지 않는다. HTTP 오류는 상태 코드만 남긴다(408·429·5xx는 재시도 가능)
 - LLM에게 주는 입력은 `build_draft_request`가 만든 것뿐이다(헤더·쿠키·응답 본문·근거 경로·민감 파라미터 값 제외)
   - `source_requests[].parameters`는 출력 ParameterValue와 같은 `{name, location, value, binding_ref: null}` 모양으로 보여 준다.
     `is_sensitive`는 출력에 없는 키라 빼고, 민감 값은 null이다. 입력 모양이 출력과 다르면 LLM이 입력을 베끼다 필수 키(`binding_ref`)를 빠뜨렸다(10/11 실행 DRAFT_INVALID 2건)
@@ -346,6 +355,7 @@ class ScenarioDrafter(Protocol):
 
 다른 모듈의 실제 코드 없이 `tests/fixtures/`의 입력과 대역 drafter로 정상·partial·failed·입력 오류·함정 케이스를 검증한다.
 drafter 설정·CLI 조합은 `tests/test_sg_drafter_config.py`가 본다(Ollama 전송은 기록용 대역, 네트워크 없음).
+OpenRouter drafter·설정·API key 누출은 `tests/test_sg_openrouter_drafter.py`가 본다(가짜 transport, 네트워크 없음).
 `tests/conftest.py`가 autouse로 `SCENARIO_GENERATOR_CONFIG_PATH`를 `tests/fixtures/configs/provider_none.toml`에 고정하므로 로컬 설정은 테스트에 영향이 없다.
 테스트는 계정·요청 ID에 기대지 않고 fixture에서 값을 읽는다. 재현 조건 생성(`tests/test_sg_reproduction_checks.py`)은 리터럴 입력으로 규칙 하나씩 본다.
 

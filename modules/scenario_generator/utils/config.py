@@ -2,7 +2,7 @@
 
 위치: SCENARIO_GENERATOR_CONFIG_PATH > modules/scenario_generator/configs/scenario_generator.toml (현재 폴더 = 레포 루트 기준).
 CLI 옵션도 같은 검증(parse_drafter_settings)을 거친다. 실패는 전부 ValueError이고 메시지에는 출처·키 이름만 넣는다(값은 안 넣음).
-ollama 선택 값(base_url·temperature·timeout_seconds 등)의 기본값은 OllamaDrafterConfig 한 곳에만 있다.
+모델 선택 값(base_url·temperature·timeout_seconds 등)의 기본값은 OllamaDrafterConfig·OpenRouterDrafterConfig에만 있다.
 여기서는 사용자가 준 키만 넘긴다.
 """
 
@@ -19,25 +19,29 @@ LLM_TABLE = "llm"
 
 PROVIDER_NONE = "none"
 PROVIDER_OLLAMA = "ollama"
+PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_REPLAY = "replay"
-PROVIDERS = (PROVIDER_NONE, PROVIDER_OLLAMA, PROVIDER_REPLAY)
+PROVIDERS = (PROVIDER_NONE, PROVIDER_OLLAMA, PROVIDER_OPENROUTER, PROVIDER_REPLAY)
+# 모델을 부르는 provider. 같은 키(model_id·base_url 등)를 쓴다.
+MODEL_PROVIDERS = (PROVIDER_OLLAMA, PROVIDER_OPENROUTER)
 
 PROVIDER_KEY = "provider"
 DRAFTS_PATH_KEY = "drafts_path"
 MODEL_ID_KEY = "model_id"
-# OllamaDrafterConfig 필드 이름과 같다. 사용자가 준 것만 그대로 넘긴다.
-OLLAMA_STRING_KEYS = (MODEL_ID_KEY, "base_url", "model_version")
-OLLAMA_NUMBER_KEYS = ("temperature", "timeout_seconds")
-OLLAMA_INTEGER_KEYS = ("seed",)
-OLLAMA_KEYS = (*OLLAMA_STRING_KEYS, *OLLAMA_NUMBER_KEYS, *OLLAMA_INTEGER_KEYS)
-LLM_KEYS = frozenset({PROVIDER_KEY, DRAFTS_PATH_KEY, *OLLAMA_KEYS})
+# OllamaDrafterConfig·OpenRouterDrafterConfig 필드 이름과 같다. 사용자가 준 것만 그대로 넘긴다.
+# API key는 설정 키가 아니다(환경변수 OPENROUTER_API_KEY만).
+MODEL_STRING_KEYS = (MODEL_ID_KEY, "base_url", "model_version")
+MODEL_NUMBER_KEYS = ("temperature", "timeout_seconds")
+MODEL_INTEGER_KEYS = ("seed",)
+MODEL_KEYS = (*MODEL_STRING_KEYS, *MODEL_NUMBER_KEYS, *MODEL_INTEGER_KEYS)
+LLM_KEYS = frozenset({PROVIDER_KEY, DRAFTS_PATH_KEY, *MODEL_KEYS})
 
 
 @dataclass(frozen=True)
 class DrafterSettings:
     provider: str
-    # OllamaDrafterConfig에 그대로 넘길 키워드 인자(사용자가 준 키만). ollama가 아니면 비어 있다.
-    ollama_options: dict[str, Any] = field(default_factory=dict)
+    # 모델 drafter 설정에 그대로 넘길 키워드 인자(사용자가 준 키만). ollama·openrouter가 아니면 비어 있다.
+    model_options: dict[str, Any] = field(default_factory=dict)
     drafts_path: Path | None = None
 
 
@@ -82,22 +86,22 @@ def parse_drafter_settings(values: Mapping[str, Any], source: str) -> DrafterSet
         raise ValueError(f"{source}: {PROVIDER_KEY}가 없음")
     if provider not in PROVIDERS:
         raise ValueError(f"{source}: {PROVIDER_KEY}는 {', '.join(PROVIDERS)} 중 하나여야 함")
-    if provider == PROVIDER_OLLAMA:
-        return DrafterSettings(provider, ollama_options=_ollama_options(values, source))
+    if provider in MODEL_PROVIDERS:
+        return DrafterSettings(provider, model_options=_model_options(values, provider, source))
     if provider == PROVIDER_REPLAY:
         return DrafterSettings(provider, drafts_path=_existing_drafts_path(values, source))
     return DrafterSettings(provider)
 
 
 def _check_types(values: Mapping[str, Any], source: str) -> None:
-    for key in (PROVIDER_KEY, DRAFTS_PATH_KEY, *OLLAMA_STRING_KEYS):
+    for key in (PROVIDER_KEY, DRAFTS_PATH_KEY, *MODEL_STRING_KEYS):
         if key in values and not isinstance(values[key], str):
             raise ValueError(f"{source}: {key}는 문자열이어야 함")
     # bool은 int의 하위 클래스라 따로 막는다(True가 1로 통과하지 않게).
-    for key in OLLAMA_NUMBER_KEYS:
+    for key in MODEL_NUMBER_KEYS:
         if key in values and (isinstance(values[key], bool) or not isinstance(values[key], (int, float))):
             raise ValueError(f"{source}: {key}는 수여야 함")
-    for key in OLLAMA_INTEGER_KEYS:
+    for key in MODEL_INTEGER_KEYS:
         if key in values and (isinstance(values[key], bool) or not isinstance(values[key], int)):
             raise ValueError(f"{source}: {key}는 정수여야 함")
     if "temperature" in values and values["temperature"] < 0:
@@ -106,10 +110,10 @@ def _check_types(values: Mapping[str, Any], source: str) -> None:
         raise ValueError(f"{source}: timeout_seconds는 0보다 커야 함")
 
 
-def _ollama_options(values: Mapping[str, Any], source: str) -> dict[str, Any]:
+def _model_options(values: Mapping[str, Any], provider: str, source: str) -> dict[str, Any]:
     if not values.get(MODEL_ID_KEY, "").strip():
-        raise ValueError(f"{source}: {PROVIDER_KEY}={PROVIDER_OLLAMA}에는 {MODEL_ID_KEY}가 필요함")
-    return {key: values[key] for key in OLLAMA_KEYS if key in values}
+        raise ValueError(f"{source}: {PROVIDER_KEY}={provider}에는 {MODEL_ID_KEY}가 필요함")
+    return {key: values[key] for key in MODEL_KEYS if key in values}
 
 
 def _existing_drafts_path(values: Mapping[str, Any], source: str) -> Path:
