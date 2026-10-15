@@ -1525,10 +1525,12 @@ GT의 논리 actor와 실제 실행 계정의 alias가 다를 때, Reporter의 �
    일치하는지 확인한다. 비밀번호·쿠키·토큰은 설정에 넣지 않는다.
 2. `local_web/.env`의 `REPORTER_EVALUATION_CONFIG_PATH`에 **컨테이너 `/app` 기준 상대
    경로**를 지정한다. 호스트 절대 경로나 `/config/...` 경로는 이 설정에 사용할 수 없다.
-   이미지에 포함된 다음 예시는 해당 dataset/계정과 일치할 때만 명시적으로 사용한다.
+   이미지에 포함된 다음 실제 테스트 프로필은 `shop_demo`·dataset version `1.0.0`과
+   alice→`account:user_a`, bob→`account:user_b`, admin→`account:admin_a`,
+   guest→`account:guest`가 일치할 때만 명시적으로 사용한다.
 
    ```dotenv
-   REPORTER_EVALUATION_CONFIG_PATH=modules/reporter/configs/shop_demo.evaluation.example.json
+   REPORTER_EVALUATION_CONFIG_PATH=modules/reporter/configs/shop_demo.evaluation.json
    ```
 
    다른 환경에서는 Reporter 설정 Schema에 맞는 별도 JSON을 `/app` 안의 읽기 가능한
@@ -1547,7 +1549,7 @@ GT의 논리 actor와 실제 실행 계정의 alias가 다를 때, Reporter의 �
 공백·없는 경로·dataset 불일치 등은 Reporter 검증에서 거절한다. 부모 환경은 변경하지
 않는다. report와 진단 엔진에는 GT 매칭 로직을 추가하지 않고, Web은 공개 평가 결과만 표시한다.
 
-이번 수정에서 실제 .env·운영 컨테이너·완료 산출물은 변경하지 않았다. 별도 읽기 전용
+최초 환경 전달 연결 시에는 실제 .env·운영 컨테이너·완료 산출물을 변경하지 않았다. 별도 읽기 전용
 비교에서 지정 진단의 관계 recall은 3/52→32/52, 기존 계정 설정 명시 시 User recall은
 0/1→1/1이었다. 이는 평가 누락 수정이며 탐지·검증 성능 향상으로 해석하지 않는다.
 
@@ -1661,10 +1663,63 @@ ABC2LAB 서비스를 재생성한 뒤 새 진단한다. 이번 작업에서 운�
 추가 경계 검사 29건(allow 8·승인 대기 6·block 15) 통과, 공개 산출물 10개 해시 불변,
 HTTP 검증 요청 0건을 확인했다. 이 결과는 취약점 재현·확정 성공을 의미하지 않는다.
 
+### 19.18 평가 프로필 활성화와 탐지·검증·확정 구분 — 2026-10-15
+
+운영 `local_web/.env`에서 19.15의 실제 프로필을 명시한다. 배포 예시의 기본값은
+빈 값으로 유지하므로 다른 데이터셋에 shop_demo 매핑을 자동 적용하지 않는다.
+Web은 설정 내용을 해석하지 않고 기존 Compose→Runner→Reporter 연결을 사용한다.
+완료 run의 평가 파일은 불변이며 새 설정은 새 진단의 development evaluate에서 사용한다.
+
+진단 과정 상단의 **탐지·검증·확정 현황**은 기존 공개 산출물을 다음처럼 구분한다.
+
+| 표시 | 출처·집계 기준 |
+| --- | --- |
+| 후보 | vulnerability_candidates의 candidate 수 |
+| 검증 조건 통과 | verification_results의 result=success 수 |
+| 검증 미재현 | result=failure 수. 대상 전체가 안전함을 의미하지 않음 |
+| 검증 판단불가 | result=indeterminate 수 |
+| 검증 미실행·차단 | result=blocked 수. 승인 대기 등을 실행 성공/실패에 합치지 않음 |
+| Reporter 확정 | diagnosis_report.summary.confirmed_count 원본 값 |
+
+후보·시나리오 검증 결과·Reporter finding은 집계 단위가 다르다. 합산하거나
+Verifier success 수를 고유 취약점 수로 해석하지 않는다. 파일 미발행·실패·조회 불가는
+`미확인`으로 표시하며 0건으로 치환하지 않는다. partial은 부분 결과임을 유지한다.
+전체 조회 실패 시 이전 수치를 지워 다른 진단의 결과로 오인하지 않게 한다.
+
+확정 외 리포트 표에는 연결된 verification_id의 원본 result와 Reporter description을
+표시한다. `success`라도 `suspected`이면 confirmed 전용 목록에는 넣지 않는다.
+설명은 텍스트로만 렌더링하며 HTML·근거 본문·private 세션을 표시하지 않는다.
+새 Web artifact나 판정 상태·Schema·GT 계산·confirmed 기준은 추가하지 않는다.
+
+검증:
+
+```bash
+.venv/bin/python -m pytest modules/reporter -q --tb=short
+# 560 passed
+LOCAL_WEB_BROWSER_TESTS=1 .venv/bin/python -m pytest modules/reporter local_web/tests -q --tb=short
+# 894 passed, 1 skipped (읽기 전용 마운트 전용 테스트는 별도 환경 필요)
+node --check local_web/frontend/results.js
+git diff --check
+```
+
+신규 회귀 19건은 실제 프로필의 명시적 로드·Schema, 확정 외 설명 검증,
+조건 통과와 확정 분리, 결과별 집계, 미발행/실패/조회 오류와 복구, partial,
+HTML 비실행 및 390px 화면을 확인한다. 테스트 대역은 실제 탐지 성능 검증이 아니다.
+ABC2LAB만 재빌드·재생성했고 서비스 3개 healthy·HTTP 200·진단 준비 true·
+배포 파일 해시 3/3 일치를 확인했다. Neo4j/Ollama·결과 volume은 유지했다.
+
+`web-4069974f795330d58678ef506de57004`는 저장 없이 Reporter로 재평가했다.
+매핑 없음은 저장된 평가 data와 완전히 같으며, 실제 프로필 적용 시 User recall
+0/1→1/1, 후보 TP/FP/FN 1/14/4→2/13/3이다. 관계는 32/52, 확정은 0/0/5로
+같다. 조건 통과 2·확정 0을 새 표시 모델에서 확인했고 확정 외 설명 15건을 보존했다.
+공개 산출물 10개 해시 불변·결과 저장 없음·새 진단/LLM 호출 없음을 확인했다.
+따라서 과거 평가 화면의 지표를 새 값으로 바꾸지는 않으며 탐지 향상으로 보고하지 않는다.
+
 ## 20. 변경 이력
 
 | 날짜 | 변경 | 구현·계약 영향 |
 | --- | --- | --- |
+| 2026-10-15 | shop_demo 실제 평가 프로필을 운영 .env에서 명시하고 탐지·검증·확정 현황 및 확정 외 사유 표시 추가 | 기존 env 연결·Reporter 판정·공개 Schema 유지. 완료 산출물은 재작성하지 않고 미확인과 0건을 구분. 검증 결과는 19.18에 기록 |
 | 2026-10-15 | vulnerable 정책을 draft-2로 조정: 업무 GET 7개 prefix 허용·실제 업무 POST 승인 대기·미사용 변경 메서드 명시 차단 | local_web 정책·설정 회귀·README만 변경. 정책/설정 315 passed, 읽기 전용 실제 시나리오 2건 allow 전환·경계 29건 확인. HTTP 요청·기존 산출물 변경·운영 서비스 재생성 없음 |
 | 2026-10-15 | OpenRouter용 모듈별 공개 TOML 초안, 선택적 API key의 Compose/Runner 환경 전달, provider·모델·키 존재 사전 확인 추가 | local_web 내부 설정 창구만 구현. 실제 모듈 adapter·API 호출은 미구현. 기본 Ollama·실제 .env·진단 모듈·공개 Schema·의존성 유지. 검증 결과는 19.16에 기록 |
 | 2026-10-15 | 선택적 Reporter 평가 설정 환경변수를 Compose에서 자식 Runner까지 연결; 빈 값만 미설정 처리 | Reporter+Web 844 passed·18 skipped, Runner 대역 58 passed, Compose config 검증. 신규 환경 전달 회귀 5건. GT·진단 엔진·공개 Schema·부모 환경 유지, 운영 .env·컨테이너 재배포 없음 |

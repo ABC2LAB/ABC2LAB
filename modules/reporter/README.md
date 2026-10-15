@@ -430,6 +430,10 @@ GT의 논리 actor(`actor_alias`, User `match_key.alias`)를 실행 계정 이�
 JSON 설정을 지정한다. 경로는 evaluate의 `project_root` 기준 상대 경로이며
 절대 경로·`..`·루트 밖 symlink·없는 파일은 거절한다. 예시는
 `configs/shop_demo.evaluation.example.json`이고 자동 적용하지 않는다.
+실제 테스트 계정용 `configs/shop_demo.evaluation.json`도 제공한다. 이 파일은
+`shop_demo`·dataset version `1.0.0`에만 사용하며 alice→`account:user_a`,
+bob→`account:user_b`, admin→`account:admin_a`, guest→`account:guest`를 연결한다.
+설정 파일이 존재하는 것만으로 로드하지 않으며 환경변수로 명시해야 한다.
 
 ```json
 {
@@ -461,7 +465,7 @@ JSON 설정을 지정한다. 경로는 evaluate의 `project_root` 기준 상대 
 기존 run()/CLI 인자는 그대로다. evaluate 실행 시 환경변수만 선택적으로 지정한다.
 
 ```bash
-REPORTER_EVALUATION_CONFIG_PATH=modules/reporter/configs/shop_demo.evaluation.example.json \
+REPORTER_EVALUATION_CONFIG_PATH=modules/reporter/configs/shop_demo.evaluation.json \
   .venv/bin/python -m modules.reporter.entrypoint evaluate \
   --run-root runs/<run_id> --run-id <run_id> --iteration 0 \
   --mode development --target-url http://target.internal \
@@ -475,6 +479,12 @@ local_web Compose도 같은 환경변수를 전달한다. Docker에서는 `/app`
 사용한다. Web은 설정 내용을 읽지 않고 자식 Runner에 상속하며, 선택적 빈 값은 자식
 환경에서 제거한다. 비어 있지 않은 잘못된 값은 Reporter가 기존대로 거절한다.
 실제 적용 절차와 완료 산출물 불변 원칙은 [local_web README](../../local_web/README.md)를 따른다.
+
+계정 매핑은 development 평가의 동일 계정 식별만 보완한다. 후보 생성·Verifier
+실행 결과·Reporter의 confirmed 기준을 바꾸거나 GT에 맞춰 취약점을 확정하지 않는다.
+Web은 Verifier 조건 통과와 Reporter 확정을 구분하고, 확정 외 항목의 description을
+원문 그대로 표시한다. `inferred` 성공이 `suspected`에 남는 등 확정되지 않은 사유는
+기존 report가 생성하며 Web이 다시 판단하지 않는다.
 
 ### Candidate·confirmed TP/FP/FN
 
@@ -645,6 +655,20 @@ Resource 식별값 회귀 테스트:
 ---
 
 ## 변경 이력
+
+### 2026-10-15 — shop_demo 평가 프로필의 명시적 운영 적용
+
+실제 계정용 `configs/shop_demo.evaluation.json`을 추가하고 local_web 운영 설정에서
+명시적으로 선택한다. example·legacy alias fallback·기존 로더의 dataset/version·
+Schema·SHA-256 검증을 유지한다. GT·평가 알고리즘·report 확정 기준·공개 Schema·
+버전은 변경하지 않는다. Web의 조건 통과/확정 구분과 사유 표시는 Presentation 변경이며
+기존 완료 산출물을 재발행하지 않는다.
+
+검증은 `.venv/bin/python -m pytest modules/reporter -q --tb=short`에서 560 passed,
+`LOCAL_WEB_BROWSER_TESTS=1 .venv/bin/python -m pytest modules/reporter local_web/tests -q --tb=short`에서
+894 passed·1 skipped(마운트 전용 환경 미실행)다. 실제 Docker의 활성 설정으로
+기존 진단을 읽기 전용 재평가해 User 0/1→1/1·후보 TP 1→2·확정 0 유지를 확인했다.
+공개 산출물 10개 해시는 불변이며 새 진단·LLM 호출은 실행하지 않았다.
 
 아래 기록의 테스트 수치·연결 상태·다음 작업은 작성 당시 기준이다.
 현재 계약과 연결 상태는 위 계약 절을 따른다.

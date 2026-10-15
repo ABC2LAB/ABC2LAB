@@ -14,9 +14,10 @@
 
 ## 현재 구현·연결 상태 — 2026-10-15
 
-기준 커밋 `cb9dc8e` + 이번 작업 트리 기준이다.
-실행 계약 0.3.0과 기존 발견율을 유지하며 snapshot 관계 평가의 비교 키를 보완하고
-local_web에서 기존 선택적 계정 매핑 설정을 전달하도록 연결했다.
+기준 커밋 `b7d990b` + 이번 작업 트리 기준이다.
+snapshot 관계 평가와 선택적 계정 매핑의 기존 구현을 유지하고, shop_demo 실제 평가
+프로필을 local_web 운영 설정에서 명시했다. Web은 검증 조건 통과와 Reporter 확정을
+분리하고 확정 외 사유를 표시한다. 평가 계산식·진단 분류 기준은 바꾸지 않는다.
 기존 산출물 Schema·GT 0.1.0·default-v1·문서 판 v0.2는 변경하지 않는다.
 
 | 구분 | 현재 상태 |
@@ -27,16 +28,23 @@ local_web에서 기존 선택적 계정 매핑 설정을 전달하도록 연결�
 | 입력 호환 | Collector discovered_endpoints·응답 식별자 수용, KG·Safety 출력과 입력 사본 일치; 기존 Resource·source_account_id 의미 유지 |
 | 평가 범위 | Endpoint 노드·Endpoint→USE→Parameter(추론 포함)·normalized_requests로 발견율 계산; 진단 집계 유지 |
 | 관계 평가 | 실제 snapshot의 Page.url을 비교용 path로 사용하고 USE의 Endpoint 문맥 반영; 실제 node_id·방향·관계 종류 확인, 탈락 건수는 notes에 기록 |
-| 평가 계정 매핑 | GT와 분리된 선택적 Reporter 설정으로 논리 actor→원본 account_id를 연결; Candidate·User·관계에 적용 |
+| 평가 계정 매핑 | GT와 분리된 선택적 Reporter 설정으로 논리 actor→원본 account_id를 연결; Candidate·User·관계에 적용. shop_demo 1.0.0 실제 프로필을 운영 Docker에서 명시 |
+| Web 표시 경계 | 후보·Verifier 조건 통과/미재현/판단불가/차단·Reporter 확정을 구분. 확정 외 description은 그대로 표시하며 Web이 재판정하지 않음 |
 | Precision 집계 | 양성 GT 최대 일대일 매칭 후 FP=전체 prediction−TP; 음성·미매칭·중복 예측 포함 |
-| 독립 회귀 | Reporter `558 passed`; 담당 3개 `1123 passed, 12 skipped`; Reporter+Web `844 passed, 18 skipped`; Runner 대역 `58 passed` |
-| 실제 전체 연결 | 지정 진단의 공개 산출물 10개가 0.3.0·completed이며 report·evaluate까지 연결 확인. 후보/시나리오 2개, 정책 차단 2개·검증 요청 0건·확정 0개 |
+| 독립 회귀 | Reporter `560 passed`; Chromium 포함 Reporter+Web `894 passed, 1 skipped`(마운트 전용 환경 미실행). 신규 회귀 19건. 이번에는 다른 담당 모듈 회귀는 재실행하지 않음 |
+| 실제 전체 연결 | 최근 지정 진단의 공개 산출물 10개가 0.3.0·completed이며 후보/시나리오/allow 15개. Verifier success 2·indeterminate 11·failure 2, Reporter suspected 2·확정 0. 이번 작업에서는 재진단하지 않음 |
 
 독립 회귀 수를 실제 대상 성능이나 확정 취약점 건수로 사용하지 않는다.
 `web-49ebec8c2f328963ecc3a7f46ebcf022`의 읽기 전용 재평가에서 관계 3/52→32/52,
 명시적 계정 설정을 적용하면 User 0/1→1/1·후보 TP 0→1을 확인했다.
 이는 동일 산출물의 평가 누락 수정이며 탐지 엔진 성능 향상이 아니다.
 해당 run의 Verifier graph_updates 관계는 0개로 실제 검증 관계 수신과 구분한다.
+이후 `web-4069974f795330d58678ef506de57004`에 실제 프로필을 명시한 읽기 전용
+재평가에서는 User 0/1→1/1, 후보 TP/FP/FN 1/14/4→2/13/3이며 관계는 32/52,
+확정 TP/FP/FN은 0/0/5로 유지됐다. Verifier 조건 통과 2건은 같은 프로필 IDOR의
+양방향 시험이며 고유 취약점 2종을 뜻하지 않는다. 전 후보 expected_basis=inferred로
+기존 확정 기준을 충족하지 않아 success도 suspected에 남는다. 매핑은 실제 탐지를
+늘리지 않으며, 저장된 평가와 공개 산출물 10개는 덮어쓰지 않았다.
 PR #61의 적용 불가 JSON 체크·5xx 결과는 indeterminate로 보존하며 미재현이나
 확정 취약점으로 합치지 않는다. 상세 구현 이력은
 [모듈 README](../../modules/reporter/README.md)를 따른다.
@@ -231,6 +239,12 @@ GT의 논리 actor와 실행 계정을 분리한다. GT 필드·버전·원본�
 - local_web Compose는 같은 환경변수를 자식 Runner에 상속한다. Docker에서는 `/app`
   기준 상대 경로를 쓰고 Web은 GT·설정 내용을 읽지 않는다. 선택적 빈 값만 자식 환경에서
   제거하며 비어 있지 않은 잘못된 경로·설정은 Reporter가 거절한다. 예시는 자동 적용하지 않는다.
+- `modules/reporter/configs/shop_demo.evaluation.json`은 shop_demo·dataset version
+  1.0.0용 실제 프로필이다. alice→account:user_a, bob→account:user_b,
+  admin→account:admin_a, guest→account:guest를 연결한다. 파일 존재만으로 로드하지
+  않으며 운영자가 dataset/version·계정 일치를 확인한 뒤 환경변수로 명시한다.
+  local_web/.env.example은 빈 기본값을 유지한다. 기존 완료 결과는 불변이며 새 설정은
+  새 진단의 development evaluate에서 적용된다.
 
 ### Benchmark TP/FP/FN 의미
 
@@ -422,6 +436,7 @@ GT가 대상의 완전한 정답 집합이라는 benchmark 가정으로 평가�
 | 2026-10-14 | PR #81의 추론 Parameter를 Endpoint→USE→Parameter로 평가에 포함하고 회귀 24건·공개 evaluate 저장을 검증 | `e93d0d8` + 작업 트리. 평가 56 passed, Reporter 486 passed, 합동 1051 passed·12 skipped. Schema·버전·GT·default-v1·관계/후보/확정 집계 불변; 실제 성능·새 pipeline 검증은 별도 |
 | 2026-10-14 | GT와 분리된 실행별 계정 매핑 설정, Candidate·User·관계 일치, 양성 우선 일대일 매칭과 FP=prediction−TP 보완 | `913a0df` + 작업 트리. 신규 회귀 47 passed, Reporter 533 passed, 합동 1098 passed·12 skipped. 설정 Schema 추가; 기존 산출물 Schema·GT 0.1.0·문서 판 v0.2·report 분류 유지. 실제 성능·pipeline·Docker 검증은 별도 |
 | 2026-10-15 | 실제 snapshot Page 경로·Parameter Endpoint 문맥·관계 탈락 notes 보완, local_web의 선택적 Reporter 설정 전달과 현재 0.3 연결 상태 반영 | `cb9dc8e` + 작업 트리. 관계 회귀 25건·Web 환경 전달 5건 추가. Reporter 558 passed, 합동 1123 passed·12 skipped, Reporter+Web 844 passed·18 skipped, Runner 대역 58 passed. 읽기 전용 비교에서 관계 3/52→32/52, 명시적 계정 매핑 시 User 0/1→1/1. 공개 산출물·GT 11개 해시 불변; GT/Schema/버전/report 분류 유지, 실제 배포·새 진단 미실행 |
+| 2026-10-15 | shop_demo 실제 계정 프로필의 명시적 운영 적용, Web 조건 통과/확정 구분과 확정 외 사유 표시를 기록 | `b7d990b` + 작업 트리. Reporter 560 passed, Chromium 포함 Reporter+Web 894 passed·1 skipped, 신규 회귀 19건. 기존 Compose·Runner·Reporter 로더 재사용, ABC2LAB Docker 재배포. 읽기 전용 재평가 User 0/1→1/1·후보 TP 1→2·확정 0 유지, 공개 산출물 10개 불변. GT·Schema·버전·계산식·확정 기준 불변; 새 진단 미실행 |
 
 기존 책임 경계·미검증 후보 보존·평가 분모 규칙과 정답 필드 표는 유지하며 상세
 과거 구현 이력은 모듈 README에 보존한다. 2026-10-10 합동 회귀
