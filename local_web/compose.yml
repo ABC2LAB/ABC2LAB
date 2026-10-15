@@ -16,6 +16,7 @@ services:
       REPORTER_EVALUATION_CONFIG_PATH: ${REPORTER_EVALUATION_CONFIG_PATH:-}
       SEMANTIC_ANALYZER_CONFIG_PATH: /config/semantic_analyzer.toml
       SCENARIO_GENERATOR_CONFIG_PATH: /config/scenario_generator.toml
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       SAFETY_POLICY_CONFIG_PATH: /config/policy.json
       NEO4J_URI: bolt://local-web-neo4j:7687
       NEO4J_USERNAME: neo4j

@@ -1,11 +1,13 @@
 {
   "schema_version": "0.1.0",
-  "policy_id": "local-web-vulnerable-orders",
-  "policy_version": "draft-1",
+  "policy_id": "local-web-vulnerable-business",
+  "policy_version": "draft-2",
   "allowed_targets": [
     {
       "origin": "http://testapp-vulnerable:8000",
-      "path_prefixes": ["/orders"]
+      "path_prefixes": [
+        "/orders", "/api/users", "/products", "/admin", "/cart", "/checkout", "/mypage"
+      ]
     }
   ],
   "test_accounts": [
@@ -45,10 +47,154 @@
       "service_impact": "low"
     },
     {
-      "rule_id": "orders.write-blocked",
+      "rule_id": "users.read-only",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/api/users",
+      "methods": ["GET"],
+      "state_change": "none",
+      "data_impact": "read_only",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "products.read-only",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/products",
+      "methods": ["GET"],
+      "state_change": "none",
+      "data_impact": "read_only",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "admin.read-only",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/admin",
+      "methods": ["GET"],
+      "state_change": "none",
+      "data_impact": "read_only",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "cart.read-only",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/cart",
+      "methods": ["GET"],
+      "state_change": "none",
+      "data_impact": "read_only",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "checkout.read-only",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/checkout",
+      "methods": ["GET"],
+      "state_change": "none",
+      "data_impact": "read_only",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "mypage.read-only",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/mypage",
+      "methods": ["GET"],
+      "state_change": "none",
+      "data_impact": "read_only",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "orders.write-approval",
       "origin": "http://testapp-vulnerable:8000",
       "path_prefix": "/orders",
+      "methods": ["POST"],
+      "state_change": "require_approval",
+      "data_impact": "require_approval",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "cart.write-approval",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/cart",
+      "methods": ["POST"],
+      "state_change": "require_approval",
+      "data_impact": "require_approval",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "mypage.write-approval",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/mypage",
+      "methods": ["POST"],
+      "state_change": "require_approval",
+      "data_impact": "require_approval",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "admin.write-approval",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/admin",
+      "methods": ["POST"],
+      "state_change": "require_approval",
+      "data_impact": "require_approval",
+      "service_impact": "low"
+    },
+    {
+      "rule_id": "orders.unsupported-writes-blocked",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/orders",
+      "methods": ["PUT", "PATCH", "DELETE"],
+      "state_change": "block",
+      "data_impact": "block",
+      "service_impact": "block"
+    },
+    {
+      "rule_id": "users.writes-blocked",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/api/users",
       "methods": ["POST", "PUT", "PATCH", "DELETE"],
+      "state_change": "block",
+      "data_impact": "block",
+      "service_impact": "block"
+    },
+    {
+      "rule_id": "products.writes-blocked",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/products",
+      "methods": ["POST", "PUT", "PATCH", "DELETE"],
+      "state_change": "block",
+      "data_impact": "block",
+      "service_impact": "block"
+    },
+    {
+      "rule_id": "admin.unsupported-writes-blocked",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/admin",
+      "methods": ["PUT", "PATCH", "DELETE"],
+      "state_change": "block",
+      "data_impact": "block",
+      "service_impact": "block"
+    },
+    {
+      "rule_id": "cart.unsupported-writes-blocked",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/cart",
+      "methods": ["PUT", "PATCH", "DELETE"],
+      "state_change": "block",
+      "data_impact": "block",
+      "service_impact": "block"
+    },
+    {
+      "rule_id": "checkout.writes-blocked",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/checkout",
+      "methods": ["POST", "PUT", "PATCH", "DELETE"],
+      "state_change": "block",
+      "data_impact": "block",
+      "service_impact": "block"
+    },
+    {
+      "rule_id": "mypage.unsupported-writes-blocked",
+      "origin": "http://testapp-vulnerable:8000",
+      "path_prefix": "/mypage",
+      "methods": ["PUT", "PATCH", "DELETE"],
       "state_change": "block",
       "data_impact": "block",
       "service_impact": "block"

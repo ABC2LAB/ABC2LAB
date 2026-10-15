@@ -190,6 +190,76 @@ def test_no_fake_model_fallback(runner_settings: RunnerSettings, provider: str) 
     assert "SEMANTIC_CONFIG_INVALID" in runner_settings.issues()
 
 
+@pytest.mark.parametrize("config_name", ["semantic", "scenario"])
+def test_openrouter_config_accepts_model_and_environment_key_independently(
+    runner_settings: RunnerSettings, monkeypatch: pytest.MonkeyPatch, config_name: str,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "OPENROUTER_KEY_SENTINEL")
+    path = getattr(runner_settings, f"{config_name}_config_path")
+    path.write_text('[llm]\nprovider="openrouter"\nmodel_id="vendor/test-model"\n', encoding="utf-8")
+    assert runner_settings.issues() == []
+
+
+@pytest.mark.parametrize("key", [None, "", "   "])
+def test_openrouter_config_needs_nonempty_environment_key(
+    runner_settings: RunnerSettings, monkeypatch: pytest.MonkeyPatch, key: str | None,
+) -> None:
+    if key is None:
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("OPENROUTER_API_KEY", key)
+    runner_settings.scenario_config_path.write_text(
+        '[llm]\nprovider="openrouter"\nmodel_id="vendor/test-model"\n', encoding="utf-8",
+    )
+    # An unused key does not affect the other module's Ollama configuration.
+    assert runner_settings.issues() == ["SCENARIO_CONFIG_INVALID"]
+
+
+@pytest.mark.parametrize("model_id", ['""', '"   "', "42"])
+def test_openrouter_config_needs_nonempty_model(
+    runner_settings: RunnerSettings, monkeypatch: pytest.MonkeyPatch, model_id: str,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "OPENROUTER_KEY_SENTINEL")
+    runner_settings.scenario_config_path.write_text(
+        f'[llm]\nprovider="openrouter"\nmodel_id={model_id}\n', encoding="utf-8",
+    )
+    assert runner_settings.issues() == ["SCENARIO_CONFIG_INVALID"]
+
+
+@pytest.mark.parametrize("provider", ['["openrouter"]', '{name="openrouter"}', "true", "42"])
+def test_model_provider_wrong_type_is_reported_as_invalid_config(
+    runner_settings: RunnerSettings, provider: str,
+) -> None:
+    runner_settings.scenario_config_path.write_text(
+        f'[llm]\nprovider={provider}\nmodel_id="vendor/test-model"\n', encoding="utf-8",
+    )
+    assert runner_settings.issues() == ["SCENARIO_CONFIG_INVALID"]
+
+
+@pytest.mark.parametrize("config_name", ["semantic", "scenario"])
+def test_openrouter_key_reaches_child_without_public_exposure(
+    input_settings: InputSettings, runner_settings: RunnerSettings, input_payload: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, config_name: str,
+) -> None:
+    key = "OPENROUTER_KEY_SENTINEL"
+    monkeypatch.setenv("OPENROUTER_API_KEY", key)
+    monkeypatch.setenv("LOCAL_WEB_TEST_OPENROUTER_KEY", key)
+    monkeypatch.setenv("LOCAL_WEB_TEST_RUNNER_CASE", "completed")
+    path = getattr(runner_settings, f"{config_name}_config_path")
+    path.write_text('[llm]\nprovider="openrouter"\nmodel_id="vendor/test-model"\n', encoding="utf-8")
+    inputs, runs = InputStore(input_settings), RunnerStore(runner_settings)
+    try:
+        assert key not in json.dumps(runs.readiness())
+        record = runs.start(inputs, prepared_authorization(inputs, input_payload), None)
+        result = wait_for_finish(runs, record.owner_token)
+        assert result["state"] == "completed"
+        assert key not in json.dumps(result) and key not in caplog.text
+        assert os.environ["OPENROUTER_API_KEY"] == key
+    finally:
+        runs.close()
+        inputs.close()
+
+
 @pytest.mark.parametrize("body", ["broken", "[llm]\nprovider='ollama'", "[llm]\nprovider='ollama'\nmodel_id=' '", "x" * (64 * 1024 + 1)])
 def test_invalid_model_config(runner_settings: RunnerSettings, body: str) -> None:
     runner_settings.scenario_config_path.write_text(body)

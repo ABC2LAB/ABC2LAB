@@ -12,6 +12,8 @@ from local_web.runner import actual_model_config
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_ROOT = PROJECT_ROOT / "local_web/configs/vulnerable"
+READ_PATHS = {"/orders", "/api/users", "/products", "/admin", "/cart", "/checkout", "/mypage"}
+APPROVAL_PATHS = {"/orders", "/cart", "/mypage", "/admin"}
 
 
 def read_policy() -> dict:
@@ -50,7 +52,10 @@ def test_policy_draft_matches_owner_schema_without_changing_version() -> None:
 def test_policy_scope_and_accounts_match_collector_public_ids() -> None:
     template = load_template(InputSettings(collector_template_path=CONFIG_ROOT / "collector.toml"))
     policy = read_policy()
-    assert policy["allowed_targets"] == [{"origin": template["target_url"], "path_prefixes": ["/orders"]}]
+    assert len(policy["allowed_targets"]) == 1
+    target = policy["allowed_targets"][0]
+    assert target["origin"] == template["target_url"]
+    assert set(target["path_prefixes"]) == READ_PATHS
     accounts_by_id = {account["account_id"]: account for account in policy["test_accounts"]}
     expected_ids = {"account:guest"} | {f"account:{row['alias']}" for row in template["accounts"]}
     assert set(accounts_by_id) == expected_ids
@@ -61,18 +66,33 @@ def test_policy_scope_and_accounts_match_collector_public_ids() -> None:
         }
 
 
-def test_policy_read_rule_is_narrow_and_write_rule_blocks() -> None:
+def test_policy_read_rules_cover_business_paths_and_writes_need_approval() -> None:
     policy = read_policy()
-    rules_by_id = {rule["rule_id"]: rule for rule in policy["request_rules"]}
-    assert set(rules_by_id) == {"orders.read-only", "orders.write-blocked"}
-    readonly = rules_by_id["orders.read-only"]
-    assert readonly["methods"] == ["GET"]
-    assert (readonly["state_change"], readonly["data_impact"], readonly["service_impact"]) == ("none", "read_only", "low")
-    blocked = rules_by_id["orders.write-blocked"]
-    assert set(blocked["methods"]) == {"POST", "PUT", "PATCH", "DELETE"}
-    assert all(blocked[key] == "block" for key in ("state_change", "data_impact", "service_impact"))
-    assert all(rule["origin"] == "http://testapp-vulnerable:8000" and rule["path_prefix"] == "/orders"
-               for rule in policy["request_rules"])
+    rules = policy["request_rules"]
+    reads = [rule for rule in rules if rule["methods"] == ["GET"]]
+    writes = [rule for rule in rules if rule["methods"] == ["POST"]]
+    blocked = [rule for rule in rules if rule["state_change"] == "block"]
+    assert len(reads) == len(READ_PATHS) and len(writes) == len(APPROVAL_PATHS)
+    assert len(blocked) == len(READ_PATHS)
+    assert len(rules) == len(reads) + len(writes) + len(blocked)
+    assert set(rule["path_prefix"] for rule in reads) == READ_PATHS
+    assert set(rule["path_prefix"] for rule in writes) == APPROVAL_PATHS
+    assert all((rule["state_change"], rule["data_impact"], rule["service_impact"])
+               == ("none", "read_only", "low") for rule in reads)
+    assert all((rule["state_change"], rule["data_impact"], rule["service_impact"])
+               == ("require_approval", "require_approval", "low") for rule in writes)
+    assert set(rule["path_prefix"] for rule in blocked) == READ_PATHS
+    for rule in blocked:
+        expected_methods = {"PUT", "PATCH", "DELETE"}
+        if rule["path_prefix"] not in APPROVAL_PATHS:
+            expected_methods.add("POST")
+        assert set(rule["methods"]) == expected_methods
+        assert all(rule[dimension] == "block" for dimension in ("state_change", "data_impact", "service_impact"))
+    assert all(rule["origin"] == "http://testapp-vulnerable:8000" for rule in rules)
+    assert len({rule["rule_id"] for rule in rules}) == len(rules)
+    assert policy["schema_version"] == "0.1.0"
+    assert policy["policy_id"] == "local-web-vulnerable-business"
+    assert policy["policy_version"] == "draft-2"
     assert policy["limits"] == {"max_requests": 20, "max_duration_ms": 60000}
 
 
