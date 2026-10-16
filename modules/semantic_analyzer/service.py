@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from modules.semantic_analyzer.llm.adapter import LlmClient, RequestFeatures
 from modules.semantic_analyzer.utils import ids
 from modules.semantic_analyzer.utils.normalize import (
+    canonical_action,
     json_value_type,
     normalize_method,
     normalize_path_template,
@@ -356,7 +357,10 @@ def _build_workflows(requests: list[dict], normalized_requests: list[dict],
     관찰한 순서일 뿐 '반드시 지켜야 하는 업무 정책'으로 단정하지 않는다(명세 주의사항).
     """
     role_by_account = {a["account_id"]: a["role_id"] for a in accounts}
-    meaning_by_request = {n["request_id"]: n["action_meaning"] for n in normalized_requests}
+    # step action은 LLM 자유형(action_meaning)이 아니라 결정적 토큰을 쓴다 — GT ordered_actions와 같은 규칙으로
+    # 생성해야 reporter default-v2(이름 제외·subsequence)에서 비교된다. action_meaning은 normalized_requests에 그대로 둔다.
+    action_by_request = {n["request_id"]: canonical_action(n["method"], n["path_template"])
+                         for n in normalized_requests}
     evidence_by_request = {n["request_id"]: n["evidence_refs"] for n in normalized_requests}
 
     by_account: dict[str, list[dict]] = {}
@@ -377,7 +381,7 @@ def _build_workflows(requests: list[dict], normalized_requests: list[dict],
             steps.append({
                 "step_id": step_id,
                 "order": order,
-                "action": meaning_by_request.get(request_id, "access_resource"),
+                "action": action_by_request.get(request_id, "access_root"),
                 "request_ids": [request_id],
             })
             _merge_evidence(evidence_all, evidence_by_request.get(request_id, []))
