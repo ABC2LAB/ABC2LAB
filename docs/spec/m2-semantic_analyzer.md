@@ -12,7 +12,7 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-15
+## 현재 구현·연결 상태 — 2026-10-16
 
 기준 dev 구현에 crawl_result **0.3.0 소비**를 반영했다(collector 0.3.0 생산자 PR과 동기화 머지 전제).
 
@@ -24,9 +24,10 @@
 | discovered_endpoints | crawl_result의 `discovered_endpoints`(요청 안 한 발견 엔드포인트)마다 Endpoint·Parameter 노드와 Page·Action→Endpoint CALL을 **basis=inferred**로 생성. ACCESS·normalized_requests는 만들지 않음 |
 | OWNS(관찰 근거) | 인스턴스 자원을 **단일 계정이 경로 식별자(`/x/{id}`)로 2xx 접근**하면 `OWNS`(basis=observed) 생성. 응답 본문 id(`ResponseMeta.identifiers`)는 더 강한 신호일 뿐 필수 아님 → HTML 자원(`/orders/{id}` 등)도 포착. 다계정 공개 자원·경로 식별자 없는 body-id 자원은 제외(과대귀속 방지) |
 | LLM 의미 입력 정제 | 의미 추론(`action_meaning`·Resource)에 넘기는 파라미터에서 **cookie·header·민감 파라미터 제외**(path/query/body 비민감만). 쿠키 `session` 등을 자원으로 오인(`resource:session`)하는 것을 막는다. 구조 그래프의 Parameter·USE·normalized_requests에는 그대로 남김 |
+| workflow step action | step `action`은 LLM 자유형이 아니라 **결정적 규칙 `canonical_action(method, path_template)`**(`utils/normalize.py`)로 생성. GT `ordered_actions`와 같은 규칙이라 reporter default-v2(이름 제외·subsequence)가 비교 가능. `normalized_requests.action_meaning`(LLM)은 유지. step action 소비자는 reporter뿐(KG는 pass-through) |
 | LLM 설정 | 기본 `provider=fake`(네트워크 0 결정적). 실모델은 `ollama`, 모델 비교용 외부 API는 `openrouter`(API key는 `OPENROUTER_API_KEY` 환경변수로만). 커밋 파일을 고치지 않고 경로로 교체한다: CLI `--config` > 환경변수 `SEMANTIC_ANALYZER_CONFIG_PATH` > 기본 `configs/default.toml`. collector `COLLECTOR_CONFIG_PATH`와 같은 방식(PR #57) |
 | 설정 오류 처리 | 명시 경로(인자·환경변수)인데 파일이 없거나 `[llm]`·`provider` 키가 빠지면 `fake`로 조용히 떨어지지 않고 오류로 멈춘다. 기본 파일 부재만 `fake`로 동작(PR #57) |
-| 독립 회귀 | semantic_analyzer `67 passed`. 셸에 `SEMANTIC_ANALYZER_CONFIG_PATH`를 export한 상태로 전체 pytest를 돌려도 autouse 격리로 동일하게 통과 |
+| 독립 회귀 | semantic_analyzer `96 passed`. 셸에 `SEMANTIC_ANALYZER_CONFIG_PATH`를 export한 상태로 전체 pytest를 돌려도 autouse 격리로 동일하게 통과 |
 | 실제 전체 연결 | `pipeline.py` 12단계 전체 연결 확인(10/11). semantic_analyzer는 `SEMANTIC_ANALYZER_CONFIG_PATH`로 로컬 Ollama(llama3, CPU) 실모델 실행 포함. 실모델 추론 품질 평가는 후속 |
 
 상세 구현·회귀는 `modules/semantic_analyzer/`의 `tests/`·`configs/`를 따른다.
@@ -252,7 +253,8 @@
 | 2026-10-14 | 입력 `crawl_result` **0.2.0 → 0.3.0** 소비: `discovered_endpoints`(요청 안 한 발견 엔드포인트)를 Endpoint·Parameter·CALL `basis=inferred`로 생성, `ResponseMeta.identifiers` 수신(선택). 출력 `semantic_analysis`는 0.2.0 불변(신규 출력 필드·enum 없음) | collector 0.3.0 생산자 PR과 동기화. crawl_result 소비자 전원 동시 전환. OWNS 관찰 근거 분리는 후속 |
 | 2026-10-14 | 실행 산출물 0.3.0 통일: 출력 `semantic_analysis`의 `schema_version`만 0.2.0 → 0.3.0. 필드·의미 변경 없음(KG·reporter 입력 사본 0.3.0과 정렬) | 스키마 변경 PR(최민준, 이경준 허락) |
 | 2026-10-15 | LLM provider `openrouter` 추가(`llm/openrouter_client.py`, OpenRouter `/chat/completions`, 의존성 0). 프롬프트·`PROMPT_VERSION`은 Ollama와 공유, 응답은 `response_format` json_schema(strict)로 요구 후 재검증. API key는 `OPENROUTER_API_KEY` 환경변수로만 받고 오류·`model_info`에 넣지 않음. 출력 계약 변경 없음. 기본 `fake`·폐쇄망 운영 `ollama` 유지 | 모델 비교 요청(이동찬, local_web OpenRouter 설정 창구 #89), 담당 이경준 허락 후 윤재상 기여 |
-| 2026-10-15 | OWNS 생성 조건을 "단일 계정 접근 + 2xx + **경로 식별자**"로 조정(기존 "응답 본문 id 반환" 필수 제거, 본문 id는 선택적 강신호). HTML 인스턴스 자원(`/orders/{id}` 등)도 OWNS 포착. + LLM 의미 추론 입력에서 cookie·header·민감 파라미터 제외(`resource:session` 오인 방지). 출력 스키마·OWNS 엣지 형식 불변(basis=observed) | OWNS 소비자 knowledge_graph·access_analyzer(이동찬·최민준)와 규칙 합의 전제. SA 67 passed |
+| 2026-10-15 | OWNS 생성 조건을 "단일 계정 접근 + 2xx + **경로 식별자**"로 조정(기존 "응답 본문 id 반환" 필수 제거, 본문 id는 선택적 강신호). HTML 인스턴스 자원(`/orders/{id}` 등)도 OWNS 포착. + LLM 의미 추론 입력에서 cookie·header·민감 파라미터 제외(`resource:session` 오인 방지). 출력 스키마·OWNS 엣지 형식 불변(basis=observed) | PR #95. OWNS 소비자 knowledge_graph·access_analyzer(이동찬·최민준)와 규칙 합의 전제. SA 67 passed |
+| 2026-10-16 | workflow `steps[].action`을 LLM 자유형 → 결정적 `canonical_action(method, path_template)` 토큰으로 생성(`normalized_requests.action_meaning`은 LLM 유지). GT `ordered_actions`도 같은 규칙으로 생성(윤재상) → reporter default-v2 subsequence 매칭 성립 | 필드·타입·버전 불변(값 생성 규칙만 변경). step action 소비자는 reporter(이동찬, default-v2 요청자)뿐·KG는 pass-through. 미관찰 단계 추가 안 함. SA 96 passed |
 
 ---
 

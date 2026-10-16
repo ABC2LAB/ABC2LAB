@@ -133,6 +133,16 @@ def test_action_meaning_from_fake(result):
     assert order["action_meaning"] == "read_order"
 
 
+def test_workflow_step_action_is_canonical_not_llm(result):
+    # workflow step action은 결정적 토큰(canonical_action)이다. normalized_requests.action_meaning(LLM)과는 분리.
+    # GET /products는 canonical "view_product"지만 FakeClient action_meaning은 "read_product" → 둘이 달라 전환을 확인한다.
+    products = next(r for r in result["normalized_requests"] if r["request_id"] == "req_products_alice")
+    assert products["action_meaning"] == "read_product"  # LLM 결과는 그대로
+    alice = next(w for w in result["workflows"] if w["workflow_id"] == "workflow:acc_alice")
+    step = next(s for s in alice["steps"] if "req_products_alice" in s["request_ids"])
+    assert step["action"] == "view_product"  # workflow step은 규칙 토큰
+
+
 def test_workflows_one_per_account_with_ordered_steps(result):
     workflows = {w["workflow_id"]: w for w in result["workflows"]}
     assert set(workflows) == {"workflow:acc_alice", "workflow:acc_bob", "workflow:acc_admin"}

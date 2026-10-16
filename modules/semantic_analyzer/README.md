@@ -15,6 +15,7 @@
   - **`OWNS`(User→Resource)**: 접근만으로 만들지 않는다. 인스턴스 자원을 **단일 계정이 경로 식별자(`/x/{id}`)로 2xx 접근**했을 때만 관찰 근거로 생성(`basis=observed`). 응답 본문 id(`identifiers`)는 더 강한 신호일 뿐 필수 아님 → HTML 자원(`/orders/{id}` 등)도 포착한다. 공개·다계정 자원, 경로 식별자 없는 body-id 자원엔 안 붙는다(과대귀속 방지).
 - **자원·행위 의미와 업무 흐름은 LLM으로 추론** → `basis=inferred`.
   - `action_meaning`, Resource 노드(type/instance, 인스턴스 식별은 path+id형 query·body), `REFERENCE`(Endpoint→Resource), `workflows`.
+  - **workflow step `action`**: LLM 자유형이 아니라 **결정적 규칙 `canonical_action(method, path_template)`**(`utils/normalize.py`)로 생성한다. GT `ordered_actions`와 **같은 규칙**이라 reporter default-v2(이름 제외·subsequence)가 비교할 수 있다. 관찰한 요청만 step이 되고(미관찰 단계 추가 안 함), `normalized_requests.action_meaning`(LLM)은 그대로 둔다.
   - **의미 입력 정제**: LLM엔 비민감 path/query/body 파라미터 이름만 넘긴다. **cookie·header·민감 파라미터는 제외**(쿠키 `session` 등을 `resource:session`으로 오인 방지). 구조 그래프의 Parameter·USE·normalized_requests에는 그대로 남는다.
   - **발견 엔드포인트**(입력 `discovered_endpoints`, 요청 안 함): Endpoint·Parameter·`CALL`(Page/Action→Endpoint)을 `inferred`로 생성. `ACCESS`·`normalized_requests`는 만들지 않는다.
 - 원본 `request_id`·`account_id`·`role_id`는 보존하고 새 ID로 바꾸지 않는다.
@@ -50,7 +51,8 @@ LLM 출력은 데이터다 — service·validation이 타입·ID·참조를 다�
 | 2차 | #24 | ① 입력 `Page.account_id` 미러 ② 검증 메시지 비밀값 누출 차단 ③ `ACCESS`에 계정→Endpoint 추가 | 스키마 변경(입력 사본)·보안·그래프 의미 |
 | 3차 | #28 | Ollama provider 추가(`OllamaClient`+`factory`, `[llm] provider` 토글, 의존성 0) | 기본 fake 유지, 계약 불변 |
 | 4차 | #81 | 입력 crawl_result 0.3.0 소비: `discovered_endpoints` 노드화(inferred) + `OWNS` 접근/소유 분리(observed) + 인스턴스 식별 path+id형 query·body | collector #80과 동기 머지. 출력 0.3.0 정렬은 #85(팀 전체) |
-| 5차 | (이번) | `OWNS` 규칙을 "단일 계정 접근+2xx+**경로 식별자**"로 조정(응답 본문 id 필수 제거→HTML `/orders/{id}` 등 포착) + LLM 의미 입력에서 cookie·header·민감 파라미터 제외(`resource:session` 오인 방지) | 출력 스키마·OWNS 엣지 형식 불변(observed). OWNS 소비자 KG·access_analyzer 합의 전제. SA 67 passed |
+| 5차 | #95 | `OWNS` 규칙을 "단일 계정 접근+2xx+**경로 식별자**"로 조정(응답 본문 id 필수 제거→HTML `/orders/{id}` 등 포착) + LLM 의미 입력에서 cookie·header·민감 파라미터 제외(`resource:session` 오인 방지) | 출력 스키마·OWNS 엣지 형식 불변(observed). OWNS 소비자 KG·access_analyzer 합의 전제. SA 67 passed |
+| 6차 | (이번) | workflow step `action`을 LLM 자유형 → 결정적 `canonical_action(method, path_template)` 토큰으로. `action_meaning`(LLM)은 유지 | reporter default-v2(이름 제외·subsequence) 매칭용. GT `ordered_actions`도 같은 규칙 생성(윤재상). step action 소비자는 reporter뿐(KG는 pass-through). SA 96 passed |
 
 > 실모델(Ollama) e2e는 배선·파싱·재검증까지 확인됐고, 유효 초안 생성 품질은 모델·프롬프트 영역으로 후속(GPU 재확인). 상세는 개인 작업 로그/STATUS.
 
