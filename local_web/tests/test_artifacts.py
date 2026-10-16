@@ -225,6 +225,96 @@ def test_graph_snapshot_selection_and_references(artifact_root: Path, case: str)
         assert result["view"]["nodes"] == ([] if case == "empty_snapshot" else None)
 
 
+def test_workflow_dependencies_preserve_public_fields_and_input_bytes(artifact_root: Path) -> None:
+    source = artifact_file(artifact_root, "graph_query_result").read_bytes()
+    workflow = output(artifact_root, "graph_query_result")["view"]["workflows"][0]
+    assert workflow["dependencies"] == [{"before_step_id": "earlier", "after_step_id": "later",
+                                          "condition": "Open before read", "basis": "inferred"}]
+    assert workflow["dependency_count"] == 1
+    assert artifact_file(artifact_root, "graph_query_result").read_bytes() == source
+    assert set(workflow) == {"workflow_id", "name", "basis", "steps", "dependencies", "dependency_count"}
+    assert set(workflow["steps"][0]) == {"step_id", "order", "action"}
+    assert "evidence_refs" not in json.dumps(workflow) and "request_ids" not in json.dumps(workflow)
+
+
+@pytest.mark.parametrize("case", ["before_missing", "after_missing", "other_workflow", "basis", "condition",
+                                 "missing_key", "extra_key", "not_object", "not_array", "unsafe_evidence"])
+def test_workflow_dependencies_fail_closed(artifact_root: Path, case: str) -> None:
+    payload = json.loads(artifact_file(artifact_root, "graph_query_result").read_bytes())
+    workflows = payload["data"]["results"][1]["rows"][0]["workflows"]
+    dependency = workflows[0]["dependencies"][0]
+    if case in {"before_missing", "after_missing"}:
+        dependency["before_step_id" if case == "before_missing" else "after_step_id"] = "absent"
+    elif case == "other_workflow":
+        workflows.append({**workflows[0], "workflow_id": "other-flow", "dependencies": [],
+                          "steps": [{"step_id": "other-step", "order": 0, "action": "open", "request_ids": []}]})
+        dependency["after_step_id"] = "other-step"
+    elif case == "basis":
+        dependency["basis"] = "rule"
+    elif case == "condition":
+        dependency["condition"] = {"secret": "PASSWORD_SENTINEL"}
+    elif case == "missing_key":
+        del dependency["after_step_id"]
+    elif case == "extra_key":
+        dependency["password"] = "PASSWORD_SENTINEL"
+    elif case == "not_object":
+        workflows[0]["dependencies"] = [None]
+    elif case == "not_array":
+        workflows[0]["dependencies"] = {}
+    else:
+        dependency["evidence_refs"] = [{"evidence_id": "unsafe", "kind": "response",
+                                         "path": "evidence/semantic_analyzer/masked.json", "sha256": "a" * 64,
+                                         "redacted": False}]
+    rewrite(artifact_root, "graph_query_result", payload)
+    result = output(artifact_root, "graph_query_result")
+    assert result["state"] == "invalid" and result["view"] is None
+    assert "PASSWORD_SENTINEL" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("basis", ["observed", "inferred", "verified"])
+def test_workflow_dependencies_preserve_direction_basis_and_condition(artifact_root: Path, basis: str) -> None:
+    payload = json.loads(artifact_file(artifact_root, "graph_query_result").read_bytes())
+    workflow = payload["data"]["results"][1]["rows"][0]["workflows"][0]
+    workflow["steps"].append({"step_id": "last", "order": 4, "action": "read", "request_ids": []})
+    dependency = {"before_step_id": "last", "after_step_id": "earlier",
+                  "condition": '<img src=x onerror="window.workflowXss=1">', "basis": basis, "evidence_refs": []}
+    # 뒤로 향하는 관계·중복 행·자기 루프도 화면에서 없애거나 정방향으로 바꾸지 않는다.
+    workflow["dependencies"] = [dependency, dict(dependency), {**dependency, "after_step_id": "last"}]
+    rewrite(artifact_root, "graph_query_result", payload)
+    view = output(artifact_root, "graph_query_result")["view"]["workflows"][0]
+    assert view["dependencies"] == [{key: value for key, value in row.items() if key != "evidence_refs"}
+                                     for row in workflow["dependencies"]]
+    assert view["dependency_count"] == 3
+    assert [step["order"] for step in view["steps"]] == [0, 1, 4]
+    assert [step["action"] for step in view["steps"]].count("read") == 2
+
+
+@pytest.mark.parametrize("case", ["empty_steps", "empty_workflows", "dependencies_limit"])
+def test_workflow_empty_and_dependency_limits_are_explicit(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch, case: str,
+) -> None:
+    payload = json.loads(artifact_file(artifact_root, "graph_query_result").read_bytes())
+    snapshot = payload["data"]["results"][1]["rows"][0]
+    if case == "empty_steps":
+        snapshot["workflows"][0].update(steps=[], dependencies=[])
+    elif case == "empty_workflows":
+        snapshot["workflows"] = []
+    else:
+        snapshot["nodes"], snapshot["relationships"] = [], []
+        snapshot["workflows"][0]["dependencies"] *= 4
+        monkeypatch.setattr("local_web.artifacts.MAX_VIEW_ITEMS", 3)
+    rewrite(artifact_root, "graph_query_result", payload)
+    result = output(artifact_root, "graph_query_result")
+    if case == "dependencies_limit":
+        assert result["state"] == "invalid" and result["issue"] == "ARTIFACT_VIEW_LIMIT"
+    else:
+        assert result["state"] == "completed"
+        if case == "empty_workflows":
+            assert result["view"]["workflows"] == []
+        else:
+            assert result["view"]["workflows"][0]["steps"] == []
+
+
 @pytest.mark.parametrize("case", ["input_hash", "input_id", "scenario_hash", "unsafe_evidence", "evidence_path", "duplicate_finding", "bad_count", "summary_mismatch", "unknown_data_key"])
 def test_display_records_and_refs_fail_closed(artifact_root: Path, case: str) -> None:
     name = "safety_decisions" if case == "scenario_hash" else "diagnosis_report"
