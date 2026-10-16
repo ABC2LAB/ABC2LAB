@@ -2,12 +2,15 @@
 
 진단 결과를 정리해 `diagnosis_report.json`과 로컬 HTML을 생성하고, development 모드에서 Ground Truth 기반 평가 결과를 생성하는 모듈이다.
 
-## 현재 상태 — 2026-10-15
+## 현재 상태 — 2026-10-16
 
-기준 커밋 `cb9dc8e` + 이번 작업 트리 기준이다.
-개발 평가의 snapshot 관계 비교를 보완하고 기존 계정 매핑 설정을 local_web에서
-전달하도록 연결했다. 실행 계약 `0.3.0`·GT `0.1.0`·default-v1·report 분류는 유지한다.
-기존 산출물 Schema·다른 진단 모듈·원본 GT는 변경하지 않았다.
+기준 커밋 `695e36b`(SA PR #97 병합) + 이번 작업 트리 기준이다.
+기존 `default-v1`과 CLI 기본값은 유지하고, Workflow 이름을 제외해 순서 부분수열로
+비교하는 선택적 평가 프로필 `default-v2`와 단계 구성·순서 보존 부분 재현율을 구현했다.
+두 부분 점수는 GT마다 선택한 같은 관찰 workflow에서 계산한다. 실행 계약 `0.3.0`·
+GT `0.1.0`·report 분류와 비Workflow 지표의 계산은 유지한다. SA PR 병합 외에 다른
+진단 모듈을 추가 수정하지 않았고, 원본 GT·snapshot·Schema·Runner·Web 설정도
+변경하지 않았다. 새 진단·운영 Docker 배포는 아직 수행하지 않았다.
 
 | 구분 | 현재 상태 |
 |---|---|
@@ -16,10 +19,12 @@
 | 입력 호환 | Collector 발견 엔드포인트·응답 식별자 필드 수용; KG·Safety 출력과 입력 사본 일치 확인 |
 | 평가 | Endpoint 노드·Endpoint→USE→Parameter(추론 포함)와 normalized_requests를 정규화 키로 비교; 중복 분자 증가 없음 |
 | 관계 평가 | 실제 snapshot에서 Page.url→비교용 path, USE의 Endpoint 문맥을 사용; 실제 node_id·관계 종류·방향 일치 필수. notes에 탈락 건수 기록 |
+| Workflow 평가 | default-v1은 이름+전체 액션열 일치 유지; default-v2는 이름 제외·단일 관찰 workflow의 순서 부분수열 비교. 단계 order·반복 횟수 유지, 다른 workflow 연결 금지 |
+| Workflow 부분 점수 | default-v2만 workflow_step_recall(구성)·workflow_ordered_step_recall(LCS)을 추가. GT마다 LCS→구성 일치 수→원문 workflow_id 순으로 같은 관찰 하나를 선택하고 GT 단계 합계로 집계 |
 | 계정 매핑 | 선택적 Reporter 전용 설정으로 논리 actor→원본 account_id 연결; Candidate·User·관계에 동일하게 적용 |
 | Precision | 양성 GT 최대 일대일 매칭 후 FP=prediction 수−TP; 음성·미매칭·중복 prediction 포함 |
-| 독립 회귀 | Reporter `558 passed`; 담당 3개 `1123 passed, 12 skipped`; Reporter+Web `844 passed, 18 skipped`; Runner 대역 `58 passed` |
-| 실제 전체 연결 | 지정 진단의 공개 0.3 산출물 10개 completed, report·evaluate까지 연결 확인. 정책 차단 2개·검증 요청 0건·확정 0개로 실제 재현 성공과 구분 |
+| 독립 회귀 | Reporter `696 passed`(기존 560건+Workflow 136건), SA+담당 3개 `1357 passed, 12 skipped`(실제 Neo4j opt-in), Web 평가/Runner `122 passed` |
+| 실제 전체 연결 | 앞선 run의 report·evaluate 연결 이력 유지. 기존 두 run을 저장 없이 비교: 전체 v1/v2 모두 0/5, v2의 두 부분 점수 모두 0/29. 새 SA·공통 어휘 GT의 새 진단은 별도 검증 |
 
 `web-49ebec8c2f328963ecc3a7f46ebcf022`를 읽기 전용 재평가했다. 관계 3/52→32/52,
 명시적 계정 매핑 적용 시 User 0/1→1/1·후보 TP 0→1이다. 이는 같은 입력의 평가 누락
@@ -288,6 +293,10 @@ default-v1
 
 이다.
 
+기본값을 바꾸지 않고 `--matching-profile default-v2`로 새 Workflow 비교를 선택할 수
+있다. 공개 `run()`에서는 `context.matching_profile`에 `default-v2`를 지정한다.
+산출물의 `data.matching_profile`과 notes에 실제 적용한 규칙을 기록한다.
+
 Ground Truth와 분석 결과는 내부 ID 문자열을 직접 비교하지 않고 의미 정보를 기준으로 연결한다.
 
 주요 비교 정보:
@@ -297,6 +306,103 @@ Ground Truth와 분석 결과는 내부 ID 문자열을 직접 비교하지 않�
 - Parameter 위치·이름
 - Role 이름
 - Resource 종류와 원문 식별키·값
+
+### Workflow 비교 — default-v1 / default-v2
+
+| 항목 | default-v1(기존 기본값) | default-v2(선택) |
+|---|---|---|
+| 표시 이름 | 정규화한 name 일치 필요 | 비교하지 않음 |
+| 액션열 | 전체 일치 | GT ordered_actions가 단일 관찰 workflow의 순서 부분수열이면 일치 |
+| 관찰 순서 | steps의 order로 정렬 | 동일; 중간·앞뒤의 다른 단계는 허용 |
+| 반복 액션 | 반복 포함 전체 일치 | GT에 필요한 횟수만큼 실제 관찰돼야 함 |
+| GT 중복 키 | 정규화한 이름+액션열 | 정규화한 액션열; 이름/constraints만 다르면 중복으로 거절 |
+| 부분 점수 | 추가하지 않음 | 단계 구성·순서 보존 재현율을 별도로 출력 |
+
+설명용 합성 토큰으로 GT `A → B`는 v2에서 관찰
+`A → X → B`와 일치한다. 역순·필수 단계 누락은 전체 흐름으로
+일치하지 않는다. 여러 계정/관찰 workflow를 이어 붙이지 않으며, 같은 GT가 여러
+관찰에 포함돼도 분자는 한 번만 증가한다. 하나의 긴 관찰은 서로 다른 여러 GT 흐름을
+포함할 수 있다. 빈 GT 액션열 거절과 분모 0의 `null` 규약은 유지한다.
+
+두 프로필 모두 기존 공백·대소문자 정규화 후 액션 토큰을 비교하며 동의어를 만들거나
+요청 method/path에서 토큰을 재생성하지 않는다. 결정적 액션 규칙과 GT 토큰 재생성은
+semantic_analyzer/GT 담당자의 작업이다. 자유 서술 constraints·역할별 업무 조건을
+검증하는 지표가 아니므로 v2 recall은 **업무 액션 순서의 관찰 포함률**이다.
+업무 완주·실제 실행 성공·정책 준수·취약점 탐지율을 뜻하지 않는다.
+
+#### 부분 점수 — default-v2만
+
+전체 흐름의 포함 여부와 일부 단계의 관찰 정도를 구분한다. 기존 `Metric` 배열에
+아래 지표를 담으며 새 필드·Schema·버전을 추가하지 않는다. v1에는 부분 지표와
+부분 점수 notes를 넣지 않는다.
+
+| metric_id | 분자 | 분모 |
+|---|---|---|
+| workflow_recall | GT 액션열 전체가 순서대로 포함된 GT workflow 수 | 전체 GT workflow 수 |
+| workflow_step_recall | GT별 선택 흐름과의 순서 무관 단계 일치 수 합계 | 전체 GT 단계 수 합계 |
+| workflow_ordered_step_recall | 같은 선택 흐름과의 최장 공통 부분수열(LCS) 길이 합계 | 전체 GT 단계 수 합계 |
+
+GT마다 관찰 workflow 하나를 독립적으로 선택한다(A안).
+
+1. 순서 보존 일치 수인 LCS 길이가 큰 흐름을 우선한다.
+2. 동점이면 순서 무관 단계 일치 수가 큰 흐름을 선택한다.
+3. 다시 동점이면 원문 `workflow_id` 오름차순으로 선택한다. ID는 정규화하지 않는다.
+4. 두 분자는 반드시 선택한 같은 흐름에서 구한다. 모든 후보가 0점이면 대응 없음이다.
+
+구성 일치 수는 액션별 반복 횟수의 교집합이다. GT에 `read`가 두 번 있어도 관찰이
+한 번이면 한 단계만 일치한다. LCS도 관찰 단계 하나를 중복 소비하지 않는다.
+여러 workflow/계정의 단계를 연결하거나 지표별로 서로 다른 최댓값을 취하지 않는다.
+같은 관찰을 서로 다른 GT가 선택하는 것은 허용하며 업무흐름 분리 품질과 구분한다.
+
+아래는 합성 토큰의 계산 예이며 실제 앱의 액션 규칙이 아니다.
+
+| GT | 관찰 후보 | 선택한 흐름 | 단계 구성 | 순서 보존 | 전체 흐름 |
+|---|---|---|---|---|---|
+| A B C D | A B C | A B C | 3/4 | 3/4 | 0/1 |
+| A B C D | A C B D | A C B D | 4/4 | 3/4 | 0/1 |
+| A B C D | D C B A; A B C | A B C | 3/4 | 3/4 | 0/1 |
+
+GT별 비율을 평균하지 않고 분자와 분모를 각각 합산한다(micro 집계). 예를 들어
+4단계 GT에서 3단계, 1단계 GT에서 1단계를 찾으면 `4/5`이며 비율 평균 `7/8`이 아니다.
+
+- GT workflow가 없어 단계 분모가 0이면 두 부분 비율은 `null`이다.
+- GT 단계는 있지만 유효한 snapshot의 workflows/steps가 비었거나 겹침이 없으면 0이다.
+- snapshot이 없거나 실패했다면 평가 전체를 `failed / data=null`로 반환한다. 0점으로 숨기지 않는다.
+- 유효한 부분 입력은 기존 `partial`·오류를 보존한다. SA data가 없어도 유효한 KG snapshot이
+  있으면 Workflow는 평가하고, SA에 의존하는 Endpoint·Parameter는 미측정으로 구분한다.
+
+notes에 공식·선택 기준·빈 입력과 재사용 한계를 남긴다. 부분 지표는 **관찰 단계 커버리지**이며,
+업무 단위 분리·필수 선행/분기·의존관계 정확도나 LLM의 업무흐름 생성 품질을 평가하지 않는다.
+
+이미 완료된 평가 파일은 덮어쓰지 않는다. 과거 v1 값과 v2 값은 같은 평가 조건으로
+취급하지 않으며, 동일 GT/관찰 입력에 두 프로필을 적용해 비교한다.
+Web/Runner의 기본값은 `default-v1`이다. Web에서 v2를 사용하려면 새 Reporter
+코드를 이미지에 반영하고 `LOCAL_WEB_MATCHING_PROFILE=default-v2`를 명시해야 한다.
+이번에는 Web·실제 환경변수·Docker 이미지를 변경하지 않았다.
+
+#### 동일 입력 비교 기록 — 2026-10-16
+
+| 기존 진단 | 전체 v1 | 전체 v2 | 단계 구성 v2 | 순서 보존 v2 |
+|---|---|---|---|---|
+| web-49ebec8c2f328963ecc3a7f46ebcf022 | 0/5 (0%) | 0/5 (0%) | 0/29 (0%) | 0/29 (0%) |
+| web-4069974f795330d58678ef506de57004 | 0/5 (0%) | 0/5 (0%) | 0/29 (0%) | 0/29 (0%) |
+
+각 run은 GT workflow 5개·29단계, 관찰 workflow 4개·35단계다. 원본을 수정하지 않고
+공개 artifacts의 임시 복사본을 기존 입력 adapter로 검증한 뒤 출력 builder를 메모리에서
+실행했다. 두 run×두 프로필의 출력 Schema·출력/입력 재계산 일치를 각각 4건 검증했다.
+전체 DP 행렬 LCS·리스트 제거 방식의 독립 참조 계산으로 GT 흐름 10개의 선택과 점수를 대조했다.
+기존 evaluation의 input_refs 7개·GroundTruthRef 해시를 대조하고 run별 입력/저장 평가
+9개 파일의 비교 전후 해시 불변을 확인했다. 평가 파일을 재발행하거나 원문 응답·private·
+세션을 읽지 않았다. 두 프로필 사이의 비Workflow 지표 12개·후보/확정/미검증 집계·
+모델·원본 실행 측정값·GT 참조·graph revision은 동일했다. 두 run 모두 평가 binding은 0개다.
+
+이 두 입력의 GT 고유 액션 26개와 관찰 고유 액션 14개 사이에 같은 토큰이 0개다.
+SA와 KG snapshot의 workflow별 정규화 액션열도 동일해, 현재 원본 어휘로는 부분 점수도
+올라가지 않았다. 이는 관찰 단계 자체가 없다는 뜻이 아니며 해당 HTTP 요청의 미수집을
+증명하지 않는다. SA PR #97의 결정적 토큰은 과거 산출물에 소급 적용하지 않았다.
+다음 성능 비교는 담당자가 같은 규칙의 GT와 새 SA/KG 산출물을 발행한 뒤 수행한다.
+Reporter는 과거 토큰 보정·동의어 치환·누락 단계 추론으로 점수를 올리지 않는다.
+합성 회귀의 이름 불일치/추가 단계 사례는 각각 전체 0/1→1/1이며 실제 대상의 개선과 구분한다.
 
 ### Resource 정규화 — 0.2에서 도입, 0.3에서도 유지
 
@@ -587,7 +693,7 @@ python -m modules.reporter.entrypoint evaluate \
 현재 결과:
 
 ```text
-558 passed
+696 passed
 ```
 
 계약 테스트:
@@ -651,6 +757,27 @@ Resource 식별값 회귀 테스트:
 ```
 
 추가 실행 의존성 없이 팀 공통 Python 환경과 루트 의존성을 사용한다.
+
+Workflow 프로필·부분 점수·공개 실행 회귀(2026-10-16):
+
+```bash
+.venv/bin/python -m pytest modules/reporter/tests/test_workflow*.py -q --tb=short
+# 136 passed: 전체 포함률 40 + 순수 계산 43 + 부분 평가 16 + 통합 회귀 37
+```
+
+프로필별 값·반복/분리/빈 입력·GT 중복·partial/failed·snapshot 부재, 공개 CLI,
+실행 입력 7개/GT 해시·평가값 변조·완료 파일 불변·저장 실패 정리·diagnosis 분리를 검증한다.
+이 테스트 건수와 위 두 실제 진단의 0점 결과는 서로 다른 검증이다.
+
+연관 모듈·Web 회귀(2026-10-16, 실제 서비스 연결 시험과 구분):
+
+```bash
+KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/semantic_analyzer modules/knowledge_graph modules/safety_policy modules/reporter -q --tb=short
+# 1357 passed, 12 skipped (실제 Neo4j opt-in 미실행)
+
+.venv/bin/python -m pytest local_web/tests/test_evaluation.py local_web/tests/test_runner.py -q --tb=short
+# 122 passed
+```
 
 ---
 
@@ -1320,3 +1447,44 @@ KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph mo
 order/orders), scenario_generator의 non-JSON response_json assertion,
 Safety Policy의 block/require_approval은 이번 수정 범위 밖이다. inferred 후보의 report
 분류를 confirmed로 올리거나 GT에 맞춰 upstream 오류를 보정하지 않았다.
+
+## 변경 이력 — 2026-10-16 Workflow 비교 프로필 추가
+
+- 기준: `7c0863e` + 이번 작업 트리. 기존 `default-v1`과 CLI 기본값을 유지하고,
+  이름을 제외한 순서 부분수열 비교를 `default-v2`로 추가했다.
+- `matching.py`: 정렬된 액션열 추출과 단일 workflow 부분수열 비교. 기존 이름+전체
+  액션열 signature는 유지한다. `evaluation_service.py`: 프로필별 workflow recall·GT
+  중복 키 검사·notes를 구분한다. 다른 지표·report 분류·계정 설정은 변경하지 않는다.
+- 신규 회귀 40건: 이름 불일치, 삽입 단계, 순서 역전, 누락, 반복 횟수, order 정렬,
+  입력 불변, 분리된 workflow 연결 금지, 중복 GT, 분모 0, v1 보존, 공개 evaluate 출력
+  Schema·입력 SHA-256·GroundTruthRef. 작은 액션열 961쌍을 조합 기반 참조식과 대조했다.
+- 검증: `.venv/bin/python -m pytest modules/reporter -q --tb=short` → 600 passed.
+  `KG_RUN_NEO4J_INTEGRATION=0 .venv/bin/python -m pytest modules/knowledge_graph modules/safety_policy modules/reporter -q --tb=short`
+  → 1165 passed·12 skipped. `.venv/bin/python -m pytest local_web/tests/test_evaluation.py local_web/tests/test_runner.py -q --tb=short`
+  → 122 passed. 실제 Neo4j·브라우저·저장소 전체 테스트·새 pipeline은 실행하지 않았다.
+- 동일 입력 비교: 위 두 run은 모두 v1/v2 0/5로 실제 개선은 없었다. 합성 이름/삽입
+  단계 대조에서는 0/1→1/1을 확인했다. 입력 액션 토큰 일치와 실제 탐색 범위가 별도의
+  선행 조건이며, 상세 한계와 읽기 전용 비교 절차는 위 Workflow 평가 절에 기록했다.
+- 범위: Reporter 코드·신규 테스트·이 README와 마지막 단계의 m8 명세만 변경했다.
+  실제 GT·snapshot·완료 산출물·다른 모듈·Web/Runner·환경변수·Docker·의존성·공개
+  Schema는 변경하지 않았다. 커밋/푸쉬·PR은 별도 요청 후 진행한다.
+
+### 2026-10-16 — Workflow 부분 점수 1~6단계 완료
+
+- 기준: `695e36b` + 작업 트리. 앞선 default-v2의 전체 포함률은 유지하고
+  workflow_step_recall·workflow_ordered_step_recall을 기존 Metric 배열과 notes에 추가했다.
+  default-v1·CLI 기본값·비Workflow 계산·report 분류·계정 설정·Schema/버전은 유지한다.
+- A안: GT마다 LCS→구성 일치 수→원문 workflow_id 순으로 관찰 하나를 선택한다.
+  두 점수는 같은 흐름에서 구하고 반복 횟수·전체 GT 단계 분모·0/null·실패 구분을 보존한다.
+  순수 함수는 frozen WorkflowMatch와 단일 행 LCS DP를 사용하며 외부 호출/입력 변경이 없다.
+- 신규 회귀는 앞선 40건에 순수 계산 43건·평가 연결 16건·통합 37건을 더해 총 136건이다.
+  Reporter `696 passed`, SA+담당 3개 `1357 passed, 12 skipped`(실제 Neo4j opt-in),
+  Web 평가/Runner `122 passed`. 검증 명령은 위 테스트 절과 이전 단계 기록을 따른다.
+- 실제 입력 비교: 두 기존 run의 전체 v1/v2 0/5·부분 구성/LCS 0/29다. GT/관찰 토큰
+  교집합 0·SA/KG 액션열 동일을 확인했고, 독립 참조 계산과 출력 Schema/무결성을 대조했다.
+  비Workflow 12개 지표와 입력/저장 평가 9개 파일/run은 불변이다. 탐지 성능 개선으로 보고하지 않는다.
+- 마지막 6단계에서 README와 m8 현재 상태·계산식·한계·이력을 정리했다. 과거 기록을
+  보존하며 이번 문서 단계는 기능 코드를 추가 수정하지 않았다. SA 업무흐름 분리/필수
+  조건 추론은 선행 요구가 아니고, 같은 어휘의 새 GT·SA 산출물 검증은 후속으로 남긴다.
+- 새 진단·평가 재발행·다른 모듈 추가 수정·Web/Runner·실제 설정·Docker·의존성 변경은
+  하지 않았다. 커밋/푸쉬·PR·운영 배포는 별도 요청 후 진행한다.

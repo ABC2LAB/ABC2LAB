@@ -11,13 +11,17 @@ from modules.reporter.exceptions import ContractValidationError
 from modules.reporter.matching import (
     ActorMatcher,
     ObservedEntity,
+    WORKFLOW_SUBSEQUENCE_PROFILE,
     case_signature,
     has_parameter_match_fields,
     mapping_signature,
     matches_key,
+    matches_workflow,
     normalize_text,
     parameter_comparison_properties,
     require_supported_profile,
+    select_workflow_match,
+    workflow_actions,
     workflow_signature,
 )
 from modules.reporter.models import (
@@ -200,7 +204,11 @@ def _validate_ground_truth_for_profile(inputs: EvaluationInputs) -> None:
             raise ContractValidationError(
                 "ground truth workflow ordered_actions가 비어 있음"
             )
-        signature = workflow_signature(workflow, is_ground_truth=True)
+        signature = (
+            workflow_actions(workflow, is_ground_truth=True)
+            if inputs.request.matching_profile == WORKFLOW_SUBSEQUENCE_PROFILE
+            else workflow_signature(workflow, is_ground_truth=True)
+        )
         if signature in workflow_signatures:
             raise ContractValidationError(
                 "ground truth workflow 정규화 키가 중복됨"
@@ -400,6 +408,8 @@ def _build_structure_metrics(
         )
     metrics.append(_relationship_metric(inputs, relationship_score))
     metrics.append(_workflow_metric(inputs))
+    if inputs.request.matching_profile == WORKFLOW_SUBSEQUENCE_PROFILE:
+        metrics.extend(_workflow_partial_metrics(inputs))
     return metrics
 
 
@@ -436,19 +446,49 @@ def _workflow_metric(inputs: EvaluationInputs) -> Metric:
             len(inputs.ground_truth.workflows),
             measured=False,
         )
-    observed_signatures = {
-        workflow_signature(item, is_ground_truth=False)
-        for item in snapshot.workflows
-    }
-    matched_count = sum(
-        workflow_signature(item, is_ground_truth=True) in observed_signatures
-        for item in inputs.ground_truth.workflows
-    )
+    if inputs.request.matching_profile == WORKFLOW_SUBSEQUENCE_PROFILE:
+        matched_count = sum(
+            any(matches_workflow(expected, observed) for observed in snapshot.workflows)
+            for expected in inputs.ground_truth.workflows
+        )
+    else:
+        observed_signatures = {
+            workflow_signature(item, is_ground_truth=False)
+            for item in snapshot.workflows
+        }
+        matched_count = sum(
+            workflow_signature(item, is_ground_truth=True) in observed_signatures
+            for item in inputs.ground_truth.workflows
+        )
     return _metric(
         "workflow_recall",
         matched_count,
         len(inputs.ground_truth.workflows),
     )
+
+
+def _workflow_partial_metrics(inputs: EvaluationInputs) -> list[Metric]:
+    snapshot = inputs.graph_snapshot
+    observed_workflows = snapshot.workflows if snapshot is not None else ()
+    matches = tuple(
+        select_workflow_match(expected, observed_workflows)
+        for expected in inputs.ground_truth.workflows
+    )
+    expected_step_count = sum(item.expected_step_count for item in matches)
+    return [
+        _metric(
+            "workflow_step_recall",
+            sum(item.step_match_count for item in matches),
+            expected_step_count,
+            measured=snapshot is not None,
+        ),
+        _metric(
+            "workflow_ordered_step_recall",
+            sum(item.ordered_step_match_count for item in matches),
+            expected_step_count,
+            measured=snapshot is not None,
+        ),
+    ]
 
 
 def _score_candidates(
@@ -673,6 +713,39 @@ def _collect_upstream_errors(
     )
 
 
+def _workflow_matching_note(profile: str) -> str:
+    if profile == WORKFLOW_SUBSEQUENCE_PROFILE:
+        return (
+            "workflow_recall은 이름을 제외하고 GT ordered_actions가 하나의 관찰 workflow에 "
+            "순서 부분수열로 포함되는지 비교함(order 정렬·반복 횟수 유지). "
+            "자유 서술 constraints는 평가하지 않으며 업무 완주·정책 준수를 증명하지 않음"
+        )
+    return (
+        "workflow_recall은 정규화한 이름과 ordered_actions를 비교하며 "
+        "자유 서술 constraints는 문자열 일치로 평가하지 않음"
+    )
+
+
+def _build_workflow_partial_notes() -> tuple[str, ...]:
+    return (
+        (
+            "workflow_step_recall은 순서 무관 액션 중복 횟수 교집합, "
+            "workflow_ordered_step_recall은 순서 보존 LCS 길이를 사용함. "
+            "각 GT의 일치 수를 합산하고 전체 GT 단계 수 합계로 나눔"
+        ),
+        (
+            "부분 점수는 GT마다 LCS 길이→단계 일치 수→원문 workflow_id 오름차순으로 "
+            "관찰 workflow 하나를 선택해 같은 흐름에서 두 분자를 계산함. "
+            "모두 0점이면 대응 없음이며 다른 workflow/계정의 단계를 합치지 않음"
+        ),
+        (
+            "부분 점수는 관찰 단계 커버리지이며 같은 관찰을 여러 GT가 사용할 수 있음. "
+            "업무흐름 분리·의존관계 정확도·LLM 생성 품질을 평가하지 않음. "
+            "GT 단계 분모 0은 null, 유효한 빈 관찰은 분모가 있으면 0으로 기록함"
+        ),
+    )
+
+
 def _build_notes(
     profile: str,
     inputs: EvaluationInputs,
@@ -690,15 +763,14 @@ def _build_notes(
         ),
         "inferred Endpoint·Parameter도 발견율에 포함하며 실제 요청·접근 성공·취약점 확정을 뜻하지 않음",
         "미검증 항목을 정답 양성 분모에서 제외하지 않음",
-        (
-            "workflow_recall은 정규화한 이름과 ordered_actions를 비교하며 "
-            "자유 서술 constraints는 문자열 일치로 평가하지 않음"
-        ),
+        _workflow_matching_note(profile),
         (
             "run_metrics는 7개 실행 입력의 합계이며 peak_memory_mb는 "
             "최댓값, 하나라도 미측정이면 해당 값은 null임"
         ),
     ]
+    if profile == WORKFLOW_SUBSEQUENCE_PROFILE:
+        notes.extend(_build_workflow_partial_notes())
     notes.append("완전한 정답 집합 benchmark 가정: FP는 전체 prediction 수−양성 GT 일대일 TP 수")
     for label, score in (("후보", candidate_score), ("확정 후보", confirmed_score)):
         notes.append(
