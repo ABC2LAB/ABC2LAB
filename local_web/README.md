@@ -1306,7 +1306,7 @@ Runner 호출·평가 계산·모듈 Schema는 수정하지 않았다. 기존 �
 | 표시 영역 | 공개 출력 필드 | 처리 원칙 |
 | --- | --- | --- |
 | 평가 조건 | ground_truth_ref의 dataset_id·dataset_version·sha256, source_graph_revision·matching_profile | 메타데이터만 표시. 정답 경로·원문은 반환하거나 열지 않음 |
-| 성능 지표 | metrics의 metric_id·value·numerator·denominator | 순서·값 보존. ID·배열 길이를 하드코딩하지 않음. value와 표시용 백분율을 함께 제공 |
+| 성능 지표 | metrics의 metric_id·value·numerator·denominator | 원본 표의 순서·값 보존. 알려진 ID는 표시 설명만 부여하며 미지 지표도 제공. 그룹별 표시와 원본 펼침은 19.21절 |
 | 후보/확정 집계 | candidate_counts·confirmed_counts | TP·FP·FN을 별도 행으로 표시. 두 단계를 합치지 않음 |
 | 미검증 | unverified_counts | 정책 차단·승인 대기·판단불가를 별도 표시 |
 | 모델·생성 조건 | models | 실제 공개 모델/프롬프트 버전·temperature·seed 표시. Web에서 모델 선택·LLM 호출 없음 |
@@ -1463,8 +1463,9 @@ CPU Compose 이미지 재빌드·서비스 기동·모델 설치다. 대상 앱�
 
 그래프의 노드·관계는 기존 `graph_query_result`의 `structure_snapshot` 화면 모델만 사용한다.
 2026-10-15에 기본 표시 범위와 기존 후보 결과를 이용한 주변 탐색을 추가했다(19.20절).
-API·Backend·
-표시 검증·모듈·Runner·Schema·의존성은 변경하지 않는다. Neo4j 직접 접근,
+2026-10-16에는 Workflow 전용 보기와 최소 표시 모델의 의존관계 검증·투영을 추가했다
+(19.22절). 기존 `/api/run-results` 경로를 재사용하며 모듈·Runner·Schema·의존성은
+변경하지 않는다. Neo4j 직접 접근,
 재질의·검증 후 snapshot 생성, revision 갱신, 새 노드·관계 추론은 하지 않는다.
 지금 보여 주는 그래프는 계속 **검증 전 query 시점**의 snapshot이다.
 
@@ -1477,7 +1478,7 @@ API·Backend·
 
 | 기능 | 현재 동작 |
 | --- | --- |
-| 기본 보기 | 접근 관계: User·Role·Resource와 표시 노드 사이 원본 관계. 후보 중심·전체 원본 전환과 연결 펼치기는 19.20절을 따름 |
+| 기본 보기 | 접근 관계: User·Role·Resource와 표시 노드 사이 원본 관계. 후보 중심·전체 원본은 19.20절, Workflow 전용 보기는 19.22절을 따름 |
 | 전체 보기 | 입력 배열의 앞 80개·240개를 자르지 않고 모든 종류·노드·관계를 대상으로 표시. 전체 보기 버튼은 필터·선택·카메라·페이지를 초기화 |
 | 필터·검색 | 노드 종류·**노드** basis·Resource type/instance와 node_id 부분 문자열(대소문자 무시)의 교집합. 관계는 선택된 노드 사이의 원본 관계를 유지하며 relation basis를 바꾸거나 재판정하지 않음 |
 | 연결된 노드만 보기 | 원본 snapshot에 관계가 있는 노드만 표시하는 선택 옵션. 기본값은 해제이며 연결 없는 노드도 전체 보기에 포함 |
@@ -1826,10 +1827,125 @@ HTTP 응답/SHA-256 일치·Web healthy·is_busy=false를 확인했다. 배포�
 가로 넘침 없음을 확인했다. Neo4j·Ollama는 기존 중지 상태·컨테이너를 유지했고
 테스트 앱·새 진단·실제 LLM·검증 요청은 실행하지 않았다.
 
+### 19.21 개발 평가 지표 가독성 — 2026-10-16
+
+Reporter 공개 평가 결과의 **표현만** 변경한다. Backend·API·진단 모듈·평가 계산·
+Schema·GT·매칭 설정·의존성은 변경하지 않는다. Web이 원본 지표를 재계산하거나
+누락 데이터를 추론하지 않으며 지표 평균·종합 점수·좋음/나쁨 기준도 추가하지 않는다.
+
+| 영역 | 표시 |
+| --- | --- |
+| 평가 조건 | 데이터셋·정답 버전·매칭 프로필·KG revision을 상단에 표시 |
+| 취약점 탐지 | 후보/확정 정밀도·재현율 4개 카드. 정밀도는 정답 일치/생성 또는 확정 후보, 재현율은 일치/정답 취약점으로 분모 구분 |
+| 웹 구조 | 제공된 User·Role·Page·Action·Endpoint·Parameter·Resource·관계 재현율에 한글 표시명·원본 ID·설명·분자/분모 제공 |
+| Workflow | 전체 흐름·단계 구성·단계 순서 재현율 구분. 전체는 흐름 수, 부분은 단계 수를 표시하며 LCS 의미 안내 |
+| 기타 지표 | 알려지지 않은 metric_id도 원문 ID·비율·분자/분모로 표시. 최대 100건과 전체 건수를 안내 |
+| 원본 지표·평가 기준 펼치기 | 기존 순서의 지표 ID·반올림하지 않은 원본 비율 문자열·분자/분모와 정답 SHA-256 등 기준 표를 보존. 기존 표당 100행 제한 유지 |
+| 집계·해석 | TP·FP·FN의 뜻을 안내하고 후보/확정 집계·미검증·모델·실행 측정값·평가 한계는 계속 제공 |
+
+백분율은 **Reporter의 value**에 표시 형식만 적용한다. 분자/분모가 value와
+다르더라도 Web이 비율을 교정하지 않는다. 소수 둘째 자리로 반올림하므로 더 작은
+차이는 원본 펼침에서 확인한다. 지표 원본 0은 `0.00%`, null은 `미측정`, 해당
+지표 부재는 `미제공`으로 구분하며 뒤의 두 경우에는 계기를 표시하지 않는다.
+미발행·failed·invalid·조회 실패를 0점이나 정상 빈 결과로 바꾸지 않는다. partial은
+부분 결과·오류 건수를 보존하며 조회 실패 시 이전 지표를 지운다.
+
+Workflow 전체 지표 설명은 **산출물의 matching_profile**에 맞춘다. `default-v1`은
+이름+전체 액션열 정확 일치, `default-v2`는 한 관찰 안의 순서 부분수열 포함이다.
+다른 프로필은 임의 해석하지 않는다. 부분 지표가 없는 기존 평가에는 `미제공`을
+표시하고 원본 표에 행을 추가하거나 0점/새 점수를 만들지 않는다. 이 화면 개선으로
+`LOCAL_WEB_MATCHING_PROFILE`이 v2로 전환되거나 기존 평가가 재발행되지는 않는다.
+부분 점수는 관찰 단계 커버리지이며 업무 완주·정책 준수·LLM 생성 품질과는 구분한다.
+
+한글 설명 사전은 표시용이지 허용 지표 목록이나 새로운 계약이 아니다. 미지 지표·
+새 프로필도 누락하지 않으며 문자열은 기존처럼 `textContent`로 표현한다. Ground
+Truth 원문·private·로그·근거 본문은 읽지 않는다. 키보드로 원본을 펼칠 수 있고
+같은 진단의 다시 확인에는 펼침 상태를 유지하며 새 진단에서는 접힌 상태로 초기화한다.
+
+검증은 합성 공개 fixture·실제 Web 테스트 서버·Chromium만 사용한다. 실제 진단
+성능 향상·LLM 품질·Docker 배포 완료를 의미하지 않는다.
+
+```bash
+LOCAL_WEB_BROWSER_TESTS=1 .venv/bin/python -m pytest local_web/tests/test_results_browser.py -k evaluation -q --tb=short
+# 19 passed, 43 deselected
+LOCAL_WEB_BROWSER_TESTS=1 .venv/bin/python -m pytest local_web/tests tests/pipeline -q --tb=short
+# 428 passed, 1 skipped (읽기 전용 Docker 마운트 전용 검증은 별도 환경 필요)
+node --check local_web/frontend/results.js
+git diff --check
+```
+
+신규 회귀 16건은 한글명·그룹·분자/분모 의미, v1/v2/미지 프로필과 부분 지표 부재,
+0/null/빈 지표/부분 결과/실패, 미래 지표·원본 값 비재계산·HTML 비실행, 키보드 원본
+펼침·다시 확인·조회 실패 후 복구·새 진단 초기화를 검증한다. 기존 원본 표 검증은
+상세를 먼저 펼치도록 수정했으며 기존 데이터 검증을 유지한다. 1440px·1280px·390px의
+페이지/지표 카드 가로 넘침과 JavaScript 오류가 없음을 확인했다. 캡처는 합성 값이며
+저장소 밖 임시 경로에만 남긴다. Docker 반영·새 진단·커밋/푸쉬는 하지 않았다.
+
+### 19.22 KG Workflow 전용 시각화 — 2026-10-16
+
+KG 화면의 기존 접근 관계·후보 중심·전체 원본을 유지하고 **Workflow** 보기를
+추가했다. `structure_snapshot.workflows`에 이미 있는 흐름만 읽으며 SA/KG 모듈·
+공개 JSON Schema·GT·평가 계산·설정·의존성은 변경하지 않는다. 기존 Web API의
+`view.workflows[].dependencies`에 화면용 끝점·조건·basis를 추가한 **Web 내부 표시
+모델 확장**이며 모듈의 출력 계약을 바꾼 것이 아니다. 앞선 평가 화면 개선도 유지한다.
+
+| 기능 | 표시·경계 |
+| --- | --- |
+| 흐름 선택 | 이름·원본 workflow_id로 한 Workflow를 명시적으로 선택. 최초 자동 선택·다른 흐름 합치기·ID에서 계정 추측 없음 |
+| 단계 도식 | 원본 order로 정렬해 한 페이지 10단계씩 카드 형태로 표시. 같은 action도 step_id가 다르면 별도 단계이며 order를 재작성하지 않음 |
+| 원본 관계 | dependencies가 가리키는 출발/도착 단계와 방향만 화살표로 표시. 점프·역방향·자기 루프·같은 끝점의 여러 관계도 보존 |
+| 근거 구분 | Workflow 전체 basis는 별도 표시. 관계별 observed는 파랑, inferred는 주황 점선, verified는 초록 굵은 선. 검증 근거와 취약점 확정은 다름 |
+| 단계 상세 | 클릭·Tab/Enter/Space로 action·step_id·order·들어오는/나가는 관계 수 확인. 긴 action은 도식에서 축약하고 title·상세에는 원문 유지 |
+| 긴 흐름 | 단계·관계 각각 전체/표시 구간과 처음·이전·다음·마지막 페이지 제공. 도식은 현재 페이지 양 끝이 모두 보이는 실제 관계만 표시하고 누락 수를 숨기지 않음 |
+| 관계 목록 | 원본 순서대로 10개씩 조건·basis·출발/도착 단계 제공. 버튼으로 다른 페이지의 단계에 이동. 도식 페이지 밖의 선택 단계도 별도 안내·이동 지원 |
+| 화면 조작 | 단계 도식은 내부 가로/세로 스크롤. 기존 노드용 필터·확대/이동 도구는 Workflow 보기에서 숨김. 모바일에서는 상세를 도식 아래 배치 |
+| 상태 보존 | 같은 snapshot의 다시 확인은 선택·페이지·도식 스크롤을 유지. 보기 전환도 Workflow 선택 유지. run/graph/revision 변경과 기존 전체 보기 초기화 버튼은 초기화 |
+
+**단계의 세로 배치는 순서 표현이지 새 의존관계가 아니다.** 의존관계가 없어도
+인접 단계를 자동 연결하지 않고, 페이지 사이 관계를 생략된 단계의 지름길로 바꾸지
+않는다. 원본 `condition`은 설명 문자열로만 표시한다. 현재 SA가 만드는 계정별
+관찰 순서 후보를 필수 업무 정책·완주·업무 단위 분리 결과로 승격하지 않는다.
+WorkflowStep의 action 이름과 KG Action node_id를 추측해서 연결하지 않으며
+GT를 화면 구성이나 관계 보정에 사용하지 않는다. snapshot은 계속 검증 전 query 시점이다.
+
+`artifacts.py`는 dependency 끝점이 **같은 Workflow의 실제 step_id**인지, 조건/basis와
+근거 참조가 표시 경계를 만족하는지 확인한다. 잘못된 끝점·다른 흐름 참조·잘못된 타입·
+미정의 키·마스킹되지 않은 근거 참조는 invalid로 처리하고 빈 관계로 숨기지 않는다.
+근거 본문이나 파일을 열지 않으며 dependencies 화면 모델에는 evidence_refs·경로·
+request_ids·비밀정보를 추가하지 않는다. 기존 파일/배열/문자열 제한도 유지한다.
+
+유효한 Workflow 0개, 선택한 흐름의 단계/관계 0개, 미발행·조회 실패·failed·partial을
+구분한다. 선택 흐름이 사라지면 다른 흐름을 자동 선택하지 않는다. 문자열은
+textContent·SVG text/title로 표현하며 HTML·JavaScript·조건 코드로 실행하지 않는다.
+실제 진단·LLM/Neo4j 호출이나 완료 산출물 재작성 없이 합성 fixture로만 검증한다.
+
+검증:
+
+```bash
+.venv/bin/python -m pytest local_web/tests/test_artifacts.py -q --tb=short
+# 67 passed
+LOCAL_WEB_BROWSER_TESTS=1 .venv/bin/python -m pytest local_web/tests/test_results_browser.py -k workflow_graph -q --tb=short
+# 16 passed, 62 deselected
+LOCAL_WEB_BROWSER_TESTS=1 .venv/bin/python -m pytest local_web/tests tests/pipeline -q --tb=short
+# 461 passed, 1 skipped (읽기 전용 Docker 마운트 전용 검증은 별도 환경 필요)
+node --check local_web/frontend/results.js
+git diff --check
+```
+
+Workflow adapter 신규 17건과 Chromium 신규 16건을 추가했다. 잘못된 참조·입력
+불변·민감 근거 차단, 원본 방향/basis·반복/역방향/자기 루프, 빈 결과·부분/실패,
+긴 흐름/페이지 밖 이동·선택 상태 보존/초기화·HTML 비실행을 검증한다. 1440px·
+1280px·390px에서 페이지 가로 넘침·JS 오류가 없음을 확인하고 합성 캡처로 데스크톱/
+모바일 도식·상세 배치를 검토했다. 캡처는 저장소 밖 임시 경로에만 저장한다.
+Docker 반영·새 진단은 실행하지 않았다. 뒤이어 요청된 Workflow 정량 평가 제거와
+Semantic LLM 평가 체계 개편은 별도 작업이며 이번 화면 변경에 포함하지 않는다.
+
 ## 20. 변경 이력
 
 | 날짜 | 변경 | 구현·계약 영향 |
 | --- | --- | --- |
+| 2026-10-16 | KG Workflow 전용 선택·단계/원본 의존관계 도식·basis·상세·페이지/관계 이동 추가 | local_web 표시 adapter·UI만 확장. 같은 흐름 끝점/조건/근거 검증·원본 방향/반복/0개/실패 구분 유지. 모듈·Schema·GT·평가·설정·의존성 불변 |
+| 2026-10-16 | 평가 지표를 취약점 탐지·웹 구조·Workflow로 분류하고 한글명·백분율·분모 의미·원본 펼침 추가 | Presentation만 변경. 원본 value/ID/분자·분모와 표 순서·미지 지표·0/null/부재/실패 구분 유지. Backend·모듈·API·Schema·GT·설정·의존성 불변 |
 | 2026-10-15 | KG 기본 접근 관계·후보 중심·전체 원본 보기, 실제 연결 펼치기·선택 강조·관계명·ID 축약·숨김 건수 추가 | 기존 공개 화면 데이터만 사용. 정확한 Resource ID 매칭과 불일치 안내. 모듈·Backend·API·Schema·GT·판정·설정·의존성 불변 |
 | 2026-10-15 | 중간 발표용 5개 메뉴 디자인: 공통 셸·입력 카드·상태 배지·KG 우선 배치·상세 접기·확정/승인 카드·평가 카드 | Presentation만 변경. 진단 모듈·Backend·API·Schema·판정·설정·의존성 불변. 0/미측정/미제공과 조건 통과/확정을 구분 |
 | 2026-10-15 | shop_demo 실제 평가 프로필을 운영 .env에서 명시하고 탐지·검증·확정 현황 및 확정 외 사유 표시 추가 | 기존 env 연결·Reporter 판정·공개 Schema 유지. 완료 산출물은 재작성하지 않고 미확인과 0건을 구분. 검증 결과는 19.18에 기록 |

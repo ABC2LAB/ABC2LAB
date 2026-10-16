@@ -227,29 +227,89 @@ tbody tr:hover { background: #fafcff; }
 .node-Parameter circle { fill: #55a397; }
 .node-symbol { fill: #fff; font-size: 12px; font-weight: 700; }
 .node-label { fill: #586e8c; font-size: 11px; }
+.workflow-choice { padding: 17px; border: 1px solid var(--line); border-radius: 10px; background: #f8fafe; }
+.workflow-choice label { margin-top: 0; }
+.workflow-choice select { width: 100%; max-width: 100%; min-width: 0; }
+.workflow-choice .description { margin-bottom: 0; }
+.workflow-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 24px 0 12px; }
+.workflow-summary h4 { margin: 0; width: 100%; }
+.workflow-summary code { color: #586e8c; font-size: 11px; overflow-wrap: anywhere; }
+.workflow-layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 16px; align-items: start; }
+.workflow-drawing, .workflow-step-detail { min-width: 0; }
+.workflow-drawing > .field-help { margin-top: 0; }
+.workflow-canvas { max-width: 100%; max-height: 560px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #f8faff; }
+.workflow-svg { display: block; min-width: 640px; width: 100%; }
+.workflow-step { cursor: pointer; }
+.workflow-step rect { fill: #fff; stroke: #d5deed; stroke-width: 1.5; }
+.workflow-step.is-selected rect, .workflow-step:focus-visible rect { fill: #eef3ff; stroke: #426edc; stroke-width: 3; }
+.workflow-order { fill: #647792; font-size: 11px; }
+.workflow-action { fill: #243d60; font-size: 14px; font-weight: 650; }
+.workflow-dependency { fill: none; stroke-width: 2; opacity: .75; }
+.workflow-dependency.basis-observed { stroke: #557acd; }
+.workflow-dependency.basis-inferred { stroke: #af7b2b; stroke-dasharray: 6 4; }
+.workflow-dependency.basis-verified { stroke: #20836b; stroke-width: 3; }
+.workflow-dependency.is-selected { opacity: 1; stroke-width: 3; }
+.workflow-arrow.basis-observed { fill: #557acd; }
+.workflow-arrow.basis-inferred { fill: #af7b2b; }
+.workflow-arrow.basis-verified { fill: #20836b; }
+.workflow-edge-label { fill: #586a83; font-size: 10px; paint-order: stroke; stroke: #f8faff; stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.workflow-step-detail { border: 1px solid var(--line); border-radius: 10px; padding: 18px; background: #fcfdff; max-height: 560px; overflow: auto; }
+.workflow-step-detail h5 { font-size: 13px; margin: 0 0 15px; }
+.workflow-step-detail dt { font-size: 11px; color: #62738b; margin-top: 15px; }
+.workflow-step-detail dd { font-size: 12px; color: #294262; margin: 6px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.workflow-dependency-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.workflow-dependency-card { min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 16px; }
+.workflow-relation-index { color: #62738b; font-size: 11px; margin-right: 10px; }
+.workflow-dependency-ends { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.workflow-dependency-ends button { min-width: 0; flex: 1; font-size: 11px; overflow-wrap: anywhere; }
+.workflow-direction { color: #62738b; }
+.workflow-condition { color: #536780; font-size: 12px; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 10em; overflow: auto; }
+.workflow-pagination { margin: 15px 0; }
 .finding-grid, .approval-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 18px 0; }
 .finding-card, .approval-card { min-width: 0; padding: 23px; border: 1px solid #eadfe5; border-left: 3px solid #d8697c; border-radius: 10px; background: #fff; }
 .approval-card { border-color: #ede4d4; border-left-color: #d4aa5c; background: #fffdf8; }
 .finding-card h4, .approval-card h4 { margin: 17px 0 10px; overflow-wrap: anywhere; font-size: 15px; }
 .finding-card p, .approval-card p { font-size: 12px; color: #60718a; overflow-wrap: anywhere; white-space: pre-wrap; }
 .finding-meta { color: #62738a; font-size: 11px; overflow-wrap: anywhere; line-height: 1.8; }
-.evaluation-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; margin: 23px 0; }
-.evaluation-card { min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 21px 18px; background: #fbfcff; }
-.evaluation-card h4 { margin: 0 0 17px; color: #6d7c92; font-size: 11px; font-weight: 550; }
+.evaluation-context { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 22px 0 16px; background: #f5f8fd; border: 1px solid var(--line); border-radius: 10px; }
+.evaluation-context > div { min-width: 0; padding: 16px; }
+.evaluation-context dt { color: #62738b; font-size: 11px; margin-bottom: 7px; }
+.evaluation-context dd { color: var(--ink); font-size: 13px; font-weight: 650; margin: 0; overflow-wrap: anywhere; }
+.evaluation-metric-group { margin: 30px 0; }
+.evaluation-metric-group > h4 { margin-bottom: 7px; }
+.evaluation-metric-group > .description { margin: 0 0 16px; }
+.evaluation-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; }
+.evaluation-card { display: flex; flex-direction: column; justify-content: space-between; gap: 22px; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 21px 18px; background: #fbfcff; }
+.evaluation-metric-copy { min-width: 0; }
+.evaluation-metric-copy h5 { margin: 0 0 5px; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.6; }
+.evaluation-metric-id { display: block; color: #62738b; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+.evaluation-metric-description { margin: 9px 0 0; color: #586a83; font-size: 11px; line-height: 1.8; }
+.evaluation-reading { min-width: 0; }
 .evaluation-value { color: var(--ink); font-size: 30px; font-weight: 740; letter-spacing: -1px; font-variant-numeric: tabular-nums; margin: 0; line-height: 1.2; }
-.evaluation-card > p:last-child { font-size: 11px; color: #62738b; margin: 12px 0 0; }
-.evaluation-card meter { display: block; width: 100%; height: 7px; margin-top: 17px; border: 0; }
-.evaluation-card meter::-webkit-meter-bar { border: 0; background: #e8eef9; border-radius: 5px; }
-.evaluation-card meter::-webkit-meter-optimum-value { background: #5c7ee1; border-radius: 5px; }
-.evaluation-card meter::-moz-meter-bar { background: #5c7ee1; border-radius: 5px; }
+.evaluation-metric-counts { font-size: 11px; color: #586a83; margin: 9px 0 0; font-variant-numeric: tabular-nums; }
+.evaluation-status-note { color: #62738b; font-size: 11px; margin: 9px 0 0; }
+.evaluation-reading meter { display: block; width: 100%; height: 7px; margin-top: 14px; border: 0; }
+.evaluation-reading meter::-webkit-meter-bar { border: 0; background: #e8eef9; border-radius: 5px; }
+.evaluation-reading meter::-webkit-meter-optimum-value { background: #5c7ee1; border-radius: 5px; }
+.evaluation-reading meter::-moz-meter-bar { background: #5c7ee1; border-radius: 5px; }
+.evaluation-metric-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.evaluation-metric-row { display: grid; grid-template-columns: minmax(0, 1fr) 140px; align-items: center; gap: 20px; min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 9px; }
+.evaluation-metric-row .evaluation-reading { text-align: right; }
+.evaluation-metric-row .evaluation-value { font-size: 23px; letter-spacing: -.6px; }
+.evaluation-metric-group[data-group="workflow"] .evaluation-metric-list { grid-template-columns: 1fr; }
+.evaluation-metric-group [data-state="unmeasured"] .evaluation-value,
+.evaluation-metric-group [data-state="missing"] .evaluation-value { color: #62738b; font-size: 19px; letter-spacing: -.5px; }
 .workspace-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; color: #8f9caf; font-size: 10px; padding: 24px 0; margin-top: 35px; border-top: 1px solid var(--line); }
 .workspace-footer > span > span { margin: 0 8px; color: #bdc8d8; }
 :disabled { cursor: not-allowed; }
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, .table-scroll:focus-visible, .graph-canvas:focus-visible { outline: 3px solid #89a5f8; outline-offset: 3px; }
+.workflow-canvas:focus-visible { outline: 3px solid #89a5f8; outline-offset: 3px; }
 [hidden] { display: none !important; }
 @media (min-width: 1600px) { main { padding: 0 45px; } .input-layout { grid-template-columns: minmax(0, 1fr) 310px; } }
 @media (max-width: 1200px) { .input-layout { grid-template-columns: 1fr; } .input-aside { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .evaluation-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } #diagnosis-overview .count-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .graph-explorer-layout { grid-template-columns: minmax(0, 1fr) 230px; } }
+@media (max-width: 1200px) { .evaluation-metric-list { grid-template-columns: 1fr; } .evaluation-context { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 960px) { body { grid-template-columns: 195px minmax(0, 1fr); } main { padding: 0 24px; } .sidebar { padding-inline: 11px; } .brand { font-size: 18px; padding-inline: 5px; gap: 8px; } .brand-mark { width: 34px; } .section-heading { align-items: flex-start; } .section-heading > .outline-tag { display: none; } .graph-explorer-layout { grid-template-columns: 1fr; } .graph-detail { max-height: 350px; } .graph-canvas { height: 460px; } .grid { grid-template-columns: 1fr; } }
+@media (max-width: 960px) { .workflow-layout, .workflow-dependency-list { grid-template-columns: 1fr; } }
 @media (max-width: 760px) {
   body { display: block; }
   .sidebar { position: relative; height: auto; padding: 19px 16px 14px; overflow: visible; }
@@ -291,6 +351,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .evaluation-cards { gap: 10px; }
   .evaluation-card { padding: 17px 12px; }
   .evaluation-value { font-size: 25px; }
+  .evaluation-context > div { padding: 12px; }
+  .evaluation-metric-row { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 15px; }
+  .evaluation-metric-row .evaluation-reading { text-align: left; }
+  .workflow-canvas { max-height: 430px; }
+  .workflow-dependency-ends { align-items: stretch; }
   .data-disclosure > summary { flex-wrap: wrap; }
   .disclosure-body { padding-inline: 12px; }
   .workspace-footer { margin-top: 25px; font-size: 9px; }

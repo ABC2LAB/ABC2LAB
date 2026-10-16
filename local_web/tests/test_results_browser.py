@@ -102,6 +102,7 @@ def test_artifact_results_browser(
             else:
                 expect(page.locator("#evaluation-state")).to_contain_text("partial" if case == "partial" else "completed")
                 expect(page.locator("#evaluation-view")).to_contain_text("fixture-v3")
+                page.locator('details[data-panel="evaluation-data"] > summary').click()
                 metric = page.get_by_role("table", name="Reporter 성능 지표").locator("tbody tr")
                 expect(metric.filter(has_text="page_recall")).to_contain_text("0.75 (75.00%)")
                 expect(metric.filter(has_text="endpoint_recall")).to_contain_text("미측정 / 계산 불가")
@@ -643,6 +644,7 @@ def test_presentation_cards_and_disclosures_browser(
     for metric, value in {"candidate_precision": "66.67%", "confirmed_precision": "100.00%",
                           "confirmed_recall": "33.33%", "candidate_recall": "미제공"}.items():
         expect(page.locator(f'.evaluation-card[data-metric="{metric}"] .evaluation-value')).to_have_text(value)
+    page.locator('details[data-panel="evaluation-data"] > summary').click()
     expect(page.get_by_role("table", name="Reporter 성능 지표")).to_contain_text("0.6666666666666666")
     assert page.evaluate("typeof window.artifactXss === 'undefined' && typeof window.evaluationXss === 'undefined'")
 
@@ -672,7 +674,243 @@ def test_evaluation_cards_distinguish_zero_null_and_absent_browser(
     if value == 0.0:
         expect(card.locator("meter")).to_have_attribute("value", "0")
     if value != "absent":
-        expect(card).to_contain_text("분자 0 / 분모 " + ("0" if value is None else "3"))
+        expect(card).to_contain_text("정답 일치 0 / 생성 후보 " + ("0" if value is None else "3"))
+
+
+def build_readable_evaluation_payload(tmp_path: Path) -> dict[str, object]:
+    """모든 지표의 표시 검증용. 합성 fixture만 사용하고 실제 GT·run은 읽지 않는다."""
+    payload = build_presentation_payload(tmp_path)
+    artifact = next(item for item in payload["artifacts"] if item["artifact_type"] == "evaluation_results")
+    view = artifact["view"]
+    view["matching_profile"] = "default-v2"
+    # 순서/값은 Reporter가 제공한 것으로 취급하며 화면에서 다시 계산하지 않는다.
+    view["metrics"] = [
+        {"metric_id": "user_recall", "value": 0.5, "numerator": 1, "denominator": 2},
+        {"metric_id": "role_recall", "value": 1.0, "numerator": 3, "denominator": 3},
+        {"metric_id": "page_recall", "value": 0.75, "numerator": 3, "denominator": 4},
+        {"metric_id": "action_recall", "value": None, "numerator": 0, "denominator": 0},
+        {"metric_id": "endpoint_recall", "value": None, "numerator": 0, "denominator": 0},
+        {"metric_id": "parameter_recall", "value": 0.5, "numerator": 1, "denominator": 2},
+        {"metric_id": "resource_recall", "value": 1.0, "numerator": 4, "denominator": 4},
+        {"metric_id": "relationship_recall", "value": 3 / 52, "numerator": 3, "denominator": 52},
+        {"metric_id": "workflow_recall", "value": 0.0, "numerator": 0, "denominator": 5},
+        {"metric_id": "workflow_step_recall", "value": 19 / 29, "numerator": 19, "denominator": 29},
+        {"metric_id": "workflow_ordered_step_recall", "value": 13 / 29, "numerator": 13, "denominator": 29},
+        {"metric_id": "candidate_precision", "value": 2 / 3, "numerator": 2, "denominator": 3},
+        {"metric_id": "candidate_recall", "value": 0.4, "numerator": 2, "denominator": 5},
+        {"metric_id": "confirmed_precision", "value": 0.0, "numerator": 0, "denominator": 2},
+        {"metric_id": "confirmed_recall", "value": 0.0, "numerator": 0, "denominator": 5},
+    ]
+    view["candidate_counts"] = {"tp": 2, "fp": 1, "fn": 3}
+    view["confirmed_counts"] = {"tp": 0, "fp": 2, "fn": 5}
+    return payload
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("width", [1440, 1280, 390])
+def test_evaluation_readable_groups_labels_and_original_counts_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], tmp_path: Path, width: int,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_readable_evaluation_payload(tmp_path)
+    page.set_viewport_size({"width": width, "height": 900})
+    page.locator('nav a[href="#evaluation"]').click()
+    expect(page.locator(".evaluation-context")).to_contain_text("fixture-v3")
+    expect(page.locator(".evaluation-context")).to_contain_text("default-v2")
+    for group, title in {"detection": "취약점 탐지", "structure": "웹 구조", "workflow": "Workflow"}.items():
+        expect(page.locator(f'.evaluation-metric-group[data-group="{group}"] > h4')).to_have_text(title)
+    for metric, label, value, counts in [
+        ("candidate_precision", "후보 정밀도", "66.67%", "정답 일치 2 / 생성 후보 3"),
+        ("candidate_recall", "후보 재현율", "40.00%", "일치 2 / 정답 5"),
+        ("confirmed_precision", "확정 정밀도", "0.00%", "정답 일치 0 / 확정 후보 2"),
+        ("page_recall", "페이지 재현율", "75.00%", "일치 3 / 정답 4"),
+        ("relationship_recall", "관계 재현율", "5.77%", "일치 3 / 정답 52"),
+        ("workflow_recall", "전체 흐름 재현율", "0.00%", "일치 흐름 0 / 정답 흐름 5"),
+        ("workflow_step_recall", "단계 구성 재현율", "65.52%", "일치 단계 19 / 정답 단계 29"),
+        ("workflow_ordered_step_recall", "단계 순서 재현율", "44.83%", "일치 단계 13 / 정답 단계 29"),
+    ]:
+        item = page.locator(f'#evaluation-view [data-metric="{metric}"]')
+        expect(item.locator("h5")).to_have_text(label)
+        expect(item.locator(".evaluation-metric-id")).to_have_text(metric)
+        expect(item.locator(".evaluation-value")).to_have_text(value)
+        expect(item.locator(".evaluation-metric-counts")).to_have_text(counts)
+    expect(page.locator('[data-group="structure"] .evaluation-metric-row')).to_have_count(8)
+    workflow = page.locator('.evaluation-metric-group[data-group="workflow"]')
+    expect(workflow).to_contain_text("LLM 생성 품질 점수가 아닙니다")
+    expect(workflow).to_contain_text("최장 공통 부분수열(LCS)")
+    expect(page.locator('details[data-panel="evaluation-data"]')).not_to_have_attribute("open", "")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    for box in page.locator(".evaluation-card, .evaluation-metric-row").all():
+        assert box.evaluate("node => node.scrollWidth <= node.clientWidth")
+    if screenshot_dir := os.environ.get("LOCAL_WEB_SCREENSHOT_DIR"):
+        destination = Path(screenshot_dir)
+        destination.mkdir(parents=True, exist_ok=True)
+        page.evaluate("window.scrollTo(0, 0)")
+        page.screenshot(path=str(destination / f"evaluation-readable-{width}.png"), full_page=True)
+        page.screenshot(path=str(destination / f"evaluation-readable-{width}-viewport.png"))
+        workflow.screenshot(path=str(destination / f"evaluation-workflow-{width}.png"))
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("profile, expected", [
+    ("default-v1", "이름과 전체 액션열이 정확히 일치"),
+    ("default-v2", "정답 액션열 전체가 한 관찰 흐름에 순서대로 포함"),
+    ("future-profile", "Reporter의 매칭 프로필에 따라"),
+])
+def test_evaluation_workflow_description_and_missing_partial_metrics_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], tmp_path: Path,
+    profile: str, expected: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_readable_evaluation_payload(tmp_path)
+    view = next(item["view"] for item in payloads["value"]["artifacts"] if item["artifact_type"] == "evaluation_results")
+    view["matching_profile"] = profile
+    view["metrics"] = [metric for metric in view["metrics"]
+                       if metric["metric_id"] not in {"workflow_step_recall", "workflow_ordered_step_recall"}]
+    page.locator('nav a[href="#evaluation"]').click()
+    expect(page.locator('#evaluation-view [data-metric="workflow_recall"]')).to_contain_text(expected)
+    for metric_id in ("workflow_step_recall", "workflow_ordered_step_recall"):
+        item = page.locator(f'#evaluation-view [data-metric="{metric_id}"]')
+        expect(item.locator(".evaluation-value")).to_have_text("미제공")
+        expect(item).to_contain_text("산출물에 해당 지표 없음")
+        expect(item.locator("meter, .evaluation-metric-counts")).to_have_count(0)
+    expect(page.locator(".evaluation-context")).to_contain_text(profile)
+    page.locator('details[data-panel="evaluation-data"] > summary').click()
+    raw = page.get_by_role("table", name="Reporter 성능 지표")
+    expect(raw).not_to_contain_text("workflow_step_recall")
+    expect(raw).not_to_contain_text("workflow_ordered_step_recall")
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("value, expected", [(0.0, "0.00%"), (None, "미측정")])
+def test_evaluation_workflow_zero_and_null_are_not_missing_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], tmp_path: Path, value: float | None, expected: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_readable_evaluation_payload(tmp_path)
+    view = next(item["view"] for item in payloads["value"]["artifacts"] if item["artifact_type"] == "evaluation_results")
+    metric = next(metric for metric in view["metrics"] if metric["metric_id"] == "workflow_ordered_step_recall")
+    metric.update(value=value, numerator=0, denominator=0 if value is None else 29)
+    page.locator('nav a[href="#evaluation"]').click()
+    item = page.locator('#evaluation-view [data-metric="workflow_ordered_step_recall"]')
+    expect(item.locator(".evaluation-value")).to_have_text(expected)
+    expect(item.locator(".evaluation-metric-counts")).to_have_text("일치 단계 0 / 정답 단계 " + ("0" if value is None else "29"))
+    expect(item.locator("meter")).to_have_count(0 if value is None else 1)
+    if value is None:
+        expect(item).to_contain_text("0점이 아님")
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_evaluation_unknown_metrics_keep_value_and_render_text_only_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], tmp_path: Path,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_readable_evaluation_payload(tmp_path)
+    view = next(item["view"] for item in payloads["value"]["artifacts"] if item["artifact_type"] == "evaluation_results")
+    # 비율은 의도적으로 1/3과 다르다. Web은 원본 value를 보존해야 한다.
+    unknown_ids = ["future_metric", "__proto__", "constructor", '<img src=x onerror="window.metricXss=1">']
+    view["metrics"].extend({"metric_id": metric_id, "value": 0.23, "numerator": 1, "denominator": 3}
+                           for metric_id in unknown_ids)
+    # 알려진 지표에도 같은 비재계산 원칙을 적용한다.
+    next(metric for metric in view["metrics"] if metric["metric_id"] == "candidate_precision")["value"] = 0.12
+    page.locator('nav a[href="#evaluation"]').click()
+    expect(page.locator('[data-metric="candidate_precision"] .evaluation-value')).to_have_text("12.00%")
+    expect(page.locator('[data-metric="candidate_precision"] .evaluation-metric-counts')).to_have_text("정답 일치 2 / 생성 후보 3")
+    other = page.locator('.evaluation-metric-group[data-group="other"]')
+    expect(other.locator(".evaluation-metric-row")).to_have_count(len(unknown_ids))
+    expect(other.locator(".evaluation-value")).to_have_text(["23.00%"] * len(unknown_ids))
+    expect(other.locator(".evaluation-metric-counts")).to_have_text(["분자 1 / 분모 3"] * len(unknown_ids))
+    assert other.locator("h5").all_text_contents() == unknown_ids
+    expect(page.locator("#evaluation-view img")).to_have_count(0)
+    assert page.evaluate("typeof window.metricXss === 'undefined' && typeof window.evaluationXss === 'undefined'")
+    page.locator('details[data-panel="evaluation-data"] > summary').click()
+    raw = page.get_by_role("table", name="Reporter 성능 지표")
+    expect(raw.locator("tbody tr").filter(has_text="future_metric")).to_contain_text("0.23 (23.00%)")
+    assert raw.locator("tbody tr td:first-child").all_text_contents() == [metric["metric_id"] for metric in view["metrics"]]
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_evaluation_raw_disclosure_keyboard_refresh_and_new_run_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], tmp_path: Path,
+) -> None:
+    from playwright.sync_api import Route, expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_readable_evaluation_payload(tmp_path)
+    page.locator('nav a[href="#evaluation"]').click()
+    raw = page.locator('details[data-panel="evaluation-data"]')
+    expect(raw).not_to_have_attribute("open", "")
+    raw.locator("summary").focus()
+    raw.locator("summary").press("Enter")
+    expect(raw).to_have_attribute("open", "")
+    expect(page.get_by_role("table", name="Reporter 성능 지표")).to_be_visible()
+    expect(page.get_by_role("table", name="평가 기준")).to_contain_text("c" * 64)
+    page.locator("#refresh-evaluation").click()
+    expect(raw).to_have_attribute("open", "")
+    def abort_results(route: Route) -> None:
+        route.abort()
+
+    page.route("**/api/run-results", abort_results)
+    page.locator("#refresh-evaluation").click()
+    expect(page.locator("#evaluation-state")).to_contain_text("결과 조회 실패")
+    expect(page.locator("#evaluation-view .evaluation-metric-group, #evaluation-view table, #evaluation-view details")).to_have_count(0)
+    page.unroute("**/api/run-results", abort_results)
+    page.locator("#refresh-evaluation").click()
+    expect(raw).to_have_attribute("open", "")
+    payloads["value"]["run_id"] = "web-new-evaluation-fixture"
+    page.evaluate("window.abc2labResults.setRun({run_id: 'web-new-evaluation-fixture'})")
+    page.evaluate("window.abc2labResults.refresh()")
+    expect(raw).not_to_have_attribute("open", "")
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("state", ["completed", "partial", "missing", "failed", "invalid"])
+def test_evaluation_readable_metrics_preserve_artifact_states_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], tmp_path: Path, state: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_readable_evaluation_payload(tmp_path)
+    artifact = next(item for item in payloads["value"]["artifacts"] if item["artifact_type"] == "evaluation_results")
+    artifact.update(state=state, error_count=1 if state in {"partial", "failed"} else 0)
+    if state in {"missing", "failed", "invalid"}:
+        artifact.update(view=None, issue="ARTIFACT_INVALID" if state == "invalid" else None)
+    page.locator('nav a[href="#evaluation"]').click()
+    if state in {"completed", "partial"}:
+        expect(page.locator(".evaluation-card")).to_have_count(4)
+        expect(page.locator('[data-metric="page_recall"] .evaluation-value')).to_have_text("75.00%")
+        expect(page.locator("#evaluation-state")).to_contain_text(state)
+        if state == "partial":
+            expect(page.locator("#evaluation-state")).to_contain_text("부분 결과")
+    else:
+        expect(page.locator("#evaluation-view .evaluation-value, #evaluation-view table")).to_have_count(0)
+        expect(page.locator("#evaluation-state")).to_contain_text({"missing": "미발행", "failed": "사용할 결과 없음", "invalid": "조회 불가"}[state])
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_evaluation_empty_metrics_are_unprovided_not_zero_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], tmp_path: Path,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_readable_evaluation_payload(tmp_path)
+    view = next(item["view"] for item in payloads["value"]["artifacts"] if item["artifact_type"] == "evaluation_results")
+    view["metrics"] = []
+    page.locator('nav a[href="#evaluation"]').click()
+    expect(page.locator("#evaluation-view .evaluation-value")).to_have_text(["미제공"] * 7)
+    expect(page.locator("#evaluation-view meter")).to_have_count(0)
+    expect(page.locator('[data-group="structure"]')).to_contain_text("0점을 의미하지 않습니다")
+    expect(page.locator('[data-group="other"]')).to_have_count(0)
 
 
 @pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
@@ -919,3 +1157,293 @@ def test_graph_without_access_nodes_is_not_a_missing_snapshot_browser(
     expect(page.locator("#kg-detail")).to_contain_text(original_id)
     expect(page.get_by_role("button", name="연결 펼치기", exact=True)).to_be_disabled()
     assert page.locator("#graph-view img").count() == 0
+
+
+def build_workflow_graph_payload() -> dict[str, object]:
+    """반복·역방향·자기 루프·페이지 밖 관계가 있는 독립 Workflow 화면 대역."""
+    payload = build_access_graph_payload()
+    graph = payload["artifacts"][0]["view"]
+    steps = [{"step_id": f"opaque-step-{index}", "order": 2 + index * 3,
+              "action": "read_record" if index in {1, 3} else f"action_{index}"} for index in range(14)]
+    dependencies = [
+        {"before_step_id": steps[0]["step_id"], "after_step_id": steps[2]["step_id"],
+         "condition": "observed_sequence", "basis": "inferred"},
+        {"before_step_id": steps[2]["step_id"], "after_step_id": steps[3]["step_id"],
+         "condition": "response_observed", "basis": "observed"},
+        {"before_step_id": steps[3]["step_id"], "after_step_id": steps[1]["step_id"],
+         "condition": "verified_replay", "basis": "verified"},
+        {"before_step_id": steps[1]["step_id"], "after_step_id": steps[1]["step_id"],
+         "condition": "self_transition", "basis": "inferred"},
+        {"before_step_id": steps[0]["step_id"], "after_step_id": steps[2]["step_id"],
+         "condition": "same_endpoints_distinct_evidence", "basis": "verified"},
+        {"before_step_id": steps[0]["step_id"], "after_step_id": steps[12]["step_id"],
+         "condition": "cross_page", "basis": "observed"},
+    ]
+    dependencies.extend({"before_step_id": steps[index]["step_id"], "after_step_id": steps[index + 1]["step_id"],
+                         "condition": "observed_sequence", "basis": "inferred"} for index in range(1, 13))
+    graph["workflows"] = [
+        {"workflow_id": "opaque-flow-a", "name": "관찰 흐름 A", "basis": "inferred", "steps": list(reversed(steps)),
+         "dependencies": dependencies, "dependency_count": len(dependencies)},
+        {"workflow_id": "opaque-flow-b", "name": "관찰 흐름 B", "basis": "observed", "steps": copy.deepcopy(steps[:2]),
+         "dependencies": [], "dependency_count": 0},
+        {"workflow_id": "opaque-flow-empty", "name": "빈 관찰 흐름", "basis": "inferred", "steps": [],
+         "dependencies": [], "dependency_count": 0},
+    ]
+    return payload
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("width", [1440, 1280, 390])
+def test_workflow_graph_selection_order_details_and_layout_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], width: int,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_workflow_graph_payload()
+    page.set_viewport_size({"width": width, "height": 900})
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="Workflow", exact=True).click()
+    expect(page.get_by_label("Workflow 선택", exact=True)).to_have_value("")
+    expect(page.locator(".workflow-svg")).to_have_count(0)
+    expect(page.locator(".graph-filters")).to_be_hidden()
+    expect(page.locator(".graph-toolbar")).to_be_hidden()
+    expect(page.locator("#kg-view-description")).to_contain_text("관찰 순서")
+    page.get_by_label("Workflow 선택", exact=True).select_option("opaque-flow-a")
+    expect(page.locator(".workflow-step")).to_have_count(10)
+    assert page.locator(".workflow-step").evaluate_all("nodes => nodes.map(node => node.dataset.stepId)") == [f"opaque-step-{index}" for index in range(10)]
+    expect(page.locator(".workflow-order")).to_have_text([f"순서 {2 + index * 3}" for index in range(10)])
+    expect(page.locator(".workflow-action").filter(has_text="read_record")).to_have_count(2)
+    expect(page.locator("#kg-workflow-counts")).to_contain_text("전체 단계 14개 · 1–10개 표시")
+    expect(page.locator(".workflow-summary")).to_contain_text("흐름 전체의 근거")
+    expect(page.locator(".workflow-summary .status-pill")).to_have_text("inferred")
+    step = page.locator('.workflow-step[data-step-id="opaque-step-3"]')
+    step.focus()
+    step.press("Enter")
+    expect(page.locator("#kg-workflow-step-detail")).to_contain_text("opaque-step-3")
+    expect(page.locator("#kg-workflow-step-detail")).to_contain_text("read_record")
+    expect(page.locator("#kg-workflow-step-detail")).to_contain_text("원본 order")
+    expect(page.locator('.workflow-step[data-step-id="opaque-step-3"]')).to_have_attribute("aria-pressed", "true")
+    expect(page.locator("#graph-view .graph-node")).to_have_count(0)
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    if screenshot_dir := os.environ.get("LOCAL_WEB_SCREENSHOT_DIR"):
+        destination = Path(screenshot_dir)
+        destination.mkdir(parents=True, exist_ok=True)
+        page.locator("#graph-panel").screenshot(path=str(destination / f"kg-workflow-{width}.png"))
+        page.locator(".workflow-layout").screenshot(path=str(destination / f"kg-workflow-layout-{width}.png"))
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_workflow_graph_draws_only_original_dependency_directions_and_basis_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]],
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_workflow_graph_payload()
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="Workflow", exact=True).click()
+    page.get_by_label("Workflow 선택", exact=True).select_option("opaque-flow-a")
+    workflow = payloads["value"]["artifacts"][0]["view"]["workflows"][0]
+    visible = {f"opaque-step-{index}" for index in range(10)}
+    expected = [index for index, row in enumerate(workflow["dependencies"])
+                if row["before_step_id"] in visible and row["after_step_id"] in visible]
+    assert page.locator(".workflow-dependency").evaluate_all("nodes => nodes.map(node => Number(node.dataset.dependencyIndex))") == expected
+    for index in expected:
+        dependency = workflow["dependencies"][index]
+        line = page.locator(f'.workflow-dependency[data-dependency-index="{index}"]')
+        expect(line).to_have_attribute("data-before-step-id", dependency["before_step_id"])
+        expect(line).to_have_attribute("data-after-step-id", dependency["after_step_id"])
+        expect(line).to_have_attribute("marker-end", "url(#workflow-arrow-" + dependency["basis"] + ")")
+        expect(line.locator("title")).to_contain_text(dependency["condition"])
+    assert page.locator('.workflow-dependency[data-dependency-index="0"]').get_attribute("d") != page.locator('.workflow-dependency[data-dependency-index="4"]').get_attribute("d")
+    expect(page.locator('.workflow-dependency[data-dependency-index="5"]')).to_have_count(0)
+    expect(page.locator("#kg-workflow-body")).to_contain_text("페이지 사이 지름길을 만들지 않습니다")
+    page.get_by_label("Workflow 선택", exact=True).select_option("opaque-flow-b")
+    expect(page.locator(".workflow-step")).to_have_count(2)
+    expect(page.locator(".workflow-dependency")).to_have_count(0)
+    expect(page.locator("#kg-workflow-body")).to_contain_text("의존관계 0개")
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_workflow_graph_pages_and_cross_page_step_navigation_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]],
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_workflow_graph_payload()
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="Workflow", exact=True).click()
+    page.get_by_label("Workflow 선택", exact=True).select_option("opaque-flow-a")
+    page.get_by_role("button", name="도착 단계 opaque-step-12 보기", exact=True).click()
+    expect(page.locator("#kg-workflow-counts")).to_contain_text("11–14개 표시")
+    expect(page.locator(".workflow-step")).to_have_count(4)
+    expect(page.locator("#kg-workflow-step-detail")).to_contain_text("opaque-step-12")
+    expect(page.locator('.workflow-step[data-step-id="opaque-step-12"]')).to_have_attribute("aria-pressed", "true")
+    expect(page.locator('.workflow-dependency[data-dependency-index="5"]')).to_have_count(0)
+    pages = page.get_by_role("group", name="Workflow 단계 페이지 이동", exact=True)
+    pages.get_by_role("button", name="처음", exact=True).click()
+    expect(page.locator(".workflow-step")).to_have_count(10)
+    expect(pages.locator('[role="status"]')).to_be_focused()
+    expect(page.locator("#kg-workflow-step-detail")).to_contain_text("선택 단계는 현재 도식 페이지 밖")
+    page.get_by_role("button", name="선택 단계로 이동", exact=True).click()
+    expect(page.locator("#kg-workflow-counts")).to_contain_text("11–14개 표시")
+    pages.get_by_role("button", name="처음", exact=True).click()
+    dependency_pages = page.get_by_role("group", name="Workflow 의존관계 페이지 이동", exact=True)
+    expect(page.locator(".workflow-dependency-card")).to_have_count(10)
+    dependency_pages.get_by_role("button", name="마지막", exact=True).click()
+    expect(page.locator(".workflow-dependency-card")).to_have_count(8)
+    expect(page.locator(".workflow-relation-index").last).to_have_text("관계 #18")
+    page.locator(".workflow-step").first.press(" ")
+    expect(page.locator("#kg-workflow-step-detail")).to_contain_text("opaque-step-0")
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_workflow_graph_refresh_and_view_switch_preserve_selection_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]],
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_workflow_graph_payload()
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="Workflow", exact=True).click()
+    page.get_by_label("Workflow 선택", exact=True).select_option("opaque-flow-a")
+    page.locator('.workflow-step[data-step-id="opaque-step-3"]').click()
+    page.locator(".workflow-canvas").evaluate("node => { node.scrollTop = 150; }")
+    page.locator(".workflow-canvas").evaluate("node => { node.dataset.refreshSentinel = 'preserved'; }")
+    page.locator("#refresh-results").click()
+    expect(page.get_by_label("Workflow 선택", exact=True)).to_have_value("opaque-flow-a")
+    expect(page.locator(".workflow-canvas")).to_have_attribute("data-refresh-sentinel", "preserved")
+    assert page.locator(".workflow-canvas").evaluate("node => node.scrollTop") == 150
+    expect(page.locator("#kg-workflow-step-detail")).to_contain_text("opaque-step-3")
+    page.get_by_role("button", name="전체 원본", exact=True).click()
+    expect(page.locator(".graph-node")).to_have_count(len(payloads["value"]["artifacts"][0]["view"]["nodes"]))
+    expect(page.locator(".workflow-svg")).to_have_count(0)
+    page.get_by_role("button", name="Workflow", exact=True).click()
+    expect(page.get_by_label("Workflow 선택", exact=True)).to_have_value("opaque-flow-a")
+    expect(page.locator("#kg-workflow-step-detail")).to_contain_text("opaque-step-3")
+    page.get_by_label("Workflow 선택", exact=True).select_option("opaque-flow-b")
+    expect(page.locator("#kg-workflow-step-detail")).not_to_contain_text("opaque-step-3")
+    expect(page.locator(".workflow-step[aria-pressed='true']")).to_have_count(0)
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("change", ["run", "graph", "revision"])
+def test_workflow_graph_new_snapshot_resets_selection_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], change: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_workflow_graph_payload()
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="Workflow", exact=True).click()
+    page.get_by_label("Workflow 선택", exact=True).select_option("opaque-flow-a")
+    if change == "run":
+        payloads["value"]["run_id"] = "web-workflow-next"
+        page.evaluate("window.abc2labResults.setRun({run_id: 'web-workflow-next'})")
+    else:
+        graph = payloads["value"]["artifacts"][0]["view"]
+        graph["graph_id" if change == "graph" else "graph_revision"] = "new-opaque-graph" if change == "graph" else 99
+    page.locator("#refresh-results").click()
+    expect(page.get_by_role("button", name="접근 관계", exact=True)).to_have_attribute("aria-pressed", "true")
+    page.get_by_role("button", name="Workflow", exact=True).click()
+    expect(page.get_by_label("Workflow 선택", exact=True)).to_have_value("")
+    expect(page.locator(".workflow-svg")).to_have_count(0)
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("case", ["no_workflows", "no_steps"])
+def test_workflow_graph_empty_data_does_not_invent_steps_or_relations_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], case: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_workflow_graph_payload()
+    if case == "no_workflows":
+        payloads["value"]["artifacts"][0]["view"]["workflows"] = []
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="Workflow", exact=True).click()
+    if case == "no_workflows":
+        expect(page.get_by_label("Workflow 선택", exact=True)).to_be_disabled()
+        expect(page.locator("#kg-workflow-body")).to_contain_text("공개 Workflow 0개")
+    else:
+        page.get_by_label("Workflow 선택", exact=True).select_option("opaque-flow-empty")
+        expect(page.locator("#kg-workflow-body")).to_contain_text("단계 0개")
+    expect(page.locator(".workflow-svg, .workflow-dependency-card")).to_have_count(0)
+    expect(page.locator("#graph-state")).to_contain_text("completed")
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+@pytest.mark.parametrize("state", ["missing", "failed", "invalid"])
+def test_workflow_graph_unavailable_clears_previous_flow_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]], state: str,
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_workflow_graph_payload()
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="Workflow", exact=True).click()
+    page.get_by_label("Workflow 선택", exact=True).select_option("opaque-flow-a")
+    payloads["value"]["artifacts"][0].update(state=state, view=None, error_count=1 if state == "failed" else None,
+                                            issue="ARTIFACT_INVALID" if state == "invalid" else None)
+    page.locator("#refresh-results").click()
+    expect(page.locator(".workflow-svg, #kg-workflow-step-detail, .workflow-dependency-card")).to_have_count(0)
+    expect(page.locator("#graph-state")).to_contain_text({"missing": "미발행", "failed": "사용할 결과 없음", "invalid": "조회 불가"}[state])
+    expect(page.locator("#graph-view")).not_to_contain_text("공개 Workflow 0개")
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_workflow_graph_partial_and_removed_selection_are_explicit_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]],
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_workflow_graph_payload()
+    graph_artifact = payloads["value"]["artifacts"][0]
+    graph_artifact.update(state="partial", error_count=1)
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="Workflow", exact=True).click()
+    page.get_by_label("Workflow 선택", exact=True).select_option("opaque-flow-a")
+    expect(page.locator("#graph-state")).to_contain_text("부분 결과")
+    expect(page.locator(".workflow-step")).to_have_count(10)
+    graph_artifact["view"]["workflows"] = graph_artifact["view"]["workflows"][1:]
+    page.locator("#refresh-results").click()
+    expect(page.locator("#kg-workflow-body")).to_contain_text("선택한 Workflow가 현재 snapshot에 없습니다")
+    expect(page.locator(".workflow-svg")).to_have_count(0)
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_WEB_BROWSER_TESTS") != "1", reason="Chromium 환경에서 명시적으로 실행")
+def test_workflow_graph_strings_are_text_not_html_or_code_browser(
+    graph_explorer_page: tuple[Page, dict[str, object]],
+) -> None:
+    from playwright.sync_api import expect
+
+    page, payloads = graph_explorer_page
+    payloads["value"] = build_workflow_graph_payload()
+    workflow = payloads["value"]["artifacts"][0]["view"]["workflows"][0]
+    unsafe_text = '<img src=x onerror="window.workflowXss=1">'
+    workflow["name"] = unsafe_text
+    workflow["workflow_id"] = "flow:" + unsafe_text
+    step = min(workflow["steps"], key=lambda item: item["order"])
+    old_id = step["step_id"]
+    step.update(action=unsafe_text * 3, step_id="step:" + unsafe_text)
+    for dependency in workflow["dependencies"]:
+        for key in ("before_step_id", "after_step_id"):
+            if dependency[key] == old_id:
+                dependency[key] = step["step_id"]
+        dependency["condition"] = unsafe_text
+    page.locator("#refresh-results").click()
+    page.get_by_role("button", name="Workflow", exact=True).click()
+    page.get_by_label("Workflow 선택", exact=True).select_option(workflow["workflow_id"])
+    page.locator(".workflow-step").first.click()
+    expect(page.locator("#kg-workflow-step-detail")).to_contain_text(unsafe_text * 3)
+    expect(page.locator(".workflow-summary")).to_contain_text(unsafe_text)
+    expect(page.locator(".workflow-condition").first).to_have_text(unsafe_text)
+    expect(page.locator("#graph-view img, #graph-view script, .workflow-svg image")).to_have_count(0)
+    assert page.evaluate("typeof window.workflowXss") == "undefined"

@@ -256,6 +256,21 @@ def graph_edges(value: object, nodes: list[dict[str, object]]) -> list[dict[str,
     return result
 
 
+def workflow_dependencies(value: object, step_ids: set[str]) -> list[dict[str, object]]:
+    result = []
+    for row in items(value):
+        row = object_fields(row, "before_step_id after_step_id condition basis evidence_refs")
+        before = identifier(row["before_step_id"])
+        after = identifier(row["after_step_id"])
+        if before not in step_ids or after not in step_ids:
+            raise ArtifactError("GRAPH_REFERENCE_INVALID")
+        evidence(row["evidence_refs"])
+        result.append({"before_step_id": before, "after_step_id": after,
+                       "condition": text_value(row["condition"]),
+                       "basis": text_value(row["basis"], BASIS_VALUES)})
+    return result
+
+
 def workflows(value: object) -> list[dict[str, object]]:
     result = []
     for row in records(value, "workflow_id"):
@@ -270,10 +285,11 @@ def workflows(value: object) -> list[dict[str, object]]:
             orders.add(order)
             steps.append({"step_id": identifier(step["step_id"]), "order": order,
                           "action": text_value(step["action"])})
+        dependencies = workflow_dependencies(row["dependencies"], {step["step_id"] for step in steps})
         result.append({"workflow_id": identifier(row["workflow_id"]), "name": text_value(row["name"]),
                        "basis": text_value(row["basis"], BASIS_VALUES),
                        "steps": sorted(steps, key=lambda step: step["order"]),
-                       "dependency_count": len(items(row["dependencies"]))})
+                       "dependency_count": len(dependencies), "dependencies": dependencies})
     return result
 
 
