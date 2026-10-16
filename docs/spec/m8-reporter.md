@@ -12,13 +12,14 @@
 
 **읽는 순서:** 독립 동작·수정 책임 → 입력 변화 기준 → 입력 → 구현할 일 → 출력 → 완료 기준 → 주의사항. 상세 JSON·중첩 레코드는 접힌 제목에서 확인한다.
 
-## 현재 구현·연결 상태 — 2026-10-15
+## 현재 구현·연결 상태 — 2026-10-16
 
-기준 커밋 `b7d990b` + 이번 작업 트리 기준이다.
-snapshot 관계 평가와 선택적 계정 매핑의 기존 구현을 유지하고, shop_demo 실제 평가
-프로필을 local_web 운영 설정에서 명시했다. Web은 검증 조건 통과와 Reporter 확정을
-분리하고 확정 외 사유를 표시한다. 평가 계산식·진단 분류 기준은 바꾸지 않는다.
-기존 산출물 Schema·GT 0.1.0·default-v1·문서 판 v0.2는 변경하지 않는다.
+기준 커밋 `695e36b`(SA PR #97 병합) + 이번 작업 트리 기준이다.
+선택적 `default-v2`의 이름 제외·순서 부분수열 비교에 단계 구성·순서 보존 부분 재현율을
+추가했다. GT마다 같은 관찰 workflow 하나에서 두 분자를 구한다. 기존 `default-v1`·
+CLI 기본값·비Workflow 지표/진단 분류·계정 매핑·관계 평가·Web 표시 경계는 유지한다.
+기존 Metric 배열을 사용하며 실행 Schema 0.3.0·GT 0.1.0·문서 판 v0.2는 변경하지 않는다.
+실제 GT·snapshot·완료 평가를 수정하지 않았고 새 SA·공통 어휘 GT의 새 진단/배포는 미실행이다.
 
 | 구분 | 현재 상태 |
 | --- | --- |
@@ -28,11 +29,13 @@ snapshot 관계 평가와 선택적 계정 매핑의 기존 구현을 유지하�
 | 입력 호환 | Collector discovered_endpoints·응답 식별자 수용, KG·Safety 출력과 입력 사본 일치; 기존 Resource·source_account_id 의미 유지 |
 | 평가 범위 | Endpoint 노드·Endpoint→USE→Parameter(추론 포함)·normalized_requests로 발견율 계산; 진단 집계 유지 |
 | 관계 평가 | 실제 snapshot의 Page.url을 비교용 path로 사용하고 USE의 Endpoint 문맥 반영; 실제 node_id·방향·관계 종류 확인, 탈락 건수는 notes에 기록 |
+| Workflow 평가 | default-v1 이름+전체 액션열 비교 유지; default-v2는 이름 제외·단일 관찰 흐름 안의 순서 부분수열 비교. 원본 order/반복 횟수 유지, 분리된 workflow 연결 금지 |
+| Workflow 부분 점수 | default-v2만 구성 workflow_step_recall·LCS workflow_ordered_step_recall 제공. GT별 같은 관찰 선택(LCS→구성 일치 수→원문 ID), 전체 GT 단계 합계로 집계 |
 | 평가 계정 매핑 | GT와 분리된 선택적 Reporter 설정으로 논리 actor→원본 account_id를 연결; Candidate·User·관계에 적용. shop_demo 1.0.0 실제 프로필을 운영 Docker에서 명시 |
 | Web 표시 경계 | 후보·Verifier 조건 통과/미재현/판단불가/차단·Reporter 확정을 구분. 확정 외 description은 그대로 표시하며 Web이 재판정하지 않음 |
 | Precision 집계 | 양성 GT 최대 일대일 매칭 후 FP=전체 prediction−TP; 음성·미매칭·중복 예측 포함 |
-| 독립 회귀 | Reporter `560 passed`; Chromium 포함 Reporter+Web `894 passed, 1 skipped`(마운트 전용 환경 미실행). 신규 회귀 19건. 이번에는 다른 담당 모듈 회귀는 재실행하지 않음 |
-| 실제 전체 연결 | 최근 지정 진단의 공개 산출물 10개가 0.3.0·completed이며 후보/시나리오/allow 15개. Verifier success 2·indeterminate 11·failure 2, Reporter suspected 2·확정 0. 이번 작업에서는 재진단하지 않음 |
+| 독립 회귀 | Reporter `696 passed`(기존 560건+Workflow 136건), SA+담당 3개 `1357 passed, 12 skipped`(실제 Neo4j opt-in), Web 평가/Runner `122 passed` |
+| 실제 전체 연결 | 앞선 실제 run 연결 이력 유지. 기존 두 run의 동일 입력 비교는 전체 v1/v2 0/5·구성/LCS 각각 0/29. 새 SA·공통 어휘 GT의 새 진단/배포는 별도 검증 |
 
 독립 회귀 수를 실제 대상 성능이나 확정 취약점 건수로 사용하지 않는다.
 `web-49ebec8c2f328963ecc3a7f46ebcf022`의 읽기 전용 재평가에서 관계 3/52→32/52,
@@ -205,8 +208,67 @@ PR #61의 적용 불가 JSON 체크·5xx 결과는 indeterminate로 보존하며
   중복 edge는 GT 관계 하나를 여러 번 세지 않는다. User는 아래 actor binding을 재사용한다.
 - notes에 일치·출발 노드만 미매칭·도착 노드만 미매칭·양쪽 미매칭·양끝 일치 후 관계
   미매칭의 다섯 건수를 남긴다. 합계는 GT 관계 분모이며 공개 출력 필드 추가는 없다.
-- Resource 의미 보정·동의어 치환, Workflow 이름/순서 규칙 변경, report 확정 기준 변경은
-  하지 않는다. 관계 미매칭은 취약/정상 재판정이 아니다.
+- 관계 평가에서는 Resource 의미 보정·동의어 치환이나 report 확정 기준 변경을
+  하지 않는다. Workflow의 선택적 비교 변경은 아래 별도 평가 프로필에서만 적용한다.
+  관계 미매칭은 취약/정상 재판정이 아니다.
+
+### Workflow 평가 프로필 — 이름·액션 순서
+
+- 기본 `default-v1`: 기존대로 정규화한 name과 전체 액션열의 정확 일치를 비교한다.
+- 선택 `default-v2`: name은 표시용으로만 두고, GT ordered_actions가 하나의 관찰
+  workflow 안에 순서 부분수열로 포함되는지 비교한다. 관찰 steps는 배열 위치가 아닌
+  order로 정렬하고, 앞뒤/중간의 다른 액션은 허용하되 GT의 순서와 반복 횟수는 보존한다.
+- 다른 workflow/계정의 단계를 합치지 않는다. 같은 GT를 여러 관찰이 포함해도 분자는
+  한 번 증가한다. 하나의 긴 관찰에 서로 다른 여러 GT 흐름이 포함되는 것은 허용한다.
+- 빈 GT 액션열은 기존처럼 거절한다. v2에서 정규화 액션열이 같은 GT는 이름이나 자유
+  서술 constraints가 달라도 중복으로 거절한다. 현재 지표는 그 차이를 평가할 수 없다.
+- 두 프로필 모두 기존 공백·대소문자 정규화만 적용한다. 액션 동의어·method/path 기반
+  토큰 재생성·누락 단계 추론을 Reporter에서 하지 않는다. 표준 액션 어휘 생성은 SA,
+  정답 ordered_actions의 재생성은 GT 담당자의 책임이다.
+- 자유 서술 constraints·역할별 업무 조건은 판정하지 않는다. 이 지표는 업무 액션
+  순서의 관찰 포함률이며, 업무 완주·정책 준수·실제 취약점 탐지를 증명하지 않는다.
+- v2는 전체 workflow_recall을 유지하고 아래 두 부분 지표를 기존 Metric 배열에 추가한다.
+  v1은 기존 지표/notes를 그대로 사용하고 두 부분 지표를 출력하지 않는다.
+
+| metric_id | 분자 | 분모 |
+| --- | --- | --- |
+| workflow_recall | GT 액션열 전체가 순서대로 포함된 GT workflow 수 | 전체 GT workflow 수 |
+| workflow_step_recall | GT별 선택 관찰의 순서 무관 단계 일치 수 합계 | 전체 GT 단계 수 합계 |
+| workflow_ordered_step_recall | 같은 선택 관찰의 최장 공통 부분수열(LCS) 길이 합계 | 전체 GT 단계 수 합계 |
+
+- 부분 점수는 GT마다 LCS 길이 최대 → 순서 무관 일치 수 최대 → 원문 workflow_id
+  오름차순으로 관찰 하나를 선택한다(A안). ID는 정규화하지 않으며 모든 후보가 0점이면
+  대응 없음이다. 두 분자는 같은 흐름에서 구하고 지표별로 다른 최댓값을 선택하지 않는다.
+- 순서 무관 일치 수는 액션별 반복 횟수 교집합이다. LCS도 관찰 한 단계를 중복 소비하지
+  않는다. 다른 workflow/계정을 합치지 않으며 같은 관찰의 여러 GT 사용은 허용한다.
+- 비율의 평균이 아닌 분자·분모 합계의 비율(micro)이다. GT ABCD와 관찰 DCBA/ABC이면
+  ABC 하나를 선택해 구성 3/4·순서 3/4·전체 0/1이다(합성 토큰 예시).
+- GT workflow가 없어 단계 분모가 0이면 null이다. GT가 있고 유효한 snapshot의
+  workflows/steps가 비었거나 일치가 없으면 0이다. 빈 GT ordered_actions 거절은 유지한다.
+- snapshot 부재/실패는 기존 failed·data=null로 남긴다. 유효한 부분 입력의 partial/오류를
+  보존하며, SA 실패라도 유효한 KG snapshot의 Workflow는 평가할 수 있다. 이때 SA에
+  의존하는 Endpoint·Parameter는 미측정으로 구분한다.
+- notes에 공식·선택·반복·재사용·0/null 규칙과 한계를 기록한다. 부분 지표는 관찰 단계
+  커버리지이며 업무 단위 분리·필수 선행/분기·의존관계 정확도·LLM 생성 품질은 평가하지 않는다.
+- 공개 호출 context.matching_profile 또는 CLI --matching-profile로 선택하고 출력의
+  data.matching_profile/notes에 적용 규칙을 기록한다. 실행/GT Schema 버전이나 문서
+  판 번호를 변경하지 않는다. 서로 다른 프로필을 동일 평가 조건으로 비교하지 않는다.
+- 현재 Web/Runner 기본값은 v1이다. Web에서 v2 사용 시 새 Reporter 배포와
+  LOCAL_WEB_MATCHING_PROFILE=default-v2 설정이 필요하며 이번 작업에서 변경하지 않았다.
+
+2026-10-16 동일 입력 비교에서 web-49ebec8c2f328963ecc3a7f46ebcf022와
+web-4069974f795330d58678ef506de57004는 각각 GT 5개/29단계·관찰 4개/35단계이며
+전체 v1/v2는 0/5, 두 부분 점수는 각각 0/29였다. GT 고유 토큰 26개와 관찰 고유 토큰
+14개 사이의 교집합은 0개이고 SA/KG snapshot의 workflow별 정규화 액션열은 같다.
+각 run의 공개 입력 복사본을 기존 adapter로 검증하고 메모리에서 평가했다. 출력 Schema와
+입력 기반 재계산 일치를 각각 4건, 독립 참조식으로 GT 흐름 10개 선택/점수를 확인했다.
+기존 input_refs 7개·GroundTruthRef 해시와 비교 전후 입력/저장 평가 파일 9개/run 해시를
+확인했고 새 산출물·요청·LLM 호출은 만들지 않았다. binding 0개로 조건을 고정했으며
+비Workflow 지표 12개·후보/확정/미검증 집계·모델·원본 실행 측정값·GT 참조·revision은
+프로필 간 동일하다. 이는 평가기 비교이며 실제 탐지나 최신 SA의 성능 향상을 뜻하지 않는다.
+토큰 부재와 실제 HTTP 미수집은 구분한다. SA PR #97은 과거 산출물에 소급 적용하지
+않았으며, 같은 규칙의 GT·새 SA/KG 산출물로 별도 재평가해야 한다. 기존 GT·snapshot·
+완료 평가 파일을 보정하거나 덮어쓰지 않는다.
 
 ### 실행별 계정 매핑 — evaluate 전용 설정
 
@@ -349,8 +411,8 @@ GT가 대상의 완전한 정답 집합이라는 benchmark 가정으로 평가�
 | --- | --- | --- | --- |
 | `data.ground_truth_ref` | `GroundTruthRef` | 필수 | 평가에 사용한 테스트 웹 정답 참조. |
 | `data.source_graph_revision` | `integer` | 필수 | 평가한 실제 적재 KG revision. |
-| `data.matching_profile` | `string` | 필수 | URL·API·파라미터·역할·자원 정답 매칭 규칙 버전. |
-| `data.metrics` | `array<Metric>` | 필수 | 구조·관계·역할·Flow·취약점 진단 지표와 원시 분자·분모. |
+| `data.matching_profile` | `string` | 필수 | 정규화·Workflow 비교 규칙 버전(default-v1 또는 default-v2). |
+| `data.metrics` | `array<Metric>` | 필수 | 구조·관계·역할·Flow·취약점 진단 지표와 원시 분자·분모. v2는 단계 구성/LCS 지표 2개 추가. |
 | `data.candidate_counts` | `CountTriple` | 필수 | 후보 생성 단계의 TP·FP·FN. |
 | `data.confirmed_counts` | `CountTriple` | 필수 | 검증 확정 단계의 TP·FP·FN. 미검증 양성은 확정 TP가 아니다. |
 | `data.unverified_counts` | `UnverifiedCounts` | 필수 | 차단·승인 대기·판단불가 별도 집계. |
@@ -402,7 +464,7 @@ GT가 대상의 완전한 정답 집합이라는 benchmark 가정으로 평가�
 
 | 필드 | 타입·허용값 | 필수 | 의미 |
 | --- | --- | --- | --- |
-| `metric_id` | `string` | 필수 | 평가 지표 이름. 예: page_recall, confirmed_precision. |
+| `metric_id` | `string` | 필수 | 평가 지표 이름. 예: page_recall, confirmed_precision; v2만 workflow_step_recall·workflow_ordered_step_recall 추가. enum/새 필드가 아님. |
 | `value` | `number / null` | 필수 | 0~1 비율. 분모가 0이거나 측정하지 못하면 null. |
 | `numerator` | `integer` | 필수 | 지표 분자 원시 개수. |
 | `denominator` | `integer` | 필수 | 지표 분모 원시 개수. 미검증 항목을 숨기기 위해 임의 축소하지 않는다. |
@@ -437,6 +499,8 @@ GT가 대상의 완전한 정답 집합이라는 benchmark 가정으로 평가�
 | 2026-10-14 | GT와 분리된 실행별 계정 매핑 설정, Candidate·User·관계 일치, 양성 우선 일대일 매칭과 FP=prediction−TP 보완 | `913a0df` + 작업 트리. 신규 회귀 47 passed, Reporter 533 passed, 합동 1098 passed·12 skipped. 설정 Schema 추가; 기존 산출물 Schema·GT 0.1.0·문서 판 v0.2·report 분류 유지. 실제 성능·pipeline·Docker 검증은 별도 |
 | 2026-10-15 | 실제 snapshot Page 경로·Parameter Endpoint 문맥·관계 탈락 notes 보완, local_web의 선택적 Reporter 설정 전달과 현재 0.3 연결 상태 반영 | `cb9dc8e` + 작업 트리. 관계 회귀 25건·Web 환경 전달 5건 추가. Reporter 558 passed, 합동 1123 passed·12 skipped, Reporter+Web 844 passed·18 skipped, Runner 대역 58 passed. 읽기 전용 비교에서 관계 3/52→32/52, 명시적 계정 매핑 시 User 0/1→1/1. 공개 산출물·GT 11개 해시 불변; GT/Schema/버전/report 분류 유지, 실제 배포·새 진단 미실행 |
 | 2026-10-15 | shop_demo 실제 계정 프로필의 명시적 운영 적용, Web 조건 통과/확정 구분과 확정 외 사유 표시를 기록 | `b7d990b` + 작업 트리. Reporter 560 passed, Chromium 포함 Reporter+Web 894 passed·1 skipped, 신규 회귀 19건. 기존 Compose·Runner·Reporter 로더 재사용, ABC2LAB Docker 재배포. 읽기 전용 재평가 User 0/1→1/1·후보 TP 1→2·확정 0 유지, 공개 산출물 10개 불변. GT·Schema·버전·계산식·확정 기준 불변; 새 진단 미실행 |
+| 2026-10-16 | 선택적 default-v2의 Workflow 이름 제외·순서 부분수열 비교, 액션열 기준 GT 중복 검사·notes와 회귀 40건 추가 | `7c0863e` + 작업 트리. Reporter 600 passed, 담당 3개 1165 passed·12 skipped, Web 평가/Runner 122 passed. 기존 default-v1/CLI 기본값·실행 0.3.0·GT 0.1.0·다른 지표·report 분류 유지. 기존 두 run 동일 입력 비교는 각각 0/5→0/5(어휘 불일치/미관찰 토큰 잔존). 원본 GT/snapshot·다른 모듈·Web/Runner·Docker 변경 없음 |
+| 2026-10-16 | default-v2에 구성/LCS 부분 재현율·A안 동일 흐름 선택·합계 집계·0/null/실패·notes 반영. 마지막 문서 단계에서 현재 상태/계산식/실제 비교/이력 갱신 | `695e36b` + 작업 트리. Reporter 696 passed(Workflow 136건), SA+담당 3개 1357 passed·12 skipped(실제 Neo4j opt-in), Web 평가/Runner 122 passed. 실제 두 run은 전체 0/5·부분 0/29, 토큰 교집합 0. 다른 12지표·입력/저장 평가 9파일/run 해시 불변. 기존 v1/CLI·비Workflow·report·Schema 0.3.0·GT 0.1.0·문서 v0.2 유지. 새 SA/공통 어휘 GT의 진단·Docker 배포 미실행 |
 
 기존 책임 경계·미검증 후보 보존·평가 분모 규칙과 정답 필드 표는 유지하며 상세
 과거 구현 이력은 모듈 README에 보존한다. 2026-10-10 합동 회귀

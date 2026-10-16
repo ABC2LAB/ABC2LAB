@@ -1,9 +1,10 @@
-"""Deterministic normalization rules for the reporter default profile."""
+"""Deterministic normalization and workflow matching for evaluation profiles."""
 
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Hashable
 from urllib.parse import urlsplit
@@ -11,6 +12,10 @@ from urllib.parse import urlsplit
 from modules.reporter.exceptions import ContractValidationError
 
 DEFAULT_MATCHING_PROFILE = "default-v1"
+WORKFLOW_SUBSEQUENCE_PROFILE = "default-v2"
+SUPPORTED_MATCHING_PROFILES = frozenset(
+    {DEFAULT_MATCHING_PROFILE, WORKFLOW_SUBSEQUENCE_PROFILE}
+)
 PATH_KEYS = frozenset(
     {"path", "url", "path_template", "endpoint_path_template"}
 )
@@ -31,6 +36,14 @@ class ObservedEntity:
     entity_id: str
     entity_type: str
     properties: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class WorkflowMatch:
+    observed_workflow_id: str | None
+    step_match_count: int
+    ordered_step_match_count: int
+    expected_step_count: int
 
 
 def has_parameter_match_fields(
@@ -99,7 +112,7 @@ class ActorMatcher:
 
 
 def require_supported_profile(profile: str | None) -> str:
-    if profile != DEFAULT_MATCHING_PROFILE:
+    if not isinstance(profile, str) or profile not in SUPPORTED_MATCHING_PROFILES:
         raise ContractValidationError(
             f"지원하지 않는 matching_profile: {profile}"
         )
@@ -366,10 +379,11 @@ def normalize_path(value: str) -> str:
     return path
 
 
-def workflow_signature(
+def workflow_actions(
     value: Mapping[str, Any],
+    *,
     is_ground_truth: bool,
-) -> tuple[object, ...]:
+) -> tuple[str, ...]:
     if is_ground_truth:
         actions = value["ordered_actions"]
     else:
@@ -382,13 +396,96 @@ def workflow_signature(
             for item in steps
         ]
 
+    return tuple(normalize_text(item) for item in actions)
+
+
+def workflow_signature(
+    value: Mapping[str, Any],
+    is_ground_truth: bool,
+) -> tuple[object, ...]:
+    """Keep the name and exact action sequence used by default-v1."""
     return (
         normalize_text(value["name"]),
-        tuple(
-            normalize_text(item)
-            for item in actions
-        ),
+        workflow_actions(value, is_ground_truth=is_ground_truth),
     )
+
+
+def matches_workflow(
+    expected: Mapping[str, Any],
+    observed: Mapping[str, Any],
+) -> bool:
+    """Match a nonempty GT sequence inside one observed workflow, in order."""
+    expected_actions = workflow_actions(expected, is_ground_truth=True)
+    if not expected_actions:
+        return False
+    expected_index = 0
+    for action in workflow_actions(observed, is_ground_truth=False):
+        if action == expected_actions[expected_index]:
+            expected_index += 1
+            if expected_index == len(expected_actions):
+                return True
+    return False
+
+
+def count_workflow_step_matches(
+    expected_actions: Sequence[str],
+    observed_actions: Sequence[str],
+) -> int:
+    """Count shared occurrences of already-normalized action tokens."""
+    return sum((Counter(expected_actions) & Counter(observed_actions)).values())
+
+
+def count_ordered_workflow_step_matches(
+    expected_actions: Sequence[str],
+    observed_actions: Sequence[str],
+) -> int:
+    """Count LCS tokens using O(min(m, n)) memory and O(m*n) time."""
+    short_actions, long_actions = (
+        (expected_actions, observed_actions)
+        if len(expected_actions) <= len(observed_actions)
+        else (observed_actions, expected_actions)
+    )
+    lengths = [0] * (len(short_actions) + 1)
+    for action in long_actions:
+        diagonal = 0
+        for index, short_action in enumerate(short_actions, start=1):
+            previous_value = lengths[index]
+            if action == short_action:
+                lengths[index] = diagonal + 1
+            else:
+                lengths[index] = max(lengths[index], lengths[index - 1])
+            diagonal = previous_value
+    return lengths[-1]
+
+
+def select_workflow_match(
+    expected: Mapping[str, Any],
+    observed_workflows: Sequence[Mapping[str, Any]],
+) -> WorkflowMatch:
+    """Select one flow by ordered coverage, step coverage, then opaque ID."""
+    expected_actions = workflow_actions(expected, is_ground_truth=True)
+    expected_step_count = len(expected_actions)
+    best_match = WorkflowMatch(None, 0, 0, expected_step_count)
+    best_key: tuple[int, int, str] | None = None
+    for observed in observed_workflows:
+        observed_actions = workflow_actions(observed, is_ground_truth=False)
+        step_match_count = count_workflow_step_matches(
+            expected_actions, observed_actions,
+        )
+        if step_match_count == 0:
+            continue
+        ordered_step_match_count = count_ordered_workflow_step_matches(
+            expected_actions, observed_actions,
+        )
+        workflow_id = observed["workflow_id"]
+        candidate_key = (-ordered_step_match_count, -step_match_count, workflow_id)
+        if best_key is None or candidate_key < best_key:
+            best_key = candidate_key
+            best_match = WorkflowMatch(
+                workflow_id, step_match_count,
+                ordered_step_match_count, expected_step_count,
+            )
+    return best_match
 
 
 def case_signature(
